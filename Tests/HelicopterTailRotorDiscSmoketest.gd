@@ -34,6 +34,19 @@ func _run() -> void:
 		engine.set("is_engine_working", true)
 		engine.set("visual_budget_enabled", true)
 		var stopped_transform := rotor.transform
+		var main_rotor := aircraft.get_node("RotorAssembly")
+		main_rotor.set("_power", 0.1)
+		engine.call("process_physic_frame", 0.02)
+		var slow_angle := stopped_transform.basis.get_rotation_quaternion().angle_to(rotor.transform.basis.get_rotation_quaternion())
+		rotor.transform = stopped_transform
+		main_rotor.set("_power", 0.5)
+		engine.call("process_physic_frame", 0.02)
+		var faster_angle := stopped_transform.basis.get_rotation_quaternion().angle_to(rotor.transform.basis.get_rotation_quaternion())
+		if slow_angle <= 0.0 or faster_angle < slow_angle * 4.0:
+			_fail(aircraft_number, "tail rotor does not accelerate with main rotor spool")
+			return
+		main_rotor.set("_power", 1.0)
+		rotor.transform = stopped_transform
 		engine.set("current_power", 0.2)
 		engine.call("process_physic_frame", 0.02)
 		var low_throttle_transform := rotor.transform
@@ -49,6 +62,13 @@ func _run() -> void:
 			return
 		engine.set("is_engine_working", false)
 		engine.set("current_power", 0.0)
+		rotor.transform = stopped_transform
+		main_rotor.set("_power", 0.9)
+		engine.call("process_physic_frame", 0.02)
+		if rotor.transform.is_equal_approx(stopped_transform) or not disc.visible:
+			_fail(aircraft_number, "tail rotor stops abruptly instead of coasting")
+			return
+		main_rotor.set("_power", 0.0)
 		rotor.transform = stopped_transform
 		engine.call("process_physic_frame", 0.2)
 		if not rotor.transform.is_equal_approx(stopped_transform) or disc.visible or not (blades[0] as MeshInstance3D).visible:

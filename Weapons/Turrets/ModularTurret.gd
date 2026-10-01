@@ -5,6 +5,8 @@ var mounted_barrel: Node3D
 var mounted_caliber_mm: int = 0
 var barrel_attachment: Node3D
 var muzzle: Marker3D
+var barrel_base: Node3D
+var _barrel_visual_offset := Vector3.ZERO
 
 func _ready() -> void:
 	_bind_rig()
@@ -13,6 +15,7 @@ func _ready() -> void:
 func _bind_rig() -> void:
 	base_mesh = find_child("turret body", true, false) as Node3D
 	barrel_attachment = find_child("barrel position", true, false) as Node3D
+	barrel_base = find_child("barrel base", true, false) as Node3D
 	if barrel_attachment != null:
 		# The authored locator's +Y points forward. Its nonuniform scale sizes the
 		# marker mesh, not the gun; keep the position/orientation but not that scale.
@@ -22,6 +25,12 @@ func _bind_rig() -> void:
 		barrel_mount.transform = Transform3D(
 			barrel_attachment.transform.basis.orthonormalized() * Basis(Vector3.RIGHT, -PI / 2),
 			barrel_attachment.position)
+		if barrel_base != null:
+			# The separate collar supplies the elevation hinge; retain the gun's
+			# authored insertion point relative to it as the whole assembly tilts.
+			barrel_mount.global_position = barrel_base.global_position
+			_barrel_visual_offset = barrel_mount.to_local(barrel_attachment.global_position)
+			barrel_base.reparent(barrel_mount, true)
 		barrel_attachment.hide()
 		barrel_forward_axis_local = Vector3.BACK
 		barrel_pitch_axis_local = Vector3.RIGHT
@@ -43,6 +52,7 @@ func configure_weapon_barrel(weapon: Node) -> bool:
 	_clear_barrel()
 	mounted_barrel = barrel_scene.instantiate() as Node3D
 	barrel_mount.add_child(mounted_barrel)
+	mounted_barrel.position = _barrel_visual_offset
 	mounted_caliber_mm = caliber
 	# Place the muzzle at the actual model tip, accounting for all imported
 	# child transforms. Never spawn rounds from the old locator or a guessed offset.

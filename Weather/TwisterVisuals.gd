@@ -7,7 +7,8 @@ var _ground_material: StandardMaterial3D
 var _fog_material: ShaderMaterial
 var _audio: AudioStreamPlayer3D
 var _ground_timer := 0.0
-var _tint := Color(0.65, 0.46, 0.3)
+const SAND_TINT := Color(0.80, 0.68, 0.46)
+var _tint := SAND_TINT
 
 func setup(twister: Node3D) -> void:
 	_twister = twister
@@ -88,7 +89,9 @@ func _process(delta: float) -> void:
 		return
 	var strength: float = _twister.strength if _twister.enabled else 0.0
 	visible = strength > 0.001
-	_tint = _tint.lerp(DustEffect._sanitize_dust_color(DustEffect._shared_dust_color), minf(delta, 1.0))
+	# Keep airborne dust sandy, with a little local soil variation.
+	var target_tint := SAND_TINT.lerp(DustEffect._sanitize_dust_color(DustEffect._shared_dust_color), 0.2)
+	_tint = _tint.lerp(target_tint, minf(delta, 1.0))
 	for material in _materials:
 		material.set_shader_parameter("elapsed", _twister.elapsed_s)
 		material.set_shader_parameter("height_m", _twister.height_m)

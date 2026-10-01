@@ -3,6 +3,12 @@ class_name FlightDeckManager
 
 const FrameProfiler: Script = preload("res://Debug/FrameProfiler.gd")
 
+# These belong to the old live instance, never to a repaired/restored airframe.
+const EJECTION_INSTANCE_METADATA: Array[StringName] = [
+	&"camera_abandoned", &"camera_replaced_by_ejected_pilot", &"ejected_pilot_body",
+	&"ejection_source_retired", &"player_ejection_camera_takeover",
+]
+
 signal deck_state_changed(new_state)
 ## Emitted only after the returned aircraft has been added to hangar stock.
 signal aircraft_stored(aircraft: RigidBody3D)
@@ -423,6 +429,7 @@ var _retrieval_ai_land_after_launch: bool = true
 var _pending_ai_loadout_profile: String = ""
 var _pending_ai_aircraft_kind: String = "fixed_wing"
 var _pending_ai_aircraft_model: String = ""
+var _pending_ai_airframe_ids: Array[String] = []
 var _pending_launch_hangar_index: int = 0   # hangar slot chosen for the current launch (skips utility helis for AI scrambles)
 # Dedicated rolling-recovery tests may reserve replacement launches while the
 # deck is still storing an arrested aircraft.  Existing final clearances retain
@@ -1266,7 +1273,7 @@ func _make_stored_aircraft_entry_unassigned(aircraft_name: String, scene: Packed
 		"position": Vector3.ZERO,
 		"rotation": Vector3.ZERO,
 		"scale": Vector3.ONE,
-		"metadata": {}
+		"metadata": {"airframe_id": ResourceUID.id_to_text(ResourceUID.create_id()).trim_prefix("uid://")}
 	}
 
 func _make_stored_aircraft_entry(aircraft_name: String, scene: PackedScene, scene_file: String = "") -> Dictionary:
@@ -1669,7 +1676,8 @@ func queue_ai_flight(
 	count: int,
 	ops: Node,
 	loadout_profile: String = "",
-	aircraft_model: String = ""
+	aircraft_model: String = "",
+	airframe_ids: Array[String] = []
 ) -> int:
 	"""Request FlightOps to launch `count` AI aircraft one after another.
 	Each successful launch calls ops.notify_aircraft_launched(pilot)."""
@@ -1680,14 +1688,38 @@ func queue_ai_flight(
 		_pending_ai_loadout_profile = ""
 		_pending_ai_aircraft_kind = "fixed_wing"
 		_pending_ai_aircraft_model = ""
+		_pending_ai_airframe_ids.clear()
 		return 0
 	if not _can_accept_ai_ops_launch_request():
 		return 0
-	var available := mini(count, _count_stored_aircraft_for_kind("fixed_wing", aircraft_model))
+	# Automatic flights also use one type; never fill a formation with whichever
+	# unrelated models happen to be next in storage.
+	if aircraft_model.is_empty() and airframe_ids.is_empty():
+		for data: Dictionary in stored_aircraft:
+			if _stored_ready_for_launch(data) and not _stored_aircraft_is_helicopter(data) and str(data.get("metadata", {}).get("assembly_flight", "")).is_empty():
+				aircraft_model = str(data.get("scene_file", ""))
+				break
+	var available := 0
+	if not airframe_ids.is_empty():
+		# Validate the entire chosen flight before claiming deck resources.
+		var seen: Dictionary = {}
+		for id in airframe_ids:
+			if seen.has(id): return 0
+			seen[id] = true
+			var found := false
+			for data: Dictionary in stored_aircraft:
+				if str(data.get("metadata", {}).get("airframe_id", "")) == id:
+					found = _stored_ready_for_launch(data) and _stored_aircraft_matches_model(data, aircraft_model) and not _stored_aircraft_is_helicopter(data)
+					break
+			if not found: return 0
+		available = airframe_ids.size()
+	else:
+		available = mini(count, _count_stored_aircraft_for_kind("fixed_wing", aircraft_model))
 	if available <= 0:
 		push_warning("[FlightDeckManager] queue_ai_flight: hangar empty")
 		return 0
 	_ai_launch_queue = available
+	_pending_ai_airframe_ids = airframe_ids.duplicate()
 	_pending_flight_ops = ops
 	_retrieval_ai_land_after_launch = false
 	_pending_ai_loadout_profile = loadout_profile
@@ -1705,6 +1737,7 @@ func queue_ai_helicopters(count: int, ops: Node, aircraft_model: String = "") ->
 		return 0
 	if not _can_accept_ai_ops_launch_request():
 		return 0
+	_pending_ai_airframe_ids.clear()
 	var available := mini(count, _count_stored_aircraft_for_kind("helicopter", aircraft_model))
 	if available <= 0:
 		push_warning("[FlightDeckManager] queue_ai_helicopters: no helicopters in hangar")
@@ -1743,6 +1776,7 @@ func _launch_next_queued_ai() -> void:
 		_pending_ai_loadout_profile = ""
 		_pending_ai_aircraft_kind = "fixed_wing"
 		_pending_ai_aircraft_model = ""
+		_pending_ai_airframe_ids.clear()
 		return
 	if _ai_launch_queue <= 0 or stored_aircraft.is_empty():
 		if _parallel_launch_jobs.is_empty():
@@ -1772,6 +1806,7 @@ func _finish_pending_ai_launch_request() -> void:
 	_pending_ai_loadout_profile = ""
 	_pending_ai_aircraft_kind = "fixed_wing"
 	_pending_ai_aircraft_model = ""
+	_pending_ai_airframe_ids.clear()
 
 
 func _parallel_launch_supported() -> bool:
@@ -1901,6 +1936,7 @@ func _on_catapult_sequence_complete(source_catapult: Node = null):
 		_pending_ai_loadout_profile = ""
 		_pending_ai_aircraft_kind = "fixed_wing"
 		_pending_ai_aircraft_model = ""
+		_pending_ai_airframe_ids.clear()
 
 func _on_catapult_sequence_aborted(source_catapult: Node = null):
 	if _complete_parallel_catapult_job(source_catapult, true):
@@ -1918,6 +1954,7 @@ func _on_catapult_sequence_aborted(source_catapult: Node = null):
 	_pending_ai_loadout_profile = ""
 	_pending_ai_aircraft_kind = "fixed_wing"
 	_pending_ai_aircraft_model = ""
+	_pending_ai_airframe_ids.clear()
 	current_state = DeckState.IDLE
 	deck_aircraft = null
 
@@ -3178,6 +3215,40 @@ func can_accept_landing(requester: RigidBody3D = null) -> bool:
 			or not _landing_clearance_queue.is_empty()
 	return not busy
 
+func get_deck_signal_status() -> Dictionary:
+	# Geographic fixed-wing suitability, not traffic clearance or hangar capacity.
+	# Reading the signs never requests clearance or steers the carrier.
+	var terrain := get_tree().get_first_node_in_group("terrain_provider")
+	var terrain_known := is_instance_valid(terrain) and terrain.has_method("get_height")
+	var land_reason := "UNCHECKED"
+	var launch_reason := "UNCHECKED"
+	if terrain_known and landing_terrain_check_enabled:
+		if not _landing_path_clear_of_terrain():
+			land_reason = "TERRAIN BEHIND"
+		elif not _is_carrier_settled_for_recovery():
+			land_reason = "CARRIER TURNING"
+		else:
+			land_reason = "APPROACH CLEAR"
+	if terrain_known and launch_terrain_check_enabled:
+		if not _launch_path_clear_of_terrain():
+			launch_reason = "TERRAIN AHEAD"
+		elif _is_carrier_turning_for_launch():
+			launch_reason = "CARRIER TURNING"
+		else:
+			launch_reason = "DEPARTURE CLEAR"
+	var launching := current_state == DeckState.LAUNCH_IN_PROGRESS
+	for controller in _catapults:
+		if is_instance_valid(controller):
+			launching = launching or bool(controller.get("_launching")) \
+					or (is_instance_valid(controller.get("_aircraft")) and not bool(controller.get("_returning_to_connect")))
+	return {
+		"land_available": land_reason == "APPROACH CLEAR", "land_reason": land_reason,
+		"launch_available": launch_reason == "DEPARTURE CLEAR", "launch_reason": launch_reason,
+		"landing_active": not _is_landing_clearance_aircraft_stale(_landing_clearance_aircraft) \
+				or current_state == DeckState.RECOVERY_IN_PROGRESS,
+		"launch_active": launching,
+	}
+
 func is_carrier_recovery_constraint_active() -> bool:
 	_prune_landing_clearance_queue()
 	_prune_landing_clearance_aircraft()
@@ -4010,6 +4081,7 @@ func _spawn_aircraft_at_hangar_level(expected_generation: int = -1):
 			_pending_ai_loadout_profile = ""
 			_pending_ai_aircraft_kind = "fixed_wing"
 			_pending_ai_aircraft_model = ""
+			_pending_ai_airframe_ids.clear()
 		return
 
 	# Remove the aircraft we actually launched (may not be index 0 if we skipped utility helicopters).
@@ -4120,6 +4192,7 @@ func capture_save_state() -> Dictionary:
 	for stored_variant in stored_aircraft:
 		if not (stored_variant is Dictionary):
 			continue
+		preload("res://AirOps/FlightAssembly.gd").ensure_id(stored_variant)
 		var entry := (stored_variant as Dictionary).duplicate(true)
 		entry.erase("scene")
 		entries.append(entry)
@@ -4560,7 +4633,9 @@ func _get_aircraft_model_footprint_points(aircraft: RigidBody3D) -> Array[Vector
 			return points
 	var model_root: Node3D = null
 	for child in aircraft.get_children():
-		if child is Node3D and str(child.scene_file_path).to_lower().ends_with(".glb"):
+		# Aircraft 15 uses a directly imported Blender model. Imported model
+		# geometry remains valid for the lift checks regardless of source format.
+		if child is Node3D and str(child.scene_file_path).get_extension().to_lower() in ["glb", "gltf", "blend"]:
 			model_root = child as Node3D
 			break
 	if model_root == null:
@@ -5234,7 +5309,7 @@ func _capture_aircraft_loadout_state(aircraft: RigidBody3D) -> Dictionary:
 		"selected_weapon_type": selected_weapon_type,
 	}
 
-func _restore_aircraft_loadout_state(aircraft: RigidBody3D, loadout_state: Dictionary) -> void:
+func _restore_aircraft_loadout_state(aircraft: RigidBody3D, loadout_state: Dictionary, restore_ammunition: bool = true) -> void:
 	var hardpoints: Array = loadout_state.get("hardpoints", [])
 	for entry_variant in hardpoints:
 		if typeof(entry_variant) != TYPE_DICTIONARY:
@@ -5256,7 +5331,7 @@ func _restore_aircraft_loadout_state(aircraft: RigidBody3D, loadout_state: Dicti
 			var restored_requested_weapon := hardpoint.mount_weapon_from_scene(weapon_scene)
 			if not restored_requested_weapon and hardpoint.gun_only:
 				_ensure_reserved_hardpoint_gun(hardpoint)
-			if restored_requested_weapon and is_instance_valid(hardpoint.weapon_instance) and "ammo_count" in hardpoint.weapon_instance:
+			if restore_ammunition and restored_requested_weapon and is_instance_valid(hardpoint.weapon_instance) and "ammo_count" in hardpoint.weapon_instance:
 				hardpoint.weapon_instance.set("ammo_count", int(entry.get("ammo_count", hardpoint.weapon_instance.get("ammo_count"))))
 	var control_weapons := aircraft.find_child("ControlWeapons", true, false)
 	if control_weapons:
@@ -5413,8 +5488,11 @@ func _restore_aircraft_runtime_state_deferred(aircraft: RigidBody3D, aircraft_da
 	_restore_aircraft_energy_state(aircraft, aircraft_data.get("energy_state", []))
 	FrameProfiler.end("FlightDeckManager.hangar_restore_energy", _energy_profiler_start)
 	var _loadout_profiler_start: int = FrameProfiler.begin("FlightDeckManager.hangar_restore_loadout")
-	_restore_aircraft_loadout_state(aircraft, aircraft_data.get("loadout_state", {}))
-	_apply_ai_loadout_profile(aircraft, str(aircraft_data.get("requested_ai_loadout_profile", "")))
+	var sortie_profile := str(aircraft_data.get("requested_ai_loadout_profile", ""))
+	# A hangar sortie mounts freshly supplied weapons. Airborne checkpoints omit
+	# the requested profile and must retain their exact remaining ammunition.
+	_restore_aircraft_loadout_state(aircraft, aircraft_data.get("loadout_state", {}), sortie_profile.is_empty())
+	_apply_ai_loadout_profile(aircraft, sortie_profile)
 	FrameProfiler.end("FlightDeckManager.hangar_restore_loadout", _loadout_profiler_start)
 	var _module_profiler_start: int = FrameProfiler.begin("FlightDeckManager.hangar_restore_modules")
 	_restore_deployed_aircraft_module_state(aircraft, aircraft_data)
@@ -5424,6 +5502,8 @@ func _restore_aircraft_runtime_state_deferred(aircraft: RigidBody3D, aircraft_da
 func _extract_aircraft_data(aircraft: RigidBody3D) -> Dictionary:
 	"""Extract aircraft data for storage"""
 	var scene_file := aircraft.scene_file_path if aircraft.scene_file_path else ""
+	if not aircraft.has_meta("airframe_id"):
+		aircraft.set_meta("airframe_id", ResourceUID.id_to_text(ResourceUID.create_id()).trim_prefix("uid://"))
 	var data = {
 		"name": str(aircraft.name),
 		"scene_file": scene_file,
@@ -5432,6 +5512,8 @@ func _extract_aircraft_data(aircraft: RigidBody3D) -> Dictionary:
 		"rotation": aircraft.global_rotation,
 		"scale": aircraft.scale,
 		"current_health": aircraft.get("current_health"),
+		"max_health": aircraft.get("max_health") if aircraft.get("max_health") != null else 100.0,
+		"requested_ai_loadout_profile": str(aircraft.get_meta("assembly_loadout", "")),
 		"energy_state": _capture_aircraft_energy_state(aircraft),
 		"loadout_state": _capture_aircraft_loadout_state(aircraft),
 		# Store any custom properties you want to preserve
@@ -5440,6 +5522,8 @@ func _extract_aircraft_data(aircraft: RigidBody3D) -> Dictionary:
 
 	# Copy any metadata
 	for key in aircraft.get_meta_list():
+		if key in EJECTION_INSTANCE_METADATA:
+			continue
 		if str(key).begins_with(HELI_TEST_STAT_META_PREFIX):
 			continue
 		data.metadata[key] = aircraft.get_meta(key)
@@ -5447,11 +5531,21 @@ func _extract_aircraft_data(aircraft: RigidBody3D) -> Dictionary:
 	return data
 
 
+func _restore_aircraft_metadata(aircraft: RigidBody3D, metadata: Dictionary) -> void:
+	# Also migrate hangar entries/checkpoints written before these flags were
+	# excluded. A new instance has a fresh seat and ejection sequence.
+	for key in metadata:
+		if StringName(str(key)) not in EJECTION_INSTANCE_METADATA:
+			aircraft.set_meta(str(key), metadata[key])
+
+
 func capture_deployed_aircraft_save_state(aircraft: Node3D) -> Dictionary:
 	if not (aircraft is RigidBody3D) or not is_instance_valid(aircraft):
 		return {}
 	var body := aircraft as RigidBody3D
 	var data := _extract_aircraft_data(body)
+	# Airborne checkpoints restore ammunition, not next-sortie rearming.
+	data.erase("requested_ai_loadout_profile")
 	data.erase("scene")
 	if str(data.get("scene_file", "")).is_empty():
 		return {}
@@ -5510,8 +5604,7 @@ func restore_deployed_aircraft_save_state(aircraft_data: Dictionary) -> RigidBod
 
 	var metadata_variant: Variant = aircraft_data.get("metadata", {})
 	if metadata_variant is Dictionary:
-		for key_variant in (metadata_variant as Dictionary).keys():
-			aircraft.set_meta(str(key_variant), (metadata_variant as Dictionary)[key_variant])
+		_restore_aircraft_metadata(aircraft, metadata_variant as Dictionary)
 	_configure_retrieved_aircraft_as_ai(aircraft, false)
 	_resolve_carrier_manager()
 	if not is_instance_valid(carrier_manager) \
@@ -5653,6 +5746,17 @@ func _copy_campaign_save_safe_value(value: Variant) -> Variant:
 		return copied_dictionary
 	return null
 
+func _stored_ready_for_launch(data: Dictionary) -> bool:
+	var maximum := float(data.get("max_health", 0.0))
+	if data.get("current_health") != null:
+		var health := float(data.current_health)
+		if health <= 0.0 or (maximum > 0.0 and health < maximum - 0.01): return false
+	var metadata: Dictionary = data.get("metadata", {})
+	if not str(metadata.get("assembly_flight", "")).is_empty():
+		var pilot := str(metadata.get("assembly_pilot_id", ""))
+		if pilot.is_empty() or not PilotRoster.can_reserve_for_airframe(pilot, str(metadata.get("airframe_id", ""))): return false
+	return true
+
 func _select_hangar_launch_index() -> int:
 	## Which stored aircraft to launch next. For an AI COMBAT flight launch (a flight-ops scramble), skip
 	## utility helicopters (Aircraft_11) -- they're prepended in the hangar for rescue readiness and must
@@ -5664,9 +5768,17 @@ func _select_hangar_launch_index() -> int:
 	# Select by capability so utility helicopters cannot be scrambled as fighters,
 	# while helicopter missions can explicitly retrieve one from the same hangar.
 	var ai_ops_launch: bool = _pending_flight_ops != null and not _retrieval_ai_land_after_launch
+	if ai_ops_launch and not _pending_ai_airframe_ids.is_empty():
+		for id in _pending_ai_airframe_ids:
+			for i in range(stored_aircraft.size()):
+				if str(stored_aircraft[i].get("metadata", {}).get("airframe_id", "")) == id:
+					return i if _stored_ready_for_launch(stored_aircraft[i]) else -1
+		return -1
 	if ai_ops_launch:
 		for i in range(stored_aircraft.size()):
 			var stored_data := stored_aircraft[i] as Dictionary
+			if not _stored_ready_for_launch(stored_data) or not str(stored_data.get("metadata", {}).get("assembly_flight", "")).is_empty():
+				continue
 			var is_helicopter := _stored_aircraft_is_helicopter(stored_data)
 			if (_pending_ai_aircraft_kind == "helicopter" and is_helicopter) \
 					or (_pending_ai_aircraft_kind != "helicopter" and not is_helicopter):
@@ -5683,6 +5795,8 @@ func _count_stored_aircraft_for_kind(kind: String, aircraft_model: String = "") 
 	var count := 0
 	for stored_variant in stored_aircraft:
 		if not (stored_variant is Dictionary):
+			continue
+		if not _stored_ready_for_launch(stored_variant) or not str(stored_variant.get("metadata", {}).get("assembly_flight", "")).is_empty():
 			continue
 		var is_helicopter := _stored_aircraft_is_helicopter(stored_variant as Dictionary)
 		if not aircraft_model.is_empty() \
@@ -5710,6 +5824,8 @@ func _stored_aircraft_is_helicopter(stored_data: Dictionary) -> bool:
 	var role := ""
 	if metadata_variant is Dictionary:
 		role = str((metadata_variant as Dictionary).get("aircraft_role", "")).to_lower()
+	for helicopter_index in [9, 10, 11, 12, 13, 15]:
+		if scene_file.ends_with("aircraft_%d.tscn" % helicopter_index): return true
 	return stored_name.begins_with("aircraft_9") \
 			or stored_name.begins_with("aircraft_10") \
 			or stored_name.begins_with("aircraft_11") \
@@ -5741,6 +5857,7 @@ func _create_aircraft_at_hangar_level(
 		FrameProfiler.end("FlightDeckManager.hangar_create_total", _create_profiler_start)
 		return null
 	var aircraft_data: Dictionary = aircraft_data_override if uses_reserved_data else stored_aircraft[idx]
+	preload("res://AirOps/FlightAssembly.gd").ensure_id(aircraft_data)
 	if not _ensure_pilot_assigned_for_data(aircraft_data):
 		push_warning("[FlightDeckManager] Retrieval blocked: no available pilot for aircraft.")
 		FrameProfiler.end("FlightDeckManager.hangar_select_and_assign", _select_profiler_start)
@@ -5778,7 +5895,7 @@ func _create_aircraft_at_hangar_level(
 	if not aircraft:
 		FrameProfiler.end("FlightDeckManager.hangar_create_total", _create_profiler_start)
 		return null
-	# Presentation staging may temporarily detach the GLB. Keep its local
+	# Presentation staging may temporarily detach the model. Keep its local
 	# footprint available so elevator placement can happen before ascent.
 	var model_footprint := _get_aircraft_model_footprint_points(aircraft)
 	if not model_footprint.is_empty():
@@ -5858,8 +5975,7 @@ func _create_aircraft_at_hangar_level(
 
 	# Restore metadata
 	var _bind_profiler_start: int = FrameProfiler.begin("FlightDeckManager.hangar_metadata_and_pilot")
-	for key in aircraft_data.metadata:
-		aircraft.set_meta(key, aircraft_data.metadata[key])
+	_restore_aircraft_metadata(aircraft, aircraft_data.metadata)
 	if _is_helicopter_aircraft(aircraft):
 		_straighten_retrieved_helicopter_on_deck(aircraft)
 	_restore_aircraft_runtime_state_deferred.call_deferred(aircraft, aircraft_data)
@@ -6521,6 +6637,7 @@ func _complete_helicopter_retrieval_sequence(aircraft: RigidBody3D) -> void:
 			_pending_ai_loadout_profile = ""
 			_pending_ai_aircraft_kind = "fixed_wing"
 			_pending_ai_aircraft_model = ""
+			_pending_ai_airframe_ids.clear()
 	if _heli_test_active:
 		_log_heli_test("helicopter retrieval complete aircraft=%s freeze=%s brake=%s ready=%s transport=%s pos=%s" % [
 			_aircraft_debug_name(aircraft),

@@ -335,6 +335,7 @@ var _assigned_aircraft_by_pilot_id: Dictionary = {}
 var _flight_time_xp_remainder_by_pilot_id: Dictionary = {}
 var _damage_credit_by_target_id: Dictionary = {}
 var _pilot_selection_bag: Array[String] = []
+var _reserved_airframe_by_pilot_id: Dictionary = {}
 var _roster_rng := RandomNumberGenerator.new()
 var _roster_rng_seeded := false
 
@@ -344,6 +345,7 @@ func _ready() -> void:
 
 
 func start_new_campaign(seed: int = 0) -> void:
+	_reserved_airframe_by_pilot_id.clear()
 	## Generate identity once for a new campaign. Save/load restores these exact
 	## records, so names and personal callsigns do not reroll mid-campaign.
 	if seed == 0:
@@ -399,6 +401,7 @@ func capture_save_state() -> Dictionary:
 			pilots.append((pilot_variant as Dictionary).duplicate(true))
 	return {
 		"pilots": pilots,
+		"reserved_airframe_by_pilot_id": _reserved_airframe_by_pilot_id.duplicate(true),
 		"assigned_pilot_id_by_callsign": _assigned_pilot_id_by_callsign.duplicate(true),
 		"assigned_callsign_by_pilot_id": _assigned_callsign_by_pilot_id.duplicate(true),
 		"flight_callsign_by_pilot_id": _flight_callsign_by_pilot_id.duplicate(true),
@@ -425,6 +428,7 @@ func restore_save_state(state: Dictionary) -> bool:
 			_pilots_by_id[pilot_id] = pilot
 	_assign_missing_personal_callsigns()
 	_assigned_pilot_id_by_callsign = _string_dictionary(state.get("assigned_pilot_id_by_callsign", {}))
+	_reserved_airframe_by_pilot_id = _string_dictionary(state.get("reserved_airframe_by_pilot_id", {}))
 	_assigned_callsign_by_pilot_id = _string_dictionary(state.get("assigned_callsign_by_pilot_id", {}))
 	_flight_callsign_by_pilot_id = _string_dictionary(state.get("flight_callsign_by_pilot_id", {}))
 	_flight_time_xp_remainder_by_pilot_id = _string_dictionary(state.get("flight_time_xp_remainder_by_pilot_id", {}))
@@ -950,7 +954,48 @@ func _pilot_with_assignment(pilot_id: String) -> Dictionary:
 	else:
 		pilot["status"] = "assigned" if active_key != "" else "available"
 		if not str(pilot.get("recovery_status", "")).is_empty(): pilot["status"] = pilot.recovery_status
+	pilot["reserved_airframe"] = str(_reserved_airframe_by_pilot_id.get(pilot_id, ""))
+	if pilot.status == "available" and not pilot.reserved_airframe.is_empty():
+		pilot.status = "reserved"
 	return pilot
+
+func can_reserve_for_airframe(pilot_id: String, airframe_id: String) -> bool:
+	_build_pilot_index()
+	var pilot: Dictionary = _pilots_by_id.get(pilot_id, {})
+	if pilot.is_empty() or not bool(pilot.get("is_alive", true)) or not str(pilot.get("recovery_status", "")).is_empty():
+		return false
+	var reservation := str(_reserved_airframe_by_pilot_id.get(pilot_id, ""))
+	if not reservation.is_empty() and reservation != airframe_id:
+		return false
+	if _assigned_callsign_by_pilot_id.has(pilot_id):
+		var active: Variant = _assigned_aircraft_by_pilot_id.get(pilot_id)
+		# Save restoration rebuilds live references after restoring assignments.
+		# Only the same persisted airframe may reclaim that pilot in this window.
+		if not is_instance_valid(active): return reservation == airframe_id
+		return is_instance_valid(active) and str(active.get_meta("airframe_id", "")) == airframe_id
+	return true
+
+func reserve_for_airframe(pilot_id: String, airframe_id: String) -> bool:
+	if not can_reserve_for_airframe(pilot_id, airframe_id):
+		return false
+	for previous in _reserved_airframe_by_pilot_id.keys():
+		if _reserved_airframe_by_pilot_id[previous] == airframe_id:
+			_reserved_airframe_by_pilot_id.erase(previous)
+	_reserved_airframe_by_pilot_id[pilot_id] = airframe_id
+	return true
+
+func release_airframe_reservation(airframe_id: String) -> void:
+	for pilot_id in _reserved_airframe_by_pilot_id.keys():
+		if str(_reserved_airframe_by_pilot_id[pilot_id]) == airframe_id:
+			_reserved_airframe_by_pilot_id.erase(pilot_id)
+
+func bind_reserved_aircraft(aircraft: Node3D, pilot_id: String) -> bool:
+	var id := str(aircraft.get_meta("airframe_id", ""))
+	if id.is_empty() or not reserve_for_airframe(pilot_id, id):
+		return false
+	_assign_pilot_to_callsign(pilot_id, "airframe:" + id)
+	_apply_pilot_to_aircraft(aircraft, _pilot_with_assignment(pilot_id))
+	return true
 
 func _pilot_id_for_aircraft(aircraft: Node3D) -> String:
 	var pilot_id := str(aircraft.get_meta("pilot_roster_id", ""))
@@ -973,6 +1018,7 @@ func _pick_available_pilot_id() -> String:
 		if _pilots_by_id.has(pilot_id) \
 		and bool((_pilots_by_id[pilot_id] as Dictionary).get("is_alive", true)) \
 		and not _assigned_callsign_by_pilot_id.has(pilot_id):
+			if _reserved_airframe_by_pilot_id.has(pilot_id): continue
 			if not str(_pilots_by_id[pilot_id].get("recovery_status", "")).is_empty(): continue
 			return pilot_id
 	# The bag can contain pilots who became active after it was filled. Rebuild
@@ -989,6 +1035,7 @@ func _refill_pilot_selection_bag() -> void:
 		if _pilots_by_id.has(pilot_id) \
 		and bool((_pilots_by_id[pilot_id] as Dictionary).get("is_alive", true)) \
 		and not _assigned_callsign_by_pilot_id.has(pilot_id):
+			if _reserved_airframe_by_pilot_id.has(pilot_id): continue
 			if not str(_pilots_by_id[pilot_id].get("recovery_status", "")).is_empty(): continue
 			_pilot_selection_bag.append(pilot_id)
 	_shuffle_strings(_pilot_selection_bag)

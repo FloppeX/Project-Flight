@@ -558,14 +558,19 @@ func is_current_view_load_complete() -> bool:
 		return false
 	return is_initial_load_complete()
 
-func get_height(world_pos: Vector3) -> float:
+## Also available before entering the tree, so region selection can inspect the
+## terrain before deciding which part to bake. Exact samples match mesh triangles.
+func get_local_height(local: Vector3, exact_surface: bool = true) -> float:
 	if _noises.is_empty():
 		_refresh_layout()
 		_noises = _build_noises()
-	var local: Vector3 = to_local(world_pos)
 	if local.x < _x0 or local.x > _x0 + _span_x or local.z < _z0 or local.z > _z0 + _span_z:
 		return NAN
-	return _surface_height_local(local.x, local.z) + global_position.y
+	return _surface_height_local(local.x, local.z) if exact_surface else _sample_profile_height(local.x, local.z)
+
+
+func get_height(world_pos: Vector3) -> float:
+	return get_local_height(to_local(world_pos)) + global_position.y
 
 ## Interpolate the same triangle used by the mesh/collision builder. Cache local
 ## grids, so floating-origin shifts require no invalidation and distant nav queries

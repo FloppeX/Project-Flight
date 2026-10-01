@@ -13,6 +13,7 @@ signal page_changed(page_id: String)
 const HEADLINE_FONT: FontFile = preload("res://UI/Fonts/ArchivoNarrow-Variable.ttf")
 const DATA_FONT: FontFile = preload("res://UI/Fonts/JetBrainsMono-Variable.ttf")
 const OPERATIONAL_UNITS_PAGE: Script = preload("res://UI/OperationalUnitsPage.gd")
+const FLIGHT_ASSEMBLY_PAGE: Script = preload("res://UI/FlightAssemblyPage.gd")
 const CARRIER_PAGE: Script = preload("res://UI/CarrierPage.gd")
 const REPLICATOR_PAGE: Script = preload("res://UI/ReplicatorPage.gd")
 
@@ -266,7 +267,7 @@ func _build_navigation() -> void:
 
 
 func _build_operational_pages() -> void:
-	_air_wing_page = OPERATIONAL_UNITS_PAGE.new() as Control
+	_air_wing_page = FLIGHT_ASSEMBLY_PAGE.new() as Control
 	_air_wing_page.name = "ActiveFlightsPage"
 	_air_wing_page.set("unit_kind", OPERATIONAL_UNITS_PAGE.UnitKind.FLIGHTS)
 	_root.add_child(_air_wing_page)

@@ -1333,7 +1333,7 @@ func get_lift_reference_mass_kg() -> float:
 		return 0.0
 	# Preserve the authored unloaded wing tuning. A loaded aircraft needs more
 	# airspeed/AoA to support its weight instead of acquiring free extra lift.
-	if is_advanced_flight_model() and rb.has_method("get_unloaded_mass_kg"):
+	if rb.has_method("get_unloaded_mass_kg"):
 		return maxf(float(rb.call("get_unloaded_mass_kg")), 0.001)
 	return rb.mass
 
@@ -1364,14 +1364,11 @@ func get_estimated_lift_ratio() -> float:
 	var advanced := is_advanced_flight_model()
 	var aoa_stall_severity: float = _get_aoa_stall_severity_for_model(alpha_deg, advanced)
 	var active_aoa_lift_loss := aoa_stall_lift_loss if advanced else simplified_aoa_stall_lift_loss
-	if advanced:
-		var flap_scale := (1.0 + flaps_lift_bonus) if _is_flaps_deployed() else 1.0
-		commanded_ratio *= flap_scale
-		var forward_speed := maxf(get_air_relative_velocity().dot(rb.global_basis.z), 0.0)
-		var speed_stall := maxf(1.0 - forward_speed / maxf(effective_stall_speed, 0.1), 0.0) if speed > 5.0 else 0.0
-		var loss := maxf(stall_lift_loss * speed_stall, active_aoa_lift_loss * aoa_stall_severity)
-		return commanded_ratio * (1.0 - clampf(loss, 0.0, 0.95)) * get_lift_reference_mass_kg() / maxf(rb.mass, 0.001)
-	return commanded_ratio * (1.0 - clampf(active_aoa_lift_loss * aoa_stall_severity, 0.0, 0.95))
+	var forward_speed := maxf(get_air_relative_velocity().dot(rb.global_basis.z), 0.0)
+	var speed_stall := maxf(1.0 - forward_speed / maxf(effective_stall_speed, 0.1), 0.0) if speed > 5.0 else 0.0
+	var active_stall_lift_loss := stall_lift_loss if advanced else simplified_stall_lift_loss
+	var loss := maxf(active_stall_lift_loss * speed_stall, active_aoa_lift_loss * aoa_stall_severity)
+	return commanded_ratio * (1.0 - clampf(loss, 0.0, 0.95)) * get_lift_load_scale()
 
 func get_stall_severity() -> float:
 	return current_stall_severity

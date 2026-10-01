@@ -2,7 +2,7 @@
 
 [ext_resource type="Script" uid="uid://u5n72n3ofgnt" path="res://Weapons/Turrets/bullet_weapon.gd" id="1_script"]
 [ext_resource type="Resource" path="res://Weapons/Guns/Profiles/40mm_autocannon.tres" id="2_profile"]
-[ext_resource type="PackedScene" uid="uid://b83rkkamha1oc" path="res://Models/Turrets/autocannon 40 mm.glb" id="3_model"]
+[ext_resource type="PackedScene" path="res://Models/Turrets/gun barrel 40 mm.blend" id="3_model"]
 
 [node name="40mmAutocannonWeapon" type="Node3D" unique_id=2115405371]
 script = ExtResource("1_script")
@@ -11,9 +11,11 @@ turret_fire_rate_multiplier = 1.0
 host_recoil_enabled = true
 
 [node name="GunModel" parent="." unique_id=2102611030 instance=ExtResource("3_model")]
+transform = Transform3D(1.006698489, 0, 0, 0, 1.006698489, 0, 0, 0, 1.006698489, 0, 0, -0.594553471)
 
 [node name="BulletSpawnPoint" type="Node3D" parent="." unique_id=431933712]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 3.6338)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 3.284682)
 
 [node name="AttachmentPoint" type="Node3D" parent="." unique_id=706808761]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.13596524, 0)
+

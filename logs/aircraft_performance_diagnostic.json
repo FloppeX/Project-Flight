@@ -1,0 +1,215 @@
+{
+	"complete": true,
+	"fleet": 16,
+	"gpu": "AMD Radeon RX 7800 XT",
+	"meshes": 559,
+	"renderer": "vulkan",
+	"results": [
+		{
+			"draws": 2.0,
+			"frame_ms": 0.632695714059785,
+			"label": "empty_view",
+			"live_aircraft": 16,
+			"p95_ms": 0.721,
+			"physics_ms": 0.0317646686699384,
+			"primitives": 42.0,
+			"process_ms": 1.39305835837431,
+			"render_cpu_ms": 0.145616956200099,
+			"render_gpu_ms": 0.202849439068835,
+			"scopes": [
+				{
+					"count": 6322,
+					"label": "NavPathScheduler.process",
+					"max_us": 6,
+					"total_us": 8738
+				},
+				{
+					"count": 6322,
+					"label": "WorldUnitIndex.process",
+					"max_us": 102,
+					"total_us": 7377
+				}
+			]
+		},
+		{
+			"draws": 146.0,
+			"frame_ms": 0.89340933452434,
+			"label": "mesh_bias_1.0",
+			"live_aircraft": 16,
+			"p95_ms": 0.987,
+			"physics_ms": 0.0290156319785616,
+			"primitives": 69434.0,
+			"process_ms": 1.52840888789637,
+			"render_cpu_ms": 0.303544215601755,
+			"render_gpu_ms": 0.328977222286095,
+			"scopes": [
+				{
+					"count": 4477,
+					"label": "NavPathScheduler.process",
+					"max_us": 36,
+					"total_us": 6376
+				},
+				{
+					"count": 4477,
+					"label": "WorldUnitIndex.process",
+					"max_us": 117,
+					"total_us": 5846
+				}
+			]
+		},
+		{
+			"draws": 146.0,
+			"frame_ms": 0.896542133572389,
+			"label": "mesh_bias_0.2",
+			"live_aircraft": 16,
+			"p95_ms": 1.005,
+			"physics_ms": 0.0288435679067678,
+			"primitives": 69434.0,
+			"process_ms": 1.43695741819803,
+			"render_cpu_ms": 0.305296951327982,
+			"render_gpu_ms": 0.32973621736883,
+			"scopes": [
+				{
+					"count": 4461,
+					"label": "NavPathScheduler.process",
+					"max_us": 4,
+					"total_us": 6301
+				},
+				{
+					"count": 4461,
+					"label": "WorldUnitIndex.process",
+					"max_us": 114,
+					"total_us": 5999
+				}
+			]
+		},
+		{
+			"draws": 146.0,
+			"frame_ms": 0.89507160438577,
+			"label": "mesh_bias_0.2",
+			"live_aircraft": 16,
+			"p95_ms": 0.999,
+			"physics_ms": 0.0277684045647805,
+			"primitives": 69434.0,
+			"process_ms": 1.56395412844029,
+			"render_cpu_ms": 0.304697023152398,
+			"render_gpu_ms": 0.329308346704125,
+			"scopes": [
+				{
+					"count": 4468,
+					"label": "NavPathScheduler.process",
+					"max_us": 8,
+					"total_us": 6259
+				},
+				{
+					"count": 4468,
+					"label": "WorldUnitIndex.process",
+					"max_us": 57,
+					"total_us": 5838
+				}
+			]
+		},
+		{
+			"draws": 146.0,
+			"frame_ms": 0.898045791245789,
+			"label": "mesh_bias_1.0",
+			"live_aircraft": 16,
+			"p95_ms": 1.008,
+			"physics_ms": 0.0333885521885527,
+			"primitives": 69434.0,
+			"process_ms": 1.52638742985399,
+			"render_cpu_ms": 0.305725925525297,
+			"render_gpu_ms": 0.330336925210107,
+			"scopes": [
+				{
+					"count": 4454,
+					"label": "NavPathScheduler.process",
+					"max_us": 32,
+					"total_us": 6319
+				},
+				{
+					"count": 4454,
+					"label": "WorldUnitIndex.process",
+					"max_us": 107,
+					"total_us": 5951
+				}
+			]
+		},
+		{
+			"draws": 2.0,
+			"frame_ms": 1.0447863671977,
+			"label": "hidden_fleet_simulation",
+			"live_aircraft": 16,
+			"p95_ms": 3.43,
+			"physics_ms": 7.13690598067381,
+			"primitives": 36.781927396187,
+			"process_ms": 1.51231470357795,
+			"render_cpu_ms": 0.150529641555912,
+			"render_gpu_ms": 0.358301387673167,
+			"scopes": [
+				{
+					"count": 61248,
+					"label": "Aircraft.process",
+					"max_us": 175,
+					"total_us": 388710
+				},
+				{
+					"count": 3840,
+					"label": "HelicopterPilot.physics",
+					"max_us": 341,
+					"total_us": 277726
+				},
+				{
+					"count": 3840,
+					"label": "HelicopterPilot.fly_toward",
+					"max_us": 302,
+					"total_us": 208908
+				},
+				{
+					"count": 3840,
+					"label": "Aircraft.physics",
+					"max_us": 167,
+					"total_us": 193732
+				},
+				{
+					"count": 3840,
+					"label": "HelicopterPilot.rotor_wash",
+					"max_us": 15,
+					"total_us": 15889
+				},
+				{
+					"count": 176,
+					"label": "HelicopterPilot.navigation_plan",
+					"max_us": 75,
+					"total_us": 9631
+				},
+				{
+					"count": 3828,
+					"label": "NavPathScheduler.process",
+					"max_us": 34,
+					"total_us": 5683
+				},
+				{
+					"count": 3828,
+					"label": "WorldUnitIndex.process",
+					"max_us": 104,
+					"total_us": 5256
+				},
+				{
+					"count": 240,
+					"label": "HelicopterPilot.recorder_faults",
+					"max_us": 10,
+					"total_us": 968
+				},
+				{
+					"count": 240,
+					"label": "HelicopterPilot.carrier_floor",
+					"max_us": 3,
+					"total_us": 285
+				}
+			]
+		}
+	],
+	"viewport_size": "(1920.0, 1080.0)",
+	"window_size": "(1280, 720)"
+}

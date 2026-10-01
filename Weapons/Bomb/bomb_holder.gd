@@ -15,7 +15,6 @@ var last_bomb_dropped: BombProjectile = null  # Set after each drop for debug ac
 var _pending_debug_aim_target: Vector3 = Vector3.ZERO
 var _pending_debug_predicted_impact: Vector3 = Vector3.ZERO
 var _has_pending_debug_metadata: bool = false
-var _payload_aircraft: RigidBody3D = null
 
 func _get_release_transform(node: Node3D) -> Transform3D:
 	if node == null:
@@ -30,19 +29,9 @@ func _ready():
 	delete_when_empty = true
 	hardpoint = get_parent() as Hardpoint
 	automatic_fire = false  # Bombs are single-shot weapons
-	ammo_count = 50
+	ammo_count = _get_remaining_visible_bombs()
 	weapon_name = "Bomb"  # Set weapon type name
 	_refresh_aircraft_payload_mass()
-
-func _exit_tree() -> void:
-	if is_instance_valid(_payload_aircraft) and _payload_aircraft.has_method("clear_payload_mass"):
-		_payload_aircraft.clear_payload_mass(self)
-
-func _get_parent_rigidbody() -> RigidBody3D:
-	var node: Node = get_parent()
-	while node and not (node is RigidBody3D):
-		node = node.get_parent()
-	return node as RigidBody3D
 
 func _has_unlimited_test_ammo() -> bool:
 	var aircraft: RigidBody3D = _get_parent_rigidbody()
@@ -57,12 +46,6 @@ func _has_unlimited_test_ammo() -> bool:
 func _get_remaining_visible_bombs() -> int:
 	var visible_bomb: Node3D = get_node_or_null("bomb") as Node3D
 	return 1 if visible_bomb and visible_bomb.visible else 0
-
-func _refresh_aircraft_payload_mass() -> void:
-	if not is_instance_valid(_payload_aircraft):
-		_payload_aircraft = _get_parent_rigidbody()
-	if _payload_aircraft and _payload_aircraft.has_method("set_payload_mass"):
-		_payload_aircraft.set_payload_mass(self, float(_get_remaining_visible_bombs()) * maxf(bomb_mass_kg, 0.0))
 
 func get_predicted_release_transform() -> Transform3D:
 	if hardpoint:
@@ -144,3 +127,7 @@ func fire() -> bool:
 			queue_free()
 	
 	return true
+
+
+func get_payload_mass_kg() -> float:
+	return float(_get_remaining_visible_bombs()) * maxf(bomb_mass_kg, 0.0)

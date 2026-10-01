@@ -16,7 +16,7 @@ compatibility/default_parent_skeleton_in_mesh_instance_3d=true
 
 config/name="Land Carrier"
 run/main_scene="res://UI/MainMenu.tscn"
-config/features=PackedStringArray("4.6")
+config/features=PackedStringArray("4.7")
 boot_splash/image="res://Images/Splash/splash screen 8.png"
 config/icon="res://Images/icon.png"
 
@@ -82,10 +82,6 @@ window/vsync/vsync_mode=0
 [editor_plugins]
 
 enabled=PackedStringArray("res://addons/godot_ai/plugin.cfg", "res://addons/simplified_flightsim/plugin.cfg")
-
-[filesystem]
-
-import/blender/enabled=false
 
 [global_group]
 

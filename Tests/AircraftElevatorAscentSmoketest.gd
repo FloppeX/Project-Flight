@@ -33,6 +33,16 @@ func _run() -> void:
 	if not is_instance_valid(aircraft) or not bool(manager.call("_aircraft_footprint_inside_elevator", aircraft, elevator)):
 		_fail("Aircraft 15 shifted outside the lift during spawn settle")
 		return
+	# The spawn cache is deliberately discarded after presentation staging.
+	# Recovery later needs to rebuild the footprint from the live Blender model.
+	manager.call("_ensure_hangar_aircraft_presentation_complete", aircraft)
+	if aircraft.has_meta("elevator_model_footprint_points"):
+		_fail("completed presentation retained the temporary footprint cache")
+		return
+	var recovery_pose: Dictionary = manager.call("_get_safe_elevator_parking_pose", aircraft, marker.global_position, elevator)
+	if not bool(recovery_pose.get("valid", false)):
+		_fail("post-flight recovery cannot rebuild the model footprint: %s" % recovery_pose.get("reason", "unknown"))
+		return
 	print("[AircraftElevatorAscentSmoketest] PASS local_root=%s" % elevator.to_local(aircraft.global_position))
 	current_scene = null
 	carrier.queue_free()

@@ -1,0 +1,9 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://Weapons/Turrets/ModularTurret.gd" id="1_script"]
+[ext_resource type="PackedScene" path="res://Models/Turrets/friendly_turret.glb" id="2_model"]
+
+[node name="TurretScene" type="Node3D"]
+script = ExtResource("1_script")
+
+[node name="TurretModel" parent="." instance=ExtResource("2_model")]

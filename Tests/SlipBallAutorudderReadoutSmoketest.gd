@@ -15,6 +15,8 @@ func _ready() -> void:
 	controls.name = "ControlSteering"
 	controls.telemetry_rudder_assist_component = -0.684
 	aircraft.add_child(controls)
+	controls.set_process(false)
+	controls.set_physics_process(false)
 
 	var slip_ball := SLIP_BALL_MODULE_SCRIPT.new() as SlipBallModule
 	slip_ball.configure({"id": "slip_ball", "title": "BALL"})
@@ -38,6 +40,22 @@ func _ready() -> void:
 	slip_ball.update_from_aircraft(1.0 / 60.0)
 	if readout != null:
 		_expect(readout.text == "Autorudder: 0%", "inactive controls did not clear the autorudder readout")
+	aircraft.freeze = true
+	aircraft.rotation.z = deg_to_rad(-31.0)
+	aircraft.linear_velocity = Vector3(0, 0, 94)
+	slip_ball.slip_value = 0.23
+	slip_ball._filtered_lateral_g = 0.08
+	get_tree().paused = true
+	for i in range(240):
+		slip_ball.update_from_aircraft(1.0 / 60.0)
+	_expect(is_equal_approx(slip_ball.slip_value, 0.23), "paused banked aircraft changed the ball reading")
+	_expect(is_equal_approx(slip_ball._filtered_lateral_g, 0.08), "pause introduced phantom lateral acceleration")
+	get_tree().paused = false
+	# Resume with changed velocity: the first sample must prime history, not spike.
+	aircraft.linear_velocity = Vector3(50, -7, 80)
+	slip_ball.update_from_aircraft(1.0 / 60.0)
+	_expect(absf(slip_ball._filtered_lateral_g) <= 0.08, "resume differentiated velocity across the pause")
+	_expect(absf(slip_ball.slip_value - 0.23) < 0.08, "ball snapped after resume")
 
 	if _failures.is_empty():
 		print("SLIP_BALL_AUTORUDDER_READOUT_SMOKETEST_OK")

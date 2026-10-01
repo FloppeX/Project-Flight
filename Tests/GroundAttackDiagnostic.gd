@@ -4,6 +4,7 @@ extends Node3D
 ## normal aircraft damage and collidable ground. No attack-control overrides.
 class Target:
 	extends StaticBody3D
+	var linear_velocity := Vector3.ZERO
 	var current_health := 1000.0
 	var damage_total := 0.0
 	var damage_events := 0
@@ -14,6 +15,7 @@ class Target:
 		damage_events += 1 # Persistent target permits repeated passes.
 
 var weapon_focus := "Guns"
+var aircraft_model := 5
 var output := "user://ground_attack_diagnostic.json"
 var duration := 240.0
 var offset := 0.0
@@ -24,6 +26,9 @@ var legacy_direct_revalidation := false
 var reentry_start := false
 var start_heading_deg := NAN
 var start_speed_mps := 100.0
+var start_altitude_m := 600.0
+var start_distance_m := 2600.0
+var target_speed_mps := 0.0
 var legacy_rocket_refresh := false
 var legacy_rocket_clutter := false
 var started_us := 0
@@ -48,11 +53,15 @@ func _ready() -> void:
 			manager.process_mode = Node.PROCESS_MODE_DISABLED
 	for arg in OS.get_cmdline_user_args():
 		if arg.begins_with("--ground-weapon="): weapon_focus = arg.get_slice("=", 1)
+		elif arg.begins_with("--ground-model="): aircraft_model = int(arg.get_slice("=", 1))
 		elif arg.begins_with("--ground-output="): output = arg.get_slice("=", 1)
 		elif arg.begins_with("--ground-duration="): duration = clampf(float(arg.get_slice("=", 1)), 10, 600)
 		elif arg.begins_with("--ground-offset="): offset = float(arg.get_slice("=", 1))
 		elif arg.begins_with("--ground-heading="): start_heading_deg = float(arg.get_slice("=", 1))
-		elif arg.begins_with("--ground-speed="): start_speed_mps = clampf(float(arg.get_slice("=", 1)), 70.0, 160.0)
+		elif arg.begins_with("--ground-speed="): start_speed_mps = clampf(float(arg.get_slice("=", 1)), 35.0, 160.0)
+		elif arg.begins_with("--ground-altitude="): start_altitude_m = float(arg.get_slice("=", 1))
+		elif arg.begins_with("--ground-distance="): start_distance_m = float(arg.get_slice("=", 1))
+		elif arg.begins_with("--ground-target-speed="): target_speed_mps = float(arg.get_slice("=", 1))
 		elif arg == "--ground-ridge": ridge = true
 		elif arg == "--ground-full-planner": full_planner = true
 		elif arg == "--ground-legacy-axis": alternate_axis = false
@@ -106,12 +115,15 @@ func _run() -> void:
 		collider.shape = shape
 		target.add_child(collider)
 		target.position = entry[2]
+		target.linear_velocity = Vector3(target_speed_mps, 0, 0)
 		add_child(target)
 		target.add_to_group(entry[1])
 		target.add_to_group("enemies")
 		targets.append(target)
-	craft = preload("res://Aircraft/Aircraft_5.tscn").instantiate()
-	craft.position = Vector3(offset, 600, -2600)
+	var aircraft_path := "res://Aircraft/Aircraft_%d.tscn" % aircraft_model
+	result.hashes[aircraft_path] = FileAccess.get_sha256(aircraft_path)
+	craft = load(aircraft_path).instantiate()
+	craft.position = Vector3(offset, start_altitude_m, -start_distance_m)
 	if reentry_start:
 		craft.position = Vector3(offset, 500, -1800)
 	craft.rotation.y = deg_to_rad(start_heading_deg)
@@ -159,8 +171,11 @@ func _run() -> void:
 		if weapon is BombRack or weapon is RocketPod:
 			weapon.set_tuning_context(_released, Callable(), 1, null)
 		elif weapon is Autocannon:
-			weapon.ammo_count = 1000000
+			# Unlimited test firing is already enabled on the aircraft. Keep the
+			# authored round count: ammunition now contributes to physical mass.
 			weapon.set_tuning_context(_released, Callable(), 1, null)
+	result["aircraft_mass_kg"] = craft.mass
+	result["advanced_flight_model"] = craft.get_node("SimpleAero").is_advanced_flight_model()
 	result["loadout"] = weapons.map(func(w): return {"name": w.weapon_name, "ammo": w.ammo_count})
 	for property in pilot.get_property_list():
 		var key := String(property.name)
@@ -187,9 +202,15 @@ func _run() -> void:
 	while elapsed < duration:
 		await get_tree().physics_frame
 		elapsed += dt
+		for target in targets:
+			target.position += target.linear_velocity * dt
 		if not is_instance_valid(craft) or not is_instance_valid(pilot) or craft.current_health <= 0:
 			break
 		var state: String = AIPilot.State.keys()[pilot.current_state]
+		if pilot.current_state == AIPilot.State.ATTACK_POSITIONING:
+			result["max_positioning_bank_deg"] = maxf(float(result.get("max_positioning_bank_deg", 0.0)), pilot._get_current_bank_angle_deg())
+			result["max_positioning_command_deg"] = maxf(float(result.get("max_positioning_command_deg", 0.0)), absf(pilot._coordinated_turn_target_bank_deg))
+			result["max_positioning_roll_request_deg"] = maxf(float(result.get("max_positioning_roll_request_deg", 0.0)), absf(rad_to_deg(pilot._navigation_desired_bank_rad_debug)))
 		_count("states_s", state, dt)
 		_count("commit_gates_s", pilot.get_attack_last_commit_reason(), dt)
 		_count("end_reasons_s", pilot.get_attack_last_end_reason(), dt)
@@ -224,6 +245,8 @@ func _run() -> void:
 				"target": str(target.name) if target else "none", "commit": pilot.get_attack_last_commit_reason(),
 				"end": pilot.get_attack_last_end_reason(), "run_weapon": pilot._run_weapon_type,
 				"bomb_block": pilot.get_last_bomb_release_block_reason(), "rocket_block": pilot.get_last_rocket_release_block_reason(),
+				"gun_miss": _finite(pilot.get_gun_ccip_aim_miss_m()), "gun_blocked": pilot._gun_ccip_blocked,
+				"gun_error": [pilot._gun_ccip_local_right_m, pilot._gun_ccip_local_forward_m],
 				"safety": pilot._safety_override_active, "releases": result.releases,
 				"inputs": [pilot.roll_input, pilot.pitch_input, pilot.yaw_input],
 				"axis_search_ms": pilot._ground_attack_axis_search_ms,
@@ -241,6 +264,9 @@ func _run() -> void:
 				"axis_along_m": axis_capture.get("along_m", null),
 				"axis_heading_deg": axis_capture.get("heading_deg", null),
 				"desired_bank": rad_to_deg(pilot._navigation_desired_bank_rad_debug),
+				"load_g": craft.get_node("SimpleAero").get_estimated_lift_ratio(),
+				"target_g": pilot._coordinated_turn_target_g,
+				"aoa_deg": craft.get_node("SimpleAero").get_estimated_angle_of_attack_deg(),
 				"track_rate": rad_to_deg(pilot._attack_turn_track_rate_rad_s),
 				"velocity": _vector(craft.linear_velocity),
 				"forward": _vector(craft.global_basis.z),

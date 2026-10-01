@@ -2,6 +2,7 @@ extends Node3D
 
 const WIND_TURBINE_PROXY_SCRIPT: Script = preload("res://Buildings/WindTurbineProxy.gd")
 const FrameProfiler: Script = preload("res://Debug/FrameProfiler.gd")
+const CarrierStartRegion = preload("res://Environment/CarrierStartRegion.gd")
 const TEST_SCENARIO_SETTINGS_PATH := "user://physical_test_scenario.json"
 const FRAME_PROFILER_OVERRIDE_PATH := "user://frame_profiler_override.json"
 const HELI_NAVIGATION_TEST_SCENARIO: int = 1
@@ -1067,6 +1068,22 @@ func _xz_distance(a: Vector3, b: Vector3) -> float:
 	return Vector2(a.x - b.x, a.z - b.z).length()
 
 func _pick_random_play_area_center(terrain: Node3D) -> Vector3:
+	var carrier := get_node_or_null(carrier_node_path)
+	if terrain is LowPolyTerrain and carrier != null and carrier.has_method("get_start_site_requirements"):
+		var rng := RandomNumberGenerator.new()
+		if carrier.startup_placement_seed == 0:
+			rng.randomize()
+		else:
+			rng.seed = carrier.startup_placement_seed
+		var settings: Dictionary = carrier.get_start_site_requirements()
+		settings["nav_cell"] = TerrainNavGrid.cell_size_m
+		var region := CarrierStartRegion.find(terrain, TerrainNavGrid.bake_half_extent_m,
+			maxf(play_area_center_edge_margin_m, 0.0), settings, rng)
+		if not region.is_empty():
+			carrier.set_startup_site(region.position, region.heading)
+			print("[ScenarioManager] Selected region around southern clearing: ", region)
+			return region.center
+		push_warning("[ScenarioManager] No suitable clearing found during region selection; searching the southern band after baking.")
 	var quads_x_variant = terrain.get("quads_x")
 	var quads_z_variant = terrain.get("quads_z")
 	var cell_size_variant = terrain.get("cell_size_m")
@@ -1083,7 +1100,7 @@ func _pick_random_play_area_center(terrain: Node3D) -> Vector3:
 	var max_offset_x: float = terrain_half_span_x - required_margin_x
 	var max_offset_z: float = terrain_half_span_z - required_margin_z
 	if max_offset_x <= 0.0 or max_offset_z <= 0.0:
-		return terrain.global_position
+		return terrain.position
 
 	var rng := RandomNumberGenerator.new()
 	rng.randomize()

@@ -20,7 +20,7 @@ func run() -> void:
 	world.add_child(environment)
 	var light := DirectionalLight3D.new()
 	light.rotation_degrees = Vector3(-48, -35, 0)
-	light.light_energy = 2.0
+	light.light_energy = 0.9
 	light.shadow_enabled = true
 	world.add_child(light)
 	var camera := Camera3D.new()
@@ -45,6 +45,21 @@ func run() -> void:
 	camera.look_at(Vector3(0, 1, 1))
 	await capture("five_barrels")
 	lineup.hide()
+	var vehicle := (load("res://GroundVehicle/vehicle_friendly_light.tscn") as PackedScene).instantiate() as Node3D
+	# Retain the actual vehicle geometry and controller while omitting navigation.
+	vehicle.set_script(null)
+	vehicle.process_mode = Node.PROCESS_MODE_DISABLED
+	world.add_child(vehicle)
+	camera.position = Vector3(8, 7, 12)
+	camera.look_at(Vector3(0, 2, 0))
+	await capture("friendly_vehicle")
+	var vehicle_turret: Node3D = vehicle.get_node("Body/TurretController").get("turret")
+	for i in range(120):
+		vehicle_turret.call("tick", 1.0 / 60.0, Vector3(10, 40, 70))
+	camera.position = Vector3(4, 4, 6)
+	camera.look_at(Vector3(0, 3.5, 0.5))
+	await capture("friendly_vehicle_elevated")
+	vehicle.hide()
 	var source := (load("res://LandCarrier/LandCarrier2.tscn") as PackedScene).instantiate()
 	var carrier := Node3D.new()
 	carrier.process_mode = Node.PROCESS_MODE_DISABLED

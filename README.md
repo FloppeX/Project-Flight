@@ -6,6 +6,8 @@ This README is the canonical living project document. It describes the current g
 
 **Project state:** playable systems sandbox; not yet a complete campaign
 
+**Helicopter touchdown safety:** Terrain landings require 1.5 seconds of sustained gear support, low translation/rotation and an upright attitude; hovering near the ground no longer counts as landed. AI reduces lateral steering after contact, unloads rotor lift onto stable support, and requests existing gear braking during settling. The brake request expires if AI stops issuing it. Ground departures keep neutral cyclic/yaw until 6 m above the liftoff position with no remaining gear contact. Shared AI changes leave player aerodynamics unchanged. Crash reports now retain quiet contact/attitude/control history even with debug display disabled. `HelicopterSurfaceSafetySmoketest.tscn`, rescue-route and carrier-touchdown/hangar handoff regressions pass. `HelicopterSurfaceCycleProbe.tscn` passes 12 isolated land/load/liftoff cases for aircraft 9/10/11 on level and 4-degree ground, with two initial drift speeds and an 80 kg load. These use authored rigid bodies, aero and suspension but instantaneous test engines, not a full rescue mission; uneven terrain, damage, wind and moving-carrier physics still need gameplay validation.
+
 **Engine:** Godot 4.6.2
 
 **Sortie recovery investigation:** A full strike sortie launched but failed to damage its designated target, then collided with terrain during recovery. Reconstruction found a 71 m height-query/collision-surface mismatch near the crash, plus a wings-level terrain-climb request suppressed by the roll-in load safeguard. The narrow control case is repaired and regression-tested. Terrain queries now match collision to within 1 mm at the reconstructed crash samples and the surface regression checks; one subsequent physical sortie hit the target, caught a wire and stowed undamaged, but needed five missed approaches. Recovery reliability remains unresolved. See [terrain correction and validation](docs/TERRAIN_SURFACE_CONSISTENCY_2026-09-18.md). Matched calm turn-in checks caught 3/6 with the 70 m/s control reference versus 0/6 at 100 m/s. See [diagnosis, evidence and limits](docs/SORTIE_RECOVERY_DIAGNOSIS_2026-09-18.md).
@@ -82,6 +84,8 @@ The long-form campaign is planned as a sequence of large regions rather than one
 7. Reach an exit and carry the resulting state into the next region.
 
 The campaign loop is a design direction, not complete current functionality. The present build contains many of its component systems and a first same-region strategic checkpoint save, but no complete region objective, strategic economy, or between-region persistence.
+
+New Open Canyons games select a low, open carrier starting site in the larger procedural terrain, then frame the 50 km map around it with the carrier 2 km from the southern border and facing north (within 45 degrees). The site is checked against the baked navigation before placement completes. Highlands and Badlands retain their fixed map layouts and search their southern start band. The intended direction of travel is toward the north edge; the carrier still waits for player orders, and reaching that edge does not yet trigger a region transition. Continue restores the saved map and carrier position.
 
 <details>
 <summary>Planned ending direction - spoilers</summary>

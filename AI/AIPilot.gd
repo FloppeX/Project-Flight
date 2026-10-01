@@ -7,6 +7,8 @@ const CompactRecoveryArrival = preload("res://AI/CompactRecoveryArrival.gd")
 const FlightPlanModel: Script = preload("res://AI/FlightPlan.gd")
 const SharedFlightPathFollower: Script = preload("res://AI/FlightPathFollower.gd")
 const LandingSightModel: Script = preload("res://AI/LandingSight.gd")
+const NAVIGATION_UPRIGHT_BANK_LIMIT_DEG: float = 65.0
+const ATTACK_POSITIONING_BANK_LIMIT_DEG: float = 65.0
 
 const PROJECTILE_SPEED_CAP_SETTING_KEYS: Array = [
 	"physics/jolt_3d/simulation/limits/max_linear_velocity",
@@ -264,6 +266,8 @@ var _recovery_terrain_vs_floor_mps: float = -INF
 @export var gun_attack_pitch_response: float = 0.62
 @export var gun_attack_yaw_gain: float = 0.45
 @export var gun_attack_yaw_rate_damping: float = 0.12
+## Remove sustained lateral sight error while tracking a moving ground target.
+@export var gun_attack_yaw_integral_gain: float = 0.15
 @export var gun_attack_max_yaw_input: float = 0.35
 @export var gun_attack_yaw_response: float = 0.38
 @export var gun_ccip_enabled: bool = true
@@ -408,6 +412,8 @@ var maneuver_waypoint: Vector3 = Vector3.ZERO  # Short-term maneuvering target
 @export var aircraft_route_flyby_advance_max_yaw_deg: float = 95.0
 @export var aircraft_route_curvature_feedforward_gain: float = 1.0
 @export var navigation_point_tracking_bank_gain: float = 3.2
+## Long navigation legs must not dilute heading capture over the entire trip.
+@export_range(1.0, 15.0, 0.5) var navigation_point_response_time_s: float = 4.5
 # Widened cap on bank_compensation (the 1/cos(bank) lift-loss multiplier) so a steep, sustained turn gets
 # real extra pull once bank is near the limit, not just enough lift to hold altitude. Ramped in by
 # bank_util^2, and it only matters when vs_err is nonzero (altitude-hold already wants a correction) --
@@ -755,13 +761,13 @@ var _defensive_evade_dir: float = 1.0
 @export var disengage_radius_from_carrier_m: float = 6000.0
 @export var dogfight_max_range_m: float = 1800.0
 @export var dogfight_target_radius_m: float = 4.0
-@export var dogfight_min_hit_chance: float = 0.72
+@export var dogfight_min_hit_chance: float = 0.45
 @export var dogfight_fire_burst_s: float = 0.55
 @export var dogfight_burst_cooldown_s: float = 0.22
 # Hold the trigger: when the hit chance is at or above this, DON'T impose the post-burst cooldown --
 # keep firing continuously as long as the solution stays strong. The burst/cooldown discipline then
 # only applies to MARGINAL shots (a jinking target), where short controlled bursts make sense.
-@export var dogfight_sustained_fire_hit_chance: float = 0.55
+@export var dogfight_sustained_fire_hit_chance: float = 0.35
 var _dogfight_last_hit_chance: float = 0.0
 var _dogfight_fire_block_reason: String = "not_evaluated"
 var _dogfight_fire_range_m: float = INF
@@ -783,7 +789,7 @@ var _dogfight_fire_max_tof_s: float = 0.0
 @export var dogfight_fire_fallback_vertical: float = 0.02
 @export var dogfight_fire_close_relax_range_m: float = 250.0
 @export var dogfight_fire_close_relax_min_dot: float = 0.997  # ~4.4 deg
-@export var dogfight_fire_close_relax_min_hit_chance: float = 0.55
+@export var dogfight_fire_close_relax_min_hit_chance: float = 0.35
 @export var dogfight_gun_preferred_range_m: float = 450.0
 @export var dogfight_missile_min_range_m: float = 650.0
 @export var dogfight_missile_max_range_m: float = 2200.0
@@ -1222,6 +1228,7 @@ var _gun_ccip_miss_m: float = INF
 var _gun_ccip_range_m: float = 1.0
 var _gun_ccip_pitch_cmd: float = 0.0
 var _gun_ccip_yaw_cmd: float = 0.0
+var _gun_ccip_yaw_integral: float = 0.0
 var _gun_ccip_blocked: bool = false
 var _gun_ccip_block_reason: String = ""
 var _attack_terrain_sample_cache_until_s: float = -INF
@@ -1289,6 +1296,13 @@ var _dogfight_assertive_turn_yaw_error_deg: float = 0.0
 var _dogfight_rear_turn_sign: float = 0.0
 var _dogfight_escape_direction := Vector3.ZERO
 var _dogfight_escape_remaining_s := 0.0
+enum HelicopterAttackPhase { APPROACH, PASS, EXTEND }
+var _helicopter_attack_phase := HelicopterAttackPhase.APPROACH
+var _helicopter_pass_time_s := 0.0
+var _helicopter_extension_time_s := 0.0
+var _helicopter_extension_direction := Vector3.ZERO
+var _helicopter_extension_origin := Vector3.ZERO
+var _helicopter_extension_distance_m := 0.0
 var _dogfight_pursuit_target_id := 0
 var _dogfight_previous_speed_mps := -1.0
 var _dogfight_speed_rate_mps2 := 0.0
@@ -1349,7 +1363,10 @@ var _recovery_clearance_granted: bool = false
 @export var approach_phase3_capture_m: float = 40.0
 @export var approach_guidance_mode: ApproachGuidanceMode = ApproachGuidanceMode.PATH_FOLLOWER
 @export var approach_precision_bank_limit_deg: float = 25.0
-@export var approach_precision_bank_gain: float = 1.5
+@export var approach_precision_bank_gain: float = 2.0
+@export var approach_precision_yaw_gain: float = 3.6
+@export var approach_precision_roll_response: float = 0.55
+@export var approach_precision_yaw_response: float = 0.42
 @export var approach_precision_min_bank_deg: float = 2.0
 @export var approach_path_far_speed_mps: float = 68.0
 @export var approach_path_near_speed_mps: float = 54.0
@@ -1857,6 +1874,7 @@ var _flight_plan_name: String = ""
 var _flight_plan_legs: Array[Dictionary] = []
 var _active_flight_plan: Variant = null
 var _flight_plan_loop: bool = false
+var _patrol_route_join_pending: bool = false
 var _flight_plan_capture_radius_m: float = 120.0
 var _flight_plan_entry_position: Vector3 = Vector3.INF
 var _attack_egress_waypoint: Vector3 = Vector3.INF
@@ -2048,8 +2066,8 @@ var nav_target: Node3D = null
 @export var precision_point_yaw_response: float = 0.32
 @export var dogfight_precision_bank_gain: float = 7.0
 @export var dogfight_precision_min_bank_deg: float = 8.0
-@export var dogfight_precision_direct_pitch_gain: float = 26.0
-@export var dogfight_precision_direct_yaw_gain: float = 14.0
+@export var dogfight_precision_direct_pitch_gain: float = 40.0
+@export var dogfight_precision_direct_yaw_gain: float = 22.0
 @export var dogfight_precision_pid_scale: float = 0.55
 
 var _smoothed_roll_input: float = 0.0
@@ -2143,6 +2161,14 @@ var _arrest_start_pos: Vector3 = Vector3.ZERO
 var _arrest_stopped_reported: bool = false
 
 func apply_origin_shift(offset: Vector3) -> void:
+	if _has_assigned_patrol_route():
+		var patrol_route: Array = current_air_task.metadata.patrol_route
+		for i in range(patrol_route.size()):
+			patrol_route[i] -= offset
+	if current_air_task != null and current_air_task.area_center != Vector3.INF:
+		current_air_task.area_center -= offset
+		if current_air_task.metadata.has("search_route_center"):
+			current_air_task.metadata.search_route_center -= offset
 	for track in _visual_contacts.values():
 		track.shift_origin(offset)
 	for report in _controller_contact_reports.values():
@@ -2157,6 +2183,7 @@ func apply_origin_shift(offset: Vector3) -> void:
 	carrier_position -= offset
 	_dogfight_variation_waypoint -= offset
 	_dogfight_recovery_waypoint -= offset
+	_helicopter_extension_origin -= offset
 	# Ground-attack route legs were already shifted below, but the commit validator
 	# also keeps its own copy of the setup/target line. Leaving those copies in the
 	# old floating-origin frame corrupts cross-track and range tests on later passes.
@@ -2238,13 +2265,13 @@ func apply_skill_preset() -> void:
 	# Shared stable execution. Low proportional/integral authority formerly
 	# left recruits several degrees off target indefinitely, so they never fired.
 	# Competence now changes recognition/estimation, not the ability to trim a turn.
-	dogfight_precision_direct_pitch_gain = 26.0
-	dogfight_precision_direct_yaw_gain = 14.0
+	dogfight_precision_direct_pitch_gain = 40.0
+	dogfight_precision_direct_yaw_gain = 22.0
 	dogfight_precision_pid_scale = 0.55
 	# Neutral firing policy for every competence tier. The old elite thresholds
 	# delayed head-on fire while recruits took the same safe opportunity sooner.
 	# Shot patience is a future temperament preference, not a skill penalty.
-	dogfight_min_hit_chance = 0.72
+	dogfight_min_hit_chance = 0.45
 	dogfight_fire_precise_min_blend = 0.90
 	dogfight_fire_burst_s = 0.55
 	dogfight_burst_cooldown_s = 0.22
@@ -3479,7 +3506,7 @@ func _state_search(delta: float):
 	# turn back toward the nearest known enemy to put it in our front arc so awareness rebuilds and we
 	# re-engage. Without this, once all planes lose sight they patrol separate boxes forever and the
 	# round stalemates to a draw. Awareness still gates SHOOTING; this only steers us back to the fight.
-	if dogfight_enabled and _dogfight_search_remerge(delta):
+	if dogfight_enabled and _patrol_allows_air_engagement() and _dogfight_search_remerge(delta):
 		if _evaluate_combat_objective():
 			return
 		return
@@ -3495,7 +3522,10 @@ func _state_search(delta: float):
 	var to_carrier_flat: Vector3 = carrier_position - aircraft.global_position
 	to_carrier_flat.y = 0.0
 	var carrier_distance_m: float = to_carrier_flat.length()
-	var cap_leash_enabled: bool = disengage_radius_from_carrier_m > 0.0
+	var cap_leash_enabled: bool = disengage_radius_from_carrier_m > 0.0 \
+		and not (current_air_task != null and bool(current_air_task.metadata.get("attack_area", false)))
+	cap_leash_enabled = cap_leash_enabled and not _has_flight_intercept_order()
+	cap_leash_enabled = cap_leash_enabled and not _has_assigned_patrol_route()
 	if cap_leash_enabled \
 			and carrier_distance_m > maxf(disengage_radius_from_carrier_m, engagement_radius_from_carrier_m):
 		_search_return_to_cap_active = true
@@ -3565,6 +3595,9 @@ func _dogfight_search_remerge(delta: float) -> bool:
 	var search := _dogfight_search_area()
 	if search.is_empty():
 		return false
+	# Searching remembered enemy airspace owns the maneuver, even in SEARCH.
+	# Do not mix the leader's bank, climb or cruise cap into this independent turn.
+	clear_formation_guidance()
 	target_speed = _get_default_target_speed_mps()
 	var aim: Vector3 = search.position
 	var ground_y: float = _get_ground_height_at_position(aircraft.global_position)
@@ -3576,7 +3609,12 @@ func _dogfight_search_remerge(delta: float) -> bool:
 	_navigate_to_waypoint(delta)
 	return true
 
+func is_air_contact_search_active() -> bool:
+	return current_state == State.SEARCH and dogfight_enabled and _patrol_allows_air_engagement() and not _dogfight_search_area().is_empty()
+
 func _dogfight_search_area() -> Dictionary:
+	if not _patrol_allows_air_engagement():
+		return {}
 	var youngest := INF
 	var result := {}
 	for track in _visual_contacts.values():
@@ -3585,6 +3623,8 @@ func _dogfight_search_area() -> Dictionary:
 			continue
 		var sample: Dictionary = track.sample(_visual_clock_s, lerpf(5.0, 10.0, _skill_fraction()))
 		if sample.is_empty():
+			continue
+		if _has_assigned_patrol_route() and not _position_near_patrol_route(sample.position, maxf(disengage_radius_from_carrier_m, engagement_radius_from_carrier_m)):
 			continue
 		youngest = age
 		var area: Vector3 = sample.position
@@ -3598,11 +3638,21 @@ func _dogfight_search_area() -> Dictionary:
 
 func _find_ground_attack_target() -> Node3D:
 	"""Find nearest hostile ground or surface target within sensor range. Excludes same-team."""
+	if current_air_task != null and bool(current_air_task.metadata.get("specific_ground_target", false)):
+		var designated: Node3D = current_air_task.get_target()
+		return designated if _is_valid_ground_attack_target(designated) else null
 	var my_team: int = aircraft.get_team() if aircraft.has_method("get_team") else 1
 	var nearest: Node3D = null
 	var best_score: float = INF
 	var best_threat_tier: int = 2
-	for enemy in known_enemies:
+	var candidates: Array = known_enemies.duplicate()
+	if _has_assigned_patrol_route() and ground_attack_enabled:
+		var ops := get_node_or_null("/root/AirOpsManager")
+		if ops != null:
+			for contact in ops.get_reported_ground_targets(aircraft.global_position, 6000.0):
+				if not candidates.has(contact):
+					candidates.append(contact)
+	for enemy in candidates:
 		if not is_instance_valid(enemy):
 			continue
 		if enemy.has_method("get_team") and enemy.get_team() == my_team:
@@ -4036,6 +4086,33 @@ func _is_valid_ground_attack_target(node: Variant) -> bool:
 		return false
 	if not _is_combat_target_alive(node):
 		return false
+	if current_air_task != null and current_air_task.metadata.has("attack_platoon"):
+		var reference: Variant = current_air_task.metadata.attack_platoon
+		var platoon: Node = reference.get_ref() if reference is WeakRef else null
+		if not is_instance_valid(platoon):
+			return false
+		var members: Array = platoon.get_members() if platoon.has_method("get_members") else platoon.get("_active_vehicles")
+		if not members.has(node):
+			return false
+	elif current_air_task != null and bool(current_air_task.metadata.get("attack_area", false)):
+		var area_offset: Vector3 = node.global_position - current_air_task.area_center
+		if Vector2(area_offset.x, area_offset.z).length_squared() > current_air_task.area_radius_m * current_air_task.area_radius_m:
+			return false
+	if _has_assigned_patrol_route():
+		if str(current_air_task.metadata.get("patrol_engagement", "air")) == "air":
+			return false
+		var near_route := false
+		var route: Array = current_air_task.metadata.patrol_route
+		var position_2d := Vector2(node.global_position.x, node.global_position.z)
+		for i in range(route.size()):
+			var start: Vector3 = route[i]
+			var end: Vector3 = route[(i + 1) % route.size()]
+			var closest := Geometry2D.get_closest_point_to_segment(position_2d, Vector2(start.x, start.z), Vector2(end.x, end.z))
+			if position_2d.distance_to(closest) <= 3000.0:
+				near_route = true
+				break
+		if not near_route:
+			return false
 	if node == aircraft:
 		return false
 	if node.has_method("get_team") and aircraft and aircraft.has_method("get_team"):
@@ -4130,7 +4207,7 @@ func _find_nearest_enemy_aircraft_target() -> Node3D:
 		if not is_instance_valid(enemy) or not (enemy is Node3D):
 			continue
 		var enemy_node: Node3D = enemy as Node3D
-		if not _is_enemy_aircraft_target(enemy_node):
+		if not _is_enemy_aircraft_target(enemy_node) or not _matches_intercept_flight(enemy_node):
 			continue
 		if not _is_within_engagement_radius(enemy_node):
 			continue
@@ -4219,7 +4296,7 @@ func _evaluate_combat_objective(force_update: bool = false) -> bool:
 	# Air defense has priority over ground attack -- but ONLY for DOGFIGHTER-posture aircraft. A DEFENSIVE
 	# aircraft (attacker/bomber/fleeing) does NOT go hunting air targets; it keeps to its mission (ground
 	# attack / RTB / patrol) and only reacts to a close threat via evasion (see _check_air_threat_proximity).
-	if dogfight_enabled and air_combat_posture == AirCombatPosture.DOGFIGHTER:
+	if dogfight_enabled and _patrol_allows_air_engagement() and air_combat_posture == AirCombatPosture.DOGFIGHTER:
 		var air_target: Node3D = _find_nearest_enemy_aircraft_target()
 		if air_target and is_instance_valid(air_target):
 			combat_target = air_target
@@ -4255,6 +4332,8 @@ func _is_within_engagement_radius(target: Variant, radius_m: float = -1.0) -> bo
 		return false
 	if not (target is Node3D):
 		return false
+	if _has_flight_intercept_order() and _matches_intercept_flight(target):
+		return true
 	var radius: float = radius_m if radius_m > 0.0 else engagement_radius_from_carrier_m
 	if radius <= 0.0:
 		return true
@@ -4265,6 +4344,9 @@ func _is_within_engagement_radius(target: Variant, radius_m: float = -1.0) -> bo
 		if observation.is_empty() or bool(observation.get("expired", true)):
 			return false
 		target_position = observation.position
+	if _has_assigned_patrol_route():
+		# Combat around an assigned patrol belongs to that route, not the carrier.
+		return _position_near_patrol_route(target_position, radius)
 	if carrier_position == Vector3.ZERO:
 		return aircraft.global_position.distance_to(target_position) <= radius
 	return carrier_position.distance_to(target_position) <= radius
@@ -6021,9 +6103,10 @@ func _make_aircraft_route_path_segment(start: Vector3, goal: Vector3, role: Stri
 	}
 
 func _get_aircraft_route_planning_bank_limit_deg(role: String) -> float:
-	var bank_limit_deg: float = bank_cmd_limit_deg
+	# Ordinary route geometry must fit the same upright envelope as its follower.
+	var bank_limit_deg: float = minf(bank_cmd_limit_deg, NAVIGATION_UPRIGHT_BANK_LIMIT_DEG)
 	if role == "attack_setup" or role == "attack_approach":
-		bank_limit_deg = attack_route_bank_limit_deg
+		bank_limit_deg = minf(attack_route_bank_limit_deg, ATTACK_POSITIONING_BANK_LIMIT_DEG)
 	elif role in ["attack_target", "attack_egress"]:
 		bank_limit_deg = attack_bank_cmd_limit_deg
 	elif role in ["recovery_transit", "recovery_arrival"]:
@@ -9621,7 +9704,7 @@ func _state_attack_positioning(delta: float):
 
 	# Don't attempt attack maneuvers at dangerously low speed ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â build energy first
 	var cur_speed: float = _get_air_relative_velocity().length()
-	if cur_speed < stall_speed_mps + stall_margin_mps:
+	if cur_speed < _get_ground_attack_stall_floor_mps():
 		# Too slow: fly straight, nose slightly down, build speed
 		nav_waypoint = aircraft.global_position + aircraft.global_transform.basis.z * 500.0
 		nav_waypoint.y = aircraft.global_position.y - 20.0
@@ -9841,6 +9924,14 @@ func _setup_direct_ground_attack_intercept(target_pos: Vector3) -> void:
 			terrain_max_m + maxf(attack_positioning_hard_floor_agl_m, 220.0)
 				if not is_nan(terrain_max_m) else -INF
 		)
+	if _is_direct_fire_attack_weapon_type(_run_weapon_type) and _run_weapon_type != "Rocket Pod":
+		# Direct ingress must satisfy the same corridor that the commit gate checks.
+		# The old 220 m point could fail that gate even over completely flat ground,
+		# repeatedly sending an otherwise aligned aircraft around without firing.
+		_bomb_run_altitude_m = _solve_direct_fire_corridor_setup_altitude_m(
+			aircraft.global_position, target_pos, _attack_egress_waypoint, _bomb_run_altitude_m
+		) + 1.0
+		_attack_egress_waypoint.y = maxf(_attack_egress_waypoint.y, _bomb_run_altitude_m)
 	nav_waypoint = target_pos
 	nav_waypoint.y = _bomb_run_altitude_m
 	maneuver_waypoint = nav_waypoint
@@ -10017,6 +10108,16 @@ func _uses_direct_ground_attack_intercept() -> bool:
 	# switch enables the same direct-intercept geometry for every ground weapon;
 	# only the release/aim calculation differs by weapon after commit.
 	return ground_attack_direct_intercept_enabled or ground_attack_direct_fire_intercept_enabled
+
+func _get_ground_attack_stall_floor_mps() -> float:
+	# Use this aircraft's live stall speed (including its flap configuration).
+	# The generic 40 m/s default kept Aircraft 6's unstalled 46 m/s cruise in
+	# straight-ahead recovery forever instead of letting it line up an attack.
+	var effective_stall_mps: float = stall_speed_mps
+	if is_instance_valid(simple_aero) and simple_aero.has_method("get_effective_stall_speed_mps"):
+		effective_stall_mps = float(simple_aero.call("get_effective_stall_speed_mps"))
+	return effective_stall_mps + maxf(stall_margin_mps, 0.0)
+
 
 func _evaluate_direct_intercept_turn_reachability(target_pos: Vector3) -> Dictionary:
 	var to_target_flat: Vector3 = target_pos - aircraft.global_position
@@ -10221,7 +10322,16 @@ func _state_direct_ground_attack_intercept(delta: float, active_target: Node3D, 
 		return
 	var turn_reachability: Dictionary = _evaluate_direct_intercept_turn_reachability(target_pos)
 	var commit_attitude_unsettled: bool = target_dot < required_target_dot or bank_deg > commit_bank_deg
-	if commit_attitude_unsettled and not bool(turn_reachability.get("reachable", true)):
+	var height_to_lose_m: float = maxf(aircraft.global_position.y - safe_intercept_y, 0.0)
+	var descent_distance_m: float = height_to_lose_m / tan(deg_to_rad(
+		clampf(attack_positioning_max_descent_angle_deg, 1.0, 30.0)))
+	var available_descent_m: float = maxf(float(turn_reachability.get("available_m", 0.0)) \
+		- _ground_attack_entry_range_for_height(safe_intercept_y - target_pos.y, target_speed), 0.0)
+	var needs_descent_setup: bool = _is_strafing_ground_attack_weapon_type(_run_weapon_type) \
+		and height_to_lose_m > 150.0 and descent_distance_m > available_descent_m \
+		and aircraft.global_position.y - target_pos.y > float(turn_reachability.get("available_m", 0.0)) \
+			* tan(deg_to_rad(20.0))
+	if needs_descent_setup or (commit_attitude_unsettled and not bool(turn_reachability.get("reachable", true))):
 		# The target is inside the distance needed to finish this turn. Continuing
 		# to point-navigation here creates a perpetual orbit: pull, overshoot,
 		# roll out, and repeat. Extend along the current flight path until there is
@@ -10249,6 +10359,10 @@ func _state_direct_ground_attack_intercept(delta: float, active_target: Node3D, 
 			-ray_projection_m + sqrt(extension_discriminant),
 			turn_radius_m
 		)
+		if needs_descent_setup:
+			# Lose excess height in normal flight before returning to the firing lane.
+			# An immediate steep dive can consume the whole gun/rocket range in pull-out.
+			extension_distance_m = maxf(extension_distance_m, descent_distance_m)
 		extension_distance_m += _get_aircraft_route_capture_radius_m(
 			aircraft.linear_velocity.length(),
 			"attack_approach",
@@ -10265,7 +10379,7 @@ func _state_direct_ground_attack_intercept(delta: float, active_target: Node3D, 
 		maneuver_waypoint = nav_waypoint
 		if nav_target:
 			nav_target.global_position = maneuver_waypoint
-		_attack_last_commit_reason = "direct_intercept_extending"
+		_attack_last_commit_reason = "direct_intercept_descending" if needs_descent_setup else "direct_intercept_extending"
 		if debug_enabled:
 			print("[AIPilot ATTACK] Direct intercept inside turn geometry: available=%.0fm required=%.0fm heading=%.0fdeg bank=%.0fdeg; extending for direct re-entry" % [
 				float(turn_reachability.get("available_m", 0.0)),
@@ -11612,9 +11726,65 @@ func _specific_energy_m(altitude_y: float, speed_mps: float) -> float:
 	var g: float = 9.8
 	return altitude_y + (speed_mps * speed_mps) / (2.0 * g)
 
-# Decide the energy tactic (boom-and-zoom) and return an adjusted aim point + throttle/vertical
-# intent for this frame. This is the tactical brain that keeps an energy-advantaged fighter using
-# the vertical instead of descending to turn-fight a low/slow target.
+# Helicopter engagements retain attack speed and commit to a straight extension
+# before turning back. This also applies when simple fighter pursuit is enabled.
+func _compute_helicopter_attack_tactic(own_pos: Vector3, own_vel: Vector3,
+		target_pos: Vector3, base_aim: Vector3, delta: float) -> Dictionary:
+	# Helicopters are pass targets even when our own speed has fallen. Identifying
+	# them by a momentary speed difference would switch back to slow tail pursuit.
+	var offset := target_pos - own_pos
+	var distance := offset.length()
+	var nose_dot := aircraft.global_basis.z.dot(offset.normalized())
+	var speed := own_vel.length()
+	var result := {"aim_point": base_aim, "tactic": DogfightEnergyTactic.DIVING_ATTACK,
+		"min_altitude_y": -INF, "throttle_override": -1.0, "gun_commit": false}
+	if _helicopter_attack_phase == HelicopterAttackPhase.APPROACH \
+			and distance <= dogfight_commit_range_m and nose_dot >= dogfight_commit_min_aim_dot:
+		_helicopter_attack_phase = HelicopterAttackPhase.PASS
+		_helicopter_pass_time_s = 0.0
+	if _helicopter_attack_phase == HelicopterAttackPhase.PASS:
+		_helicopter_pass_time_s += delta
+		# Allow enough travel to reach the firing window from the commit range.
+		var pass_limit_s := maxf(dogfight_commit_max_s,
+			dogfight_commit_range_m / maxf(speed, dogfight_corner_speed_mps) * 1.5)
+		if nose_dot < dogfight_commit_break_dot or distance < dogfight_collision_min_sep_m * 2.0 \
+				or _helicopter_pass_time_s >= pass_limit_s or _dogfight_energy_recovering:
+			_helicopter_attack_phase = HelicopterAttackPhase.EXTEND
+			_helicopter_extension_time_s = 0.0
+			_helicopter_extension_origin = own_pos
+			_helicopter_extension_direction = own_vel * Vector3(1, 0, 1)
+			if _helicopter_extension_direction.length_squared() < 1.0:
+				_helicopter_extension_direction = aircraft.global_basis.z * Vector3(1, 0, 1)
+			_helicopter_extension_direction = _helicopter_extension_direction.normalized()
+			# Leave room for both the reversal and a stabilized firing run.
+			# Using only the larger of these brought us back still banked and
+			# turning throughout the next gun window.
+			_helicopter_extension_distance_m = dogfight_commit_range_m \
+				+ _estimate_aircraft_turn_radius_m(maxf(speed, dogfight_corner_speed_mps)) * 2.0
+	if _helicopter_attack_phase == HelicopterAttackPhase.EXTEND:
+		_helicopter_extension_time_s += delta
+		var traveled := (own_pos - _helicopter_extension_origin).dot(_helicopter_extension_direction)
+		if _helicopter_extension_time_s >= dogfight_scissors_extend_s \
+				and traveled >= _helicopter_extension_distance_m and distance >= dogfight_commit_range_m \
+				and not _dogfight_energy_recovering:
+			_helicopter_attack_phase = HelicopterAttackPhase.APPROACH
+		else:
+			var extension := own_pos + _helicopter_extension_direction * 1000.0
+			# Rebuild speed before spending it on the climb. A fixed flight-path
+			# direction prevents the helicopter pulling the extension into a circle.
+			if speed >= dogfight_corner_speed_mps:
+				extension.y = maxf(own_pos.y, minf(target_pos.y + dogfight_perch_height_m, own_pos.y + 1000.0 * tan(deg_to_rad(5.0))))
+			result.aim_point = extension
+			result.tactic = DogfightEnergyTactic.EXTEND_REBUILD
+			return result
+	if _helicopter_attack_phase == HelicopterAttackPhase.PASS:
+		result.tactic = DogfightEnergyTactic.COMMITTED_ATTACK
+		result.gun_commit = true
+	elif distance > dogfight_commit_range_m * 1.5:
+		result.min_altitude_y = target_pos.y + dogfight_min_pursuit_height_m
+		result.aim_point.y = maxf(base_aim.y, result.min_altitude_y)
+	return result
+
 func _compute_dogfight_energy_tactic(
 		own_pos: Vector3, own_vel: Vector3, target_pos: Vector3, target_vel: Vector3,
 		base_aim_point: Vector3, delta: float) -> Dictionary:
@@ -11959,7 +12129,12 @@ func _state_dogfight(delta: float):
 	_update_dogfight_pursuit_energy(delta, speed_mps)
 	var collision_avoid_wp: Vector3 = _compute_dogfight_collision_avoidance(target_pos, target_vel, own_pos, own_vel)
 	var collision_avoiding: bool = collision_avoid_wp != Vector3.ZERO
-	var reset_aim := _update_dogfight_tactical_reset(delta, target_pos)
+	var helicopter_attack := _uses_helicopter_flight(combat_target)
+	var reset_aim := target_pos
+	if helicopter_attack:
+		_dogfight_reset_timer_s = 0.0 # The pass/extension cycle owns this maneuver.
+	else:
+		reset_aim = _update_dogfight_tactical_reset(delta, target_pos)
 	var in_rejoin: bool = dist_to_target > dogfight_rejoin_range_m or collision_avoiding
 	in_rejoin = in_rejoin or _dogfight_reset_timer_s > 0.0
 	var to_target_dir: Vector3 = (target_pos - own_pos).normalized() if dist_to_target > 1.0 else b.z
@@ -12032,7 +12207,14 @@ func _state_dogfight(delta: float):
 		"throttle_override": -1.0,
 		"gun_commit": false,
 	}
-	if dogfight_simple_pursuit_enabled:
+	if helicopter_attack:
+		# A slashing pass has a short firing window. Establish the gun line on
+		# approach, instead of chasing the contact point until the last 650 m.
+		if _dogfight_contact_visible and dist_to_target <= dogfight_commit_range_m:
+			aim_point = compensated_aim_point
+		energy_tactic = _compute_helicopter_attack_tactic(own_pos, own_vel, target_pos, aim_point, delta)
+		_dogfight_energy_tactic = int(energy_tactic.tactic)
+	elif dogfight_simple_pursuit_enabled:
 		_dogfight_energy_tactic = DogfightEnergyTactic.NEUTRAL
 	else:
 		energy_tactic = _compute_dogfight_energy_tactic(
@@ -12041,6 +12223,8 @@ func _state_dogfight(delta: float):
 	var tactic_min_alt_y: float = float(energy_tactic.get("min_altitude_y", -INF))
 	var tactic_throttle: float = float(energy_tactic.get("throttle_override", -1.0))
 	var tactic_gun_commit: bool = bool(energy_tactic.get("gun_commit", false))
+	var helicopter_extending := helicopter_attack and _helicopter_attack_phase == HelicopterAttackPhase.EXTEND
+	in_rejoin = in_rejoin or helicopter_extending
 	# Adopt the tactic's aim point: it already carries the keep-it-low CEILING clamp and the hard dive
 	# FLOOR from _compute_dogfight_energy_tactic (previously only ZOOM_RESET read it back, so a sustained
 	# COMMITTED/DIVING 1v1 ignored the ceiling and spiralled to 4000m+). Then still apply the per-tactic
@@ -12087,7 +12271,13 @@ func _state_dogfight(delta: float):
 	# gets caught before the nose ever points that way, not just once already diving into it.
 	_update_dogfight_terrain_floor(delta, own_pos, own_vel, target_pos, target_vel)
 	if _dogfight_terrain_floor_y > -INF:
-		aim_point.y = maxf(aim_point.y, _dogfight_terrain_floor_y)
+		var aim_floor_y := _dogfight_terrain_floor_y
+		if helicopter_attack and _helicopter_attack_phase == HelicopterAttackPhase.PASS:
+			# A gun sight may point below cruise clearance while the aircraft
+			# remains above it. Keep the sampled terrain margin and physical
+			# pullout guard, rather than aiming 260 m above a low helicopter.
+			aim_floor_y += dogfight_dive_recovery_margin_m - dogfight_ground_protect_agl_m
+		aim_point.y = maxf(aim_point.y, aim_floor_y)
 
 	var to_aim: Vector3 = aim_point - aim_reference_pos
 	if to_aim.length_squared() < 1.0:
@@ -12171,13 +12361,19 @@ func _state_dogfight(delta: float):
 		and local_z >= clampf(dogfight_simple_ballistic_steering_min_forward_dot, 0.0, 1.0)
 		and precise_aim_t >= clampf(dogfight_simple_ballistic_steering_min_precision, 0.0, 1.0)
 	))
-	if target_in_sight and tactic_id != DogfightEnergyTactic.ZOOM_RESET and allow_ballistic_steering:
+	if target_in_sight and tactic_id != DogfightEnergyTactic.ZOOM_RESET and not helicopter_extending and allow_ballistic_steering:
 		var precise_ballistic_blend: float = lerpf(
 			ballistic_aim_base_blend,
 			clampf(dogfight_precise_ballistic_aim_blend, ballistic_aim_base_blend, 1.0),
 			precise_aim_t
 		)
 		var refined_aim_point: Vector3 = pursuit_point.lerp(compensated_aim_point, precise_ballistic_blend)
+		if helicopter_attack:
+			refined_aim_point = compensated_aim_point
+			if _dogfight_terrain_floor_y > -INF:
+				refined_aim_point.y = maxf(refined_aim_point.y,
+					_dogfight_terrain_floor_y - dogfight_ground_protect_agl_m + dogfight_dive_recovery_margin_m)
+			refined_aim_point = _clamp_dogfight_suicide_dive(own_pos, own_vel, refined_aim_point)
 		refined_aim_point = _clamp_dogfight_upward_aim_point(own_pos, refined_aim_point)
 		# Keep the "don't sink into their arena" floor even on the refined ballistic aim.
 		if tactic_min_alt_y > -INF:
@@ -12684,28 +12880,8 @@ func _state_dogfight(delta: float):
 		aim_tof,
 		dist_to_target
 	)
-	# Don't shoot at medium/long range unless we're in precise-aim phase. During a COMMITTED pass we
-	# relax this -- the whole point is to spray rounds through the target on the slashing merge, so
-	# extend the "close enough to fire on a decent solution" range to the full commit range.
-	var min_precise_fire_blend: float = clampf(dogfight_fire_precise_min_blend, 0.0, 1.0)
-	var precise_close_range_m: float = maxf(dogfight_fire_precise_close_range_m, 50.0)
-	if tactic_gun_commit:
-		precise_close_range_m = maxf(precise_close_range_m, dogfight_commit_range_m)
-	if precise_aim_t < min_precise_fire_blend and dist_to_target > precise_close_range_m:
-		fire_ok = false
-
-	# Geometric fallback only for very close, centerline shots.
-	var fallback_range_m: float = maxf(dogfight_fire_fallback_range_m, 50.0)
-	var fallback_min_dot: float = clampf(dogfight_fire_fallback_min_dot, 0.0, 0.9999)
-	var fire_geom_ok: bool = false
-	if dist_to_target < fallback_range_m and precise_aim_t > 0.94:
-		fire_geom_ok = (
-			local_z > fallback_min_dot
-			and absf(local_x) < maxf(dogfight_fire_fallback_lateral, 0.01)
-			and absf(local_y) < maxf(dogfight_fire_fallback_vertical, 0.01)
-		)
-	# A geometric shortcut must not bypass the current-bore ballistic check.
-	fire_ok = fire_ok or (fire_geom_ok and _dogfight_fire_block_reason == "ready")
+	# The current muzzle's ballistic solution authorizes the shot. Guidance
+	# blend controls how we steer, not whether an already useful shot may fire.
 	if not _dogfight_contact_visible or _dogfight_reset_timer_s > 0.0:
 		fire_ok = false
 		_dogfight_fire_block_reason = "lost_visual_contact" if not _dogfight_contact_visible else "tactical_reset"
@@ -12912,7 +13088,7 @@ func _find_alternate_dogfight_target() -> Node3D:
 		var enemy_node: Node3D = enemy as Node3D
 		if enemy_node == combat_target:
 			continue
-		if not _is_enemy_aircraft_target(enemy_node):
+		if not _is_enemy_aircraft_target(enemy_node) or not _matches_intercept_flight(enemy_node):
 			continue
 		if not _is_within_engagement_radius(enemy_node):
 			continue
@@ -12965,7 +13141,7 @@ func _find_best_air_target() -> Node3D:
 		if not is_instance_valid(enemy) or not (enemy is Node3D):
 			continue
 		var enemy_node: Node3D = enemy as Node3D
-		if not _is_enemy_aircraft_target(enemy_node):
+		if not _is_enemy_aircraft_target(enemy_node) or not _matches_intercept_flight(enemy_node):
 			continue
 		if not _is_within_engagement_radius(enemy_node):
 			continue
@@ -13158,6 +13334,9 @@ func _update_dogfight_tactical_reset(delta: float, estimated_target: Vector3) ->
 	return aircraft.global_position + _dogfight_reset_direction * 900.0
 
 func _reset_dogfight_pursuit() -> void:
+	_helicopter_attack_phase = HelicopterAttackPhase.APPROACH
+	_helicopter_pass_time_s = 0.0
+	_helicopter_extension_time_s = 0.0
 	_dogfight_no_progress_s = 0.0
 	_dogfight_progress_angle = INF
 	_dogfight_progress_range = INF
@@ -13218,6 +13397,9 @@ func _update_dogfight_pursuit_energy(delta: float, speed_mps: float) -> void:
 		_dogfight_energy_load_limit_g = 1.0
 
 func _update_dogfight_closure_throttle(delta: float, target_pos: Vector3, target_vel: Vector3, escaping: bool) -> void:
+	# Fly a useful attack speed through helicopter passes instead of matching a
+	# hovering/slower target. The same speed/energy controller still sets power.
+	escaping = escaping or _uses_helicopter_flight(combat_target)
 	var offset := target_pos - aircraft.global_position
 	var distance := offset.length()
 	var sightline := offset.normalized()
@@ -13965,6 +14147,12 @@ func _update_dogfight_burst_timers(delta: float, fire_solution_good: bool) -> vo
 
 	# Strong, sustained solution -> hold the trigger (skip the post-burst cooldown, refresh the burst).
 	var sustained: bool = _dogfight_last_hit_chance >= dogfight_sustained_fire_hit_chance
+	if fire_solution_good and sustained:
+		# Reacquiring a useful solution cancels any pause from an earlier wobble.
+		_dogfight_burst_active = true
+		_dogfight_burst_timer_s = dogfight_fire_burst_s
+		_dogfight_burst_cooldown_timer_s = 0.0
+		return
 	if _dogfight_burst_active:
 		if not fire_solution_good:
 			_dogfight_burst_active = false
@@ -14904,6 +15092,7 @@ func _get_gun_ccip_corrected_aim_position(base_aim_pos: Vector3, target_pos: Vec
 	return aircraft.global_position + corrected_airframe_forward * aim_distance_m
 
 func _clear_gun_ccip_aim_error() -> void:
+	_gun_ccip_yaw_integral = 0.0
 	_gun_ccip_aim_active = false
 	_gun_ccip_local_right_m = 0.0
 	_gun_ccip_local_forward_m = 0.0
@@ -18848,9 +19037,9 @@ func _state_approach_path_follower(delta: float) -> void:
 		approach_precision_bank_limit_deg,
 		approach_precision_bank_gain,
 		approach_precision_min_bank_deg,
-		precision_point_yaw_gain,
-		0.42,
-		0.32,
+		approach_precision_yaw_gain,
+		approach_precision_roll_response,
+		approach_precision_yaw_response,
 		1.0
 	)
 	_apply_approach_path_vertical_guidance(nav_waypoint)
@@ -20285,9 +20474,9 @@ func _state_approach(delta: float):
 				approach_precision_bank_limit_deg,
 				approach_precision_bank_gain,
 				approach_precision_min_bank_deg,
-				precision_point_yaw_gain,
-				0.42,
-				0.32,
+				approach_precision_yaw_gain,
+				approach_precision_roll_response,
+				approach_precision_yaw_response,
 				1.0
 			)
 			var h1: float = aircraft.global_position.distance_to(wp1.global_position)
@@ -20312,9 +20501,9 @@ func _state_approach(delta: float):
 				approach_precision_bank_limit_deg,
 				approach_precision_bank_gain,
 				approach_precision_min_bank_deg,
-				precision_point_yaw_gain,
-				0.42,
-				0.32,
+				approach_precision_yaw_gain,
+				approach_precision_roll_response,
+				approach_precision_yaw_response,
 				1.0
 			)
 			var h2: float = aircraft.global_position.distance_to(wp2.global_position)
@@ -20339,9 +20528,9 @@ func _state_approach(delta: float):
 				approach_precision_bank_limit_deg,
 				approach_precision_bank_gain,
 				approach_precision_min_bank_deg,
-				precision_point_yaw_gain,
-				0.42,
-				0.32,
+				approach_precision_yaw_gain,
+				approach_precision_roll_response,
+				approach_precision_yaw_response,
 				1.0
 			)
 			var h3: float = aircraft.global_position.distance_to(wp3.global_position)
@@ -21939,7 +22128,7 @@ func _navigate_to_waypoint(delta: float):
 	elif current_state == State.DOGFIGHT:
 		bank_limit_deg = dogfight_bank_cmd_limit_deg
 	elif current_state == State.ATTACK_POSITIONING:
-		bank_limit_deg = attack_route_bank_limit_deg
+		bank_limit_deg = minf(attack_route_bank_limit_deg, ATTACK_POSITIONING_BANK_LIMIT_DEG)
 	elif current_state == State.ATTACK_INBOUND:
 		# A short bombing ingress still needs lift for the altitude gate. Falling
 		# through to the generic navigation limit allowed 70-90 degree banks and
@@ -21994,6 +22183,10 @@ func _navigate_to_waypoint(delta: float):
 		bank_limit_deg = lerpf(15.0, minf(bank_cmd_limit_deg, 35.0), clampf(ma_spd_margin / 20.0, 0.0, 1.0))
 	else:
 		bank_limit_deg = bank_cmd_limit_deg
+	if current_state in [State.SEARCH, State.TRANSIT, State.RTB]:
+		# Leave roll margin below the upright guard (up.y <= 0.3). Asking for
+		# 75 degrees while recovering to level at 72.5 caused repeated rollouts.
+		bank_limit_deg = minf(bank_limit_deg, NAVIGATION_UPRIGHT_BANK_LIMIT_DEG)
 	if current_state in [State.SEARCH, State.TRANSIT]:
 		var nav_bank_t: float = clampf((altitude_agl - emergency_min_agl_m) / 220.0, 0.0, 1.0)
 		var low_nav_bank_limit: float = lerpf(bank_limit_when_low_deg, bank_limit_deg, nav_bank_t)
@@ -23389,6 +23582,11 @@ func _navigate_to_waypoint(delta: float):
 	var bank_util: float = clamp(abs(current_roll) / bank_limit_rad, 0.0, 1.0)
 	var high_bank_t: float = clamp((bank_util - high_bank_start_ratio) / max(1.0 - high_bank_start_ratio, 0.01), 0.0, 1.0)
 	
+	# Roll is computed before the final vertical/lateral load resolution below.
+	# Bound its attitude request here too; limiting only the later load vector
+	# still let the aileron controller track the old overbank request.
+	if current_state == State.ATTACK_POSITIONING:
+		desired_bank = clampf(desired_bank, -bank_limit_rad, bank_limit_rad)
 	# === ROLL: PD controller - decisive gain + minimum input when off target ===
 	_navigation_desired_bank_rad_debug = desired_bank
 	_navigation_current_bank_rad_debug = current_roll
@@ -23682,13 +23880,11 @@ func _navigate_to_waypoint(delta: float):
 			# physically attainable roll-in/roll-out. It is part of the same vector
 			# request, not an independent roll controller.
 			final_3d_bank_limit_deg = maxf(route_geometry_bank_limit_deg, 0.0)
-		elif current_state == State.ATTACK_POSITIONING:
-			# Overbank is not a separate attack-mode roll command. It is available only
-			# when the combined vector needs downward as well as lateral acceleration.
-			final_3d_bank_limit_deg = maxf(
-				final_3d_bank_limit_deg,
-				attack_assertive_turn_overbank_max_deg
-			)
+		if current_state == State.ATTACK_POSITIONING:
+			# Descending while turning must not roll the aircraft past vertical.
+			# Apply the envelope to the combined acceleration request, after both
+			# point and arc planning, so neither can reopen the old 120-degree limit.
+			final_3d_bank_limit_deg = minf(final_3d_bank_limit_deg, bank_limit_deg)
 		if formation_leader_guidance:
 			# Authored route curvature also passes through the formation bank limit.
 			final_3d_bank_limit_deg = minf(final_3d_bank_limit_deg, formation_lead_bank_limit_deg)
@@ -24211,8 +24407,18 @@ func _navigate_to_waypoint(delta: float):
 				direct_fire_yaw_valid = true
 		if direct_fire_yaw_valid:
 			var direct_fire_yaw_rate: float = ang_vel.dot(b.y)
+			# Proportional steering alone left a persistent lateral miss on crossing
+			# vehicles. Accumulate only a valid, fine CCIP solution; clamp authority
+			# so acquisition, a blocked sight, and large turns cannot wind it up.
+			if _gun_ccip_aim_active and not _gun_ccip_blocked and direct_fire_coarse_t < 0.1:
+				_gun_ccip_yaw_integral = clampf(_gun_ccip_yaw_integral \
+					+ direct_fire_yaw_err_rad * maxf(gun_attack_yaw_integral_gain, 0.0) * delta,
+					-gun_attack_max_yaw_input * 0.5, gun_attack_max_yaw_input * 0.5)
+			else:
+				_gun_ccip_yaw_integral = 0.0
 			var direct_fire_yaw_cmd: float = clampf(
 				direct_fire_yaw_err_rad * maxf(gun_attack_yaw_gain, 0.0)
+				+ _gun_ccip_yaw_integral
 				- direct_fire_yaw_rate * maxf(gun_attack_yaw_rate_damping, 0.0),
 				-maxf(gun_attack_max_yaw_input, 0.0),
 				maxf(gun_attack_max_yaw_input, 0.0)
@@ -25656,13 +25862,14 @@ func _check_collision_avoidance(_delta: float) -> bool:
 		if seen.has(id):
 			continue
 		seen[id] = true
-		if not _is_airborne_for_separation(cnode):
-			continue
 		# Only worry about things near our altitude (skip ground vehicles etc)
 		if absf(cnode.global_position.y - my_pos.y) > maxf(airborne_safe_vertical_m, 1.0):
 			continue
 		var rel_pos: Vector3 = cnode.global_position - my_pos
 		if rel_pos.length_squared() > 160000.0:
+			continue
+		# Terrain queries belong after the cheap distance/altitude rejection.
+		if not _is_airborne_for_separation(cnode):
 			continue
 		# Get contact velocity
 		var contact_vel := Vector3.ZERO
@@ -26782,7 +26989,7 @@ func _dogfight_target_observation(target: Variant) -> Dictionary:
 	return {}
 
 func receive_intercept_contact_report(target: Node3D, reported_position: Vector3, reported_velocity: Vector3) -> void:
-	# Called by an explicit assignment/report event, never polled from a live Node.
+	# Controller assignment/tracking updates supply coarse reports; pilot steering never refreshes them itself.
 	if not is_instance_valid(target):
 		return
 	_controller_contact_reports[target.get_instance_id()] = {"at": _visual_clock_s,
@@ -26810,12 +27017,8 @@ func _scan_contacts():
 
 	# Update cached group nodes periodically
 	if sensor_update_counter % sensor_update_interval == 0:
-		cached_hostile_nodes.clear()
-		for group_name in hostile_groups:
-			cached_hostile_nodes.append_array(get_tree().get_nodes_in_group(group_name))
-		cached_friendly_nodes.clear()
-		for group_name in friendly_groups:
-			cached_friendly_nodes.append_array(get_tree().get_nodes_in_group(group_name))
+		cached_hostile_nodes = _collect_unique_sensor_nodes(hostile_groups)
+		cached_friendly_nodes = _collect_unique_sensor_nodes(friendly_groups)
 
 	# Scan cached hostile nodes
 	for node in cached_hostile_nodes:
@@ -26825,7 +27028,7 @@ func _scan_contacts():
 			continue
 		var enemy_node := node as Node3D
 		var distance_sq: float = aircraft.global_position.distance_squared_to(enemy_node.global_position)
-		if distance_sq <= sensor_range_sq and not known_enemies.has(enemy_node):
+		if distance_sq <= sensor_range_sq:
 			known_enemies.append(enemy_node)
 
 	# Scan cached friendly nodes
@@ -26836,8 +27039,22 @@ func _scan_contacts():
 			continue
 		var friendly_node := node as Node3D
 		var distance_sq: float = aircraft.global_position.distance_squared_to(friendly_node.global_position)
-		if distance_sq <= sensor_range_sq and not known_friendlies.has(friendly_node):
+		if distance_sq <= sensor_range_sq:
 			known_friendlies.append(friendly_node)
+
+func _collect_unique_sensor_nodes(groups: Array[String]) -> Array[Node3D]:
+	# Units commonly belong to several sensor groups. Deduplicate once when
+	# refreshing the cache rather than repeatedly testing them on every scan.
+	var result: Array[Node3D] = []
+	var seen := {}
+	for group_name in groups:
+		for node in get_tree().get_nodes_in_group(group_name):
+			if not is_instance_valid(node) or not node is Node3D: continue
+			var id: int = node.get_instance_id()
+			if seen.has(id): continue
+			seen[id] = true
+			result.append(node)
+	return result
 
 func _report_contacts_to_air_ops(delta: float) -> void:
 	if aircraft == null or not is_instance_valid(aircraft):
@@ -27223,8 +27440,8 @@ func _compute_coordinated_turn_controls(
 		)
 		var aero_max_lift_g: float = maxf(float(simple_aero.get("max_lift_ratio")), 0.1)
 		aero_zero_aoa_load_g = minf(pow(speed_mps / aligned_level_speed_mps, 2.0), 1.0)
-		if _is_recovery_route_state() and simple_aero.has_method("get_lift_load_scale"):
-			# Recovery must invert the same loaded-wing equation as the physics.
+		if simple_aero.has_method("get_lift_load_scale"):
+			# Every maneuver must invert the same loaded-wing equation as the physics.
 			# An unloaded estimate under-commands AoA and overstates turn capacity.
 			var load_scale: float = simple_aero.get_lift_load_scale()
 			aero_zero_aoa_load_g *= load_scale
@@ -27826,6 +28043,20 @@ func reset_coordinated_turn_test_state() -> void:
 
 
 func _setup_patrol_waypoints():
+	# An attack run replaces navigation waypoints, but never the patrol order.
+	if _has_assigned_patrol_route():
+		var route: Array[Vector3] = []
+		route.assign(current_air_task.metadata.patrol_route)
+		route = build_effective_altitude_waypoints(route, aircraft_flight_plan_terrain_clearance_m, true)
+		var nearest := 0
+		for i in range(route.size()):
+			if aircraft.global_position.distance_squared_to(route[i]) < aircraft.global_position.distance_squared_to(route[nearest]):
+				nearest = i
+		var ordered: Array[Vector3] = []
+		for i in range(route.size()):
+			ordered.append(route[(nearest + i) % route.size()])
+		set_patrol_route(ordered)
+		return
 	"""Create 2 km square patrol around carrier"""
 	waypoints.clear()
 	waypoint_speeds_mps.clear()
@@ -28078,6 +28309,20 @@ func set_waypoints(new_waypoints: Array[Vector3], follow_carrier: bool = false, 
 			first.x, first.y, first.z,
 			second.x, second.y, second.z
 		])
+
+func set_patrol_route(route: Array[Vector3]) -> void:
+	# A patrol is a closed path in world space. A plain waypoint list has no
+	# incoming leg at index zero and cannot accept that corner's fly-by handoff.
+	var legs: Array = []
+	for point in route:
+		legs.append({
+			"position": point,
+			"role": "patrol",
+			"speed_mps": default_waypoint_speed_mps,
+			"capture_radius_m": aircraft_flight_plan_capture_radius_m,
+		})
+	set_flight_plan_legs("patrol", legs, false, true)
+	_patrol_route_join_pending = route.size() > 1
 
 func set_waypoint_legs(legs: Array, follow_carrier: bool = false) -> void:
 	"""Set waypoint legs from dictionaries containing position and optional speed_mps."""
@@ -28399,6 +28644,7 @@ func get_active_flight_plan() -> Variant:
 
 
 func set_flight_plan_legs(plan_name: String, legs: Array, follow_carrier: bool = false, loop: bool = false, capture_radius_m: float = -1.0) -> void:
+	_patrol_route_join_pending = false
 	"""Compatibility entry point: normalize loose legs into an explicit FlightPlan."""
 	var new_waypoints: Array[Vector3] = []
 	var new_speeds: Array = []
@@ -28529,6 +28775,7 @@ func set_flight_plan_legs(plan_name: String, legs: Array, follow_carrier: bool =
 	_flight_plan_revision += 1
 
 func _clear_flight_plan() -> void:
+	_patrol_route_join_pending = false
 	_flight_plan_name = ""
 	_flight_plan_legs.clear()
 	_active_flight_plan = null
@@ -29159,6 +29406,12 @@ func _get_3d_point_flight_path_guidance(
 		return {"active": false}
 	var minimum_response_time_s: float = 1.0 \
 		/ maxf(attack_route_control_input_response_hz, 0.01)
+	var maximum_response_time_s: float = INF
+	var direct_attack_capture: bool = current_state == State.ATTACK_POSITIONING \
+		and _uses_direct_ground_attack_intercept() and not _direct_intercept_axis_guidance_active
+	if (current_state in [State.SEARCH, State.TRANSIT, State.RTB] or direct_attack_capture) \
+			and not formation_anchor_active:
+		maximum_response_time_s = navigation_point_response_time_s
 	return SharedFlightPathFollower.solve_point_guidance(
 		aircraft.global_position,
 		aircraft.linear_velocity,
@@ -29171,7 +29424,8 @@ func _get_3d_point_flight_path_guidance(
 		flight_path_angle_limit_deg,
 		minimum_response_time_s,
 		coordinated_turn_vertical_path_response,
-		_coordinated_turn_nonwing_vertical_accel_mps2
+		_coordinated_turn_nonwing_vertical_accel_mps2,
+		maximum_response_time_s
 	)
 
 
@@ -29701,7 +29955,7 @@ func _update_route_maneuver_waypoint(loop_route: bool) -> bool:
 		has_finite_segment_start = true
 	elif not loop_route \
 			and target_index == 0 \
-			and _flight_plan_name in ["recovery_approach", "rtb"] \
+			and _flight_plan_name in ["patrol", "recovery_approach", "rtb"] \
 			and is_finite(_flight_plan_entry_position.x) \
 			and is_finite(_flight_plan_entry_position.y) \
 			and is_finite(_flight_plan_entry_position.z):
@@ -29922,6 +30176,9 @@ func _follow_waypoint_route(delta: float, loop_route: bool = false, capture_radi
 		_route_follow_debug = {}
 		_reset_cap_route_debug()
 		return false
+	# Join the selected entry waypoint before allowing closed-loop segment resync.
+	if _patrol_route_join_pending:
+		loop_route = false
 	_route_last_advance_reason = "hold"
 	_route_last_resync_reason = "none"
 	current_waypoint_index = clampi(current_waypoint_index, 0, waypoints.size() - 1)
@@ -30193,6 +30450,8 @@ func _follow_waypoint_route(delta: float, loop_route: bool = false, capture_radi
 			return true
 	else:
 		current_waypoint_index += 1
+	if _patrol_route_join_pending and current_waypoint_index > 0:
+		_patrol_route_join_pending = false
 	_route_last_advance_reason = advance_reason
 	_route_pending_advance_reason = advance_reason
 
@@ -30624,6 +30883,34 @@ func clear_air_task() -> void:
 
 func get_current_air_task() -> Variant:
 	return current_air_task
+
+
+func _position_near_patrol_route(position: Vector3, radius: float) -> bool:
+	var route: Array = current_air_task.metadata.patrol_route
+	for i in range(route.size()):
+		var closest := Geometry3D.get_closest_point_to_segment(position, route[i], route[(i + 1) % route.size()])
+		if position.distance_to(closest) <= radius:
+			return true
+	return false
+
+func _patrol_allows_air_engagement() -> bool:
+	return current_air_task == null or str(current_air_task.metadata.get("patrol_engagement", "air")) != "ground"
+
+func _has_assigned_patrol_route() -> bool:
+	return current_air_task != null and current_air_task.kind == AirTaskModel.Kind.PATROL \
+		and not current_air_task.metadata.get("patrol_route", []).is_empty()
+
+
+func _has_flight_intercept_order() -> bool:
+	return current_air_task != null and current_air_task.metadata.has("intercept_flight")
+
+
+func _matches_intercept_flight(target: Variant) -> bool:
+	if not _has_flight_intercept_order():
+		return true
+	var reference: Variant = current_air_task.metadata.get("intercept_flight")
+	var formation: Variant = reference.get_ref() if reference is WeakRef else null
+	return preload("res://AirOps/InterceptTarget.gd").members(formation).has(target)
 
 
 func _has_commanded_intercept_track(target: Variant) -> bool:

@@ -95,7 +95,7 @@ func _run() -> void:
 		await process_frame
 		_expect(mission_popup != null and mission_popup.visible, "asset selection opens the adjacent mission menu")
 		_expect(order_bar != null and not order_bar.visible, "confirmation bar stays hidden while choosing a mission")
-		tactical.call("_begin_mission_draft", "CAP")
+		tactical.call("_begin_mission_draft", "PATROL")
 		await process_frame
 		_expect(mission_popup != null and not mission_popup.visible, "choosing a mission closes the mission menu")
 		_expect(order_bar != null and not order_bar.visible, "confirmation bar waits for the required map target")
@@ -123,7 +123,7 @@ func _run() -> void:
 	_expect(platoons_page != null and not platoons_page.visible, "active platoons page remains hidden")
 	var flight_snapshot: Dictionary = console.call("get_page_debug_snapshot", "air_wing")
 	_expect(str(flight_snapshot.get("kind", "")) == "flights", "flights page reports its data kind")
-	_expect(str(flight_snapshot.get("layout", "")) == "all_flights", "flights page uses the all-flights board layout")
+	_expect(str(flight_snapshot.get("layout", "")) == "assembly", "flights page uses the flight assembly layout")
 	_expect(int(flight_snapshot.get("unit_count", 0)) == 4, "flights page lists all four persistent flight groups")
 	var flight_rows := flights_page.get("_flight_rows") as VBoxContainer
 	_expect(flight_rows != null and flight_rows.get_child_count() == 4, "all four flight rows render simultaneously")

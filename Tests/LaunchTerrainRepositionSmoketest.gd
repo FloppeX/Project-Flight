@@ -35,6 +35,7 @@ class CarrierDouble:
 
 class LaunchConstraintDouble:
 	extends Node
+	var launch_active: bool = true
 
 	func is_carrier_recovery_constraint_active() -> bool:
 		return true
@@ -43,7 +44,7 @@ class LaunchConstraintDouble:
 		return 0.0
 
 	func is_launch_constraint_active() -> bool:
-		return true
+		return launch_active
 
 
 func _initialize() -> void:
@@ -109,6 +110,20 @@ func _run() -> void:
 	var launch_constraint := LaunchConstraintDouble.new()
 	launch_constraint.name = "FlightDeckManager"
 	live_carrier.add_child(launch_constraint)
+	launch_constraint.launch_active = false
+	var landing_motion: Dictionary = live_carrier.call("_apply_recovery_motion_constraint", 9.5, 0.2, 0.1)
+	if not is_equal_approx(float(landing_motion.speed), 9.5) or not is_equal_approx(float(landing_motion.yaw_rate), 0.2):
+		_fail("landing clearance overrode carrier navigation speed or heading")
+		return
+	var landing_hold: Dictionary = live_carrier.call("_apply_recovery_motion_constraint", 0.0, 0.0, 0.1)
+	if not is_zero_approx(float(landing_hold.speed)):
+		_fail("landing clearance overrode HOLD")
+		return
+	launch_constraint.launch_active = true
+	var reverse_constraint: Dictionary = live_carrier.call("_apply_recovery_motion_constraint", -3.0, 0.1, 0.1)
+	if not is_equal_approx(float(reverse_constraint.speed), -3.0) or not is_equal_approx(float(reverse_constraint.yaw_rate), 0.1):
+		_fail("pending launch overrode reverse navigation")
+		return
 	var held_constraint: Dictionary = live_carrier.call("_apply_recovery_motion_constraint", 0.0, 0.0, 0.1)
 	if absf(float(held_constraint.get("speed", -1.0))) > 0.001:
 		_fail("launch constraint created carrier speed while HOLD was active")

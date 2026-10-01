@@ -62,6 +62,7 @@ var current_power = 0.0
 var target_power = 0.0
 var throttle_input = 0.0 # The user/AI's desired throttle setting
 var _current_blur_t: float = 0.0
+var _governed_propeller_speed_ratio: float = 0.0
 var _prop_blade_mesh_nodes: Array[MeshInstance3D] = []
 var _prop_disc_mesh_nodes: Array[MeshInstance3D] = []
 var _prop_hub_mesh_nodes: Array[MeshInstance3D] = []
@@ -178,8 +179,8 @@ func process_physic_frame(delta):
 		aircraft.apply_force(force_vector, engine_rotated_position)
 		
 	# Spin propeller directly. Budgeting this only affects visuals; thrust above still runs.
-		if visual_budget_enabled and propeller is Node3D and (current_power > 0.0 or (GovernPropellerVisualSpeed and is_engine_working)):
-			var prop_speed: float = GOVERNED_PROPELLER_SPEED_RAD_S if GovernPropellerVisualSpeed else current_power * 50.0 + 5.0
+		if visual_budget_enabled and propeller is Node3D and current_power > 0.0 and not GovernPropellerVisualSpeed:
+			var prop_speed: float = current_power * 50.0 + 5.0
 			var spin_axis: Vector3 = propeller_spin_axis_local
 			if spin_axis.length_squared() <= 0.0001:
 				spin_axis = Vector3.BACK
@@ -188,6 +189,17 @@ func process_physic_frame(delta):
 
 		if audio_budget_enabled:
 			_update_engine_sound(delta)
+
+	# Tail rotors share the main rotor's inertia, including its shutdown coast.
+	# Keep the speed state current even when distant visuals are budgeted out.
+	if GovernPropellerVisualSpeed:
+		if is_instance_valid(ui_node) and ui_node.has_method("get_rotor_speed_ratio"):
+			_governed_propeller_speed_ratio = clampf(float(ui_node.call("get_rotor_speed_ratio")), 0.0, 1.0)
+		else:
+			_governed_propeller_speed_ratio = move_toward(_governed_propeller_speed_ratio, 1.0 if is_engine_working else 0.0, (0.18 if is_engine_working else 0.12) * delta)
+		if visual_budget_enabled and propeller is Node3D and _governed_propeller_speed_ratio > 0.0:
+			var spin_axis := propeller_spin_axis_local.normalized() if propeller_spin_axis_local.length_squared() > 0.0001 else Vector3.BACK
+			(propeller as Node3D).rotate_object_local(spin_axis, GOVERNED_PROPELLER_SPEED_RAD_S * _governed_propeller_speed_ratio * delta)
 
 	if visual_budget_enabled:
 		_update_propeller_blur_visuals(delta)
@@ -479,7 +491,7 @@ func _update_propeller_blur_visuals(delta: float) -> void:
 		return
 
 	var denom: float = maxf(blur_full_power - blur_start_power, 0.001)
-	var blur_power: float = 1.0 if GovernPropellerVisualSpeed and is_engine_working else current_power
+	var blur_power: float = _governed_propeller_speed_ratio if GovernPropellerVisualSpeed else current_power
 	var target_t: float = clampf((blur_power - blur_start_power) / denom, 0.0, 1.0)
 	var response_t: float = clampf(blur_response_hz * delta, 0.0, 1.0)
 	_current_blur_t = lerpf(_current_blur_t, target_t, response_t)

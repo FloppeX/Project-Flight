@@ -81,6 +81,18 @@ func run() -> void:
 		craft.linear_velocity, ideal, 600, 0.35, solution.tof, 400), "Actual aligned gun may fire")
 	check(not pilot._dogfight_has_good_fire_solution(solution.aim_point, solution.intercept_point, origin,
 		craft.linear_velocity, ideal.rotated(Vector3.UP, deg_to_rad(2)), 600, 0.35, solution.tof, 400), "Loose angular gate cannot authorize a wide current-bore miss")
+	# Accept useful partial spread overlap, while retaining the ballistic miss gate.
+	var partial_bore := ideal.rotated(Vector3.UP, deg_to_rad(0.55))
+	check(pilot._dogfight_has_good_fire_solution(solution.aim_point, solution.intercept_point, origin,
+		craft.linear_velocity, partial_bore, 600, 0.35, solution.tof, 400), "Partial-overlap shot is worth taking")
+	check(pilot._dogfight_last_hit_chance < 0.72, "Partial-overlap fixture exercises the former rejection threshold")
+	for frame in 180:
+		pilot._update_dogfight_burst_timers(1.0 / 60.0, true)
+		check(pilot._dogfight_burst_active, "Useful solution holds trigger through former burst boundaries")
+	pilot._update_dogfight_burst_timers(1.0 / 60.0, false)
+	check(not pilot._dogfight_burst_active, "Lost solution releases trigger immediately")
+	pilot._update_dogfight_burst_timers(1.0 / 60.0, true)
+	check(pilot._dogfight_burst_active, "Reacquired solution resumes without stale cooldown")
 	var moved := pilot._get_dogfight_aim_solution(origin, craft.linear_velocity, target_pos + Vector3(100, 0, 0), Vector3(0, 0, 78), 600)
 	check(Vector3(moved.aim_point).distance_to(solution.aim_point) > 80, "Aim responds to new physics state without waiting for wall clock")
 	pilot._lead_track_valid = true

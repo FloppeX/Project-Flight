@@ -2,6 +2,7 @@ class_name Flight
 extends Node
 
 const AirTaskModel: Script = preload("res://AI/AirTask.gd")
+const InterceptTarget: Script = preload("res://AirOps/InterceptTarget.gd")
 const GroundTargetPriority: Script = preload("res://AI/GroundTargetPriority.gd")
 
 ## Manages a single named flight of 2-4 aircraft.
@@ -15,6 +16,7 @@ enum Mission {
 	CAS,    ## Close Air Support — attack ground targets in assigned area
 	INTERCEPT,
 	RTB,    ## Return all aircraft to carrier
+	ATTACK, ## Clear a small designated ground area, then return.
 }
 
 @export var flight_name: String = ""
@@ -41,8 +43,15 @@ var _cap_route_lead_revision: int = -1
 var _cas_area_center: Vector3 = Vector3.ZERO
 var _cas_area_radius: float = 3000.0
 var _cas_altitude_m: float = 300.0
+var _attack_area_visited := false
+var _attack_area_clear_s := 0.0
+var _attack_platoon: Node = null
+var _attack_tracks_platoon := false
 
 var _intercept_target: Node3D = null
+var _intercept_flight: Node = null
+var _intercept_tracks_flight := false
+var _intercept_update_s := 0.0
 var _intercept_carrier: Node3D = null
 var _intercept_altitude_m: float = 800.0
 
@@ -105,11 +114,19 @@ func apply_origin_shift(offset: Vector3) -> void:
 	for i in range(_cap_route_points.size()):
 		_cap_route_points[i] -= offset
 
-func _physics_process(_delta: float) -> void:
+func _physics_process(delta: float) -> void:
 	_prune_members_once()
+	_refresh_attack_platoon_position()
 	_apply_pending_mission_updates()
 	if mission == Mission.CAS:
 		_update_cas_assignments()
+	elif mission == Mission.ATTACK:
+		_update_attack_assignment(delta)
+	elif mission == Mission.INTERCEPT and _intercept_tracks_flight:
+		_intercept_update_s -= delta
+		if _intercept_update_s <= 0.0:
+			_intercept_update_s = 1.0
+			_update_intercept_assignment()
 	if mission != Mission.NONE:
 		_update_formation()
 
@@ -165,7 +182,7 @@ func is_engaged() -> bool:
 
 
 func get_campaign_save_blocker() -> String:
-	if mission == Mission.CAS:
+	if mission in [Mission.CAS, Mission.ATTACK]:
 		return "%s flight still has an attack order" % flight_name
 	if mission == Mission.INTERCEPT:
 		return "%s flight is still intercepting" % flight_name
@@ -209,6 +226,7 @@ func capture_mission_save_state() -> Dictionary:
 		"mission_source": mission_source,
 		"mission_reason": mission_reason,
 		"cap_altitude_m": _cap_altitude_m,
+		"patrol_engagement": patrol_engagement,
 		"cap_route_points": _cap_route_points.duplicate(),
 		"cas_area_center": _cas_area_center,
 		"cas_area_radius": _cas_area_radius,
@@ -243,7 +261,7 @@ func restore_mission_save_state(state: Dictionary, carrier: Node3D) -> bool:
 			if route_points.is_empty():
 				set_cap(carrier, altitude_m)
 			else:
-				set_cap_route(carrier, route_points, altitude_m)
+				set_cap_route(carrier, route_points, altitude_m, str(state.get("patrol_engagement", "air")))
 		Mission.CAS:
 			set_cas(
 				state.get("cas_area_center", Vector3.ZERO) as Vector3,
@@ -252,8 +270,8 @@ func restore_mission_save_state(state: Dictionary, carrier: Node3D) -> bool:
 			)
 		Mission.RTB:
 			set_rtb()
-		Mission.INTERCEPT:
-			# Intercepts depend on a live target reference and are deliberately not
+		Mission.INTERCEPT, Mission.ATTACK:
+			# Target-specific missions depend on a live reference and are deliberately not
 			# eligible for checkpoints. Reject one if a malformed save contains it.
 			return false
 		_:
@@ -262,7 +280,10 @@ func restore_mission_save_state(state: Dictionary, carrier: Node3D) -> bool:
 
 # ── Mission orders ─────────────────────────────────────────────────────────────
 
+var patrol_engagement: String = "air"
+
 func set_cap(carrier: Node3D, altitude_m: float = 800.0) -> void:
+	patrol_engagement = "air"
 	mission = Mission.CAP
 	_mark_mission_dirty()
 	_cap_carrier = carrier
@@ -277,7 +298,8 @@ func set_cap(carrier: Node3D, altitude_m: float = 800.0) -> void:
 	mission_changed.emit(mission)
 	print("[Flight %s] CAP  alt=%.0fm" % [flight_name, altitude_m])
 
-func set_cap_route(carrier: Node3D, route_points: Array[Vector3], altitude_m: float = 800.0) -> void:
+func set_cap_route(carrier: Node3D, route_points: Array[Vector3], altitude_m: float = 800.0, engagement: String = "air") -> void:
+	patrol_engagement = engagement if engagement in ["air", "ground", "both"] else "air"
 	mission = Mission.CAP
 	_mark_mission_dirty()
 	_cap_carrier = carrier
@@ -306,9 +328,163 @@ func set_cas(area_center: Vector3, area_radius: float = 3000.0, altitude_m: floa
 	mission_changed.emit(mission)
 	print("[Flight %s] CAS  center=(%.0f,%.0f)  r=%.0fm" % [flight_name, area_center.x, area_center.z, area_radius])
 
-func set_intercept(target: Node3D, carrier: Node3D, altitude_m: float = 800.0) -> void:
+func set_attack(area_center: Vector3, carrier: Node3D, area_radius: float = 100.0, altitude_m: float = 300.0, platoon: Node = null) -> void:
+	mission = Mission.ATTACK
+	_attack_platoon = platoon
+	_attack_tracks_platoon = is_instance_valid(platoon)
+	_cas_area_center = area_center
+	_cas_area_radius = maxf(area_radius, 1.0)
+	_attack_area_visited = false
+	_attack_area_clear_s = 0.0
+	_cap_carrier = carrier
+	_cas_altitude_m = altitude_m
+	_cap_route_points.clear()
+	_claimed_targets.clear()
+	_mark_mission_dirty()
+	_apply_pending_mission_updates()
+	mission_changed.emit(mission)
+
+
+func _apply_attack(aircraft: Node3D) -> bool:
+	var pilot := _get_pilot(aircraft)
+	if not pilot or _is_deck_busy(pilot):
+		return false
+	# Finish a committed pass or defensive engagement before accepting a new order.
+	if pilot.current_state in [AIPilot.State.ATTACK_DIVE, AIPilot.State.ATTACK_BREAK_OFF, AIPilot.State.DOGFIGHT]:
+		return false
+	pilot.ground_attack_enabled = true
+	pilot.dogfight_enabled = true
+	pilot.clear_formation_guidance()
+	# Release this member's previous pass, then distribute the next targets.
+	for claimed in _claimed_targets.keys():
+		if _claimed_targets[claimed] == aircraft:
+			_claimed_targets.erase(claimed)
+	var target := _pick_unclaimed_target(aircraft.global_position)
+	var task: Variant
+	if target != null:
+		task = AirTaskModel.attack_target(target)
+	else:
+		var previous: Variant = pilot.get_current_air_task()
+		if previous != null and previous.kind == AirTaskModel.Kind.PATROL \
+				and bool(previous.metadata.get("attack_area", false)) \
+				and int(previous.metadata.get("flight_mission_revision", -1)) == _mission_revision \
+				and previous.metadata.get("search_route_center", Vector3.INF).distance_to(_cas_area_center) < 250.0 \
+				and previous.area_radius_m == _cas_area_radius:
+			previous.area_center = _cas_area_center
+			return true
+		task = AirTaskModel.patrol(_cas_area_center, _cas_area_radius, _cas_altitude_m)
+	task.area_center = _cas_area_center
+	task.area_radius_m = _cas_area_radius
+	task.requested_altitude_m = _cas_altitude_m
+	task.metadata = {"mission": "attack", "attack_area": true, "specific_ground_target": target != null}
+	task.metadata["flight_mission_revision"] = _mission_revision
+	if _attack_tracks_platoon:
+		task.metadata["attack_platoon"] = weakref(_attack_platoon) if is_instance_valid(_attack_platoon) else null
+	if not pilot.assign_air_task(task):
+		return false
+	if target != null:
+		_claimed_targets[target] = aircraft
+	else:
+		# Fly through the area to search even when nothing has been reported yet.
+		# The target radius constrains weapons, not the aircraft's turning circle.
+		var center := Vector3(_cas_area_center.x, _cas_area_center.y + _cas_altitude_m, _cas_area_center.z)
+		var route: Array[Vector3] = [center, center + Vector3(0, 0, 1200)]
+		task.metadata["search_route_center"] = _cas_area_center
+		pilot.set_waypoints(pilot.build_terrain_safe_waypoints(route, CAP_ROUTE_MIN_AGL_M, true), false)
+	return true
+
+
+func _update_attack_assignment(delta: float = 0.0) -> void:
+	_refresh_attack_platoon_position()
+	_prune_stale_claims(false)
+	for target in _claimed_targets.keys():
+		var claimer := _get_pilot(_claimed_targets[target])
+		if not _attack_area_contains(target.global_position) or claimer == null or _is_deck_busy(claimer) \
+				or (_attack_tracks_platoon and not attack_platoon_members(_attack_platoon).has(target)):
+			_claimed_targets.erase(target)
+	var targets_remain := not _claimed_targets.is_empty()
+	if _attack_tracks_platoon:
+		targets_remain = is_attack_platoon_valid(_attack_platoon)
+		if not targets_remain:
+			_attack_area_visited = true
+	for target in _get_cas_target_nodes():
+		if _is_valid_cas_target(target) and _attack_area_contains(target.global_position):
+			targets_remain = true
+			break
+	var committed := false
+	for aircraft in get_members():
+		var pilot := _get_pilot(aircraft)
+		if pilot and not _is_deck_busy(pilot):
+			var distance := Vector2(aircraft.global_position.x - _cas_area_center.x, aircraft.global_position.z - _cas_area_center.z).length()
+			_attack_area_visited = _attack_area_visited or distance <= maxf(_cas_area_radius, 750.0)
+		if pilot and pilot.current_state in [AIPilot.State.ATTACK_DIVE, AIPilot.State.ATTACK_BREAK_OFF]:
+			committed = true
+		if pilot and pilot.current_state == AIPilot.State.SEARCH:
+			_apply_attack(aircraft)
+	# Allow a short on-station search, including time for sensor reports, before
+	# declaring an empty area clear. Never cut off a committed pass's pull-out.
+	if _attack_area_visited and not targets_remain and not committed:
+		_attack_area_clear_s += maxf(delta, 0.0)
+	else:
+		_attack_area_clear_s = 0.0
+	if _attack_area_clear_s >= 10.0:
+		mission_reason = "Attack area clear — returning"
+		set_rtb()
+
+
+func _attack_area_contains(point: Vector3) -> bool:
+	if _attack_tracks_platoon:
+		return true # Membership, rather than a ground radius, defines this order.
+	return Vector2(point.x - _cas_area_center.x, point.z - _cas_area_center.z).length_squared() <= _cas_area_radius * _cas_area_radius
+
+
+static func is_attack_platoon_valid(platoon: Variant) -> bool:
+	if not is_instance_valid(platoon):
+		return false
+	if platoon is EnemyVirtualPlatoon:
+		return platoon.vehicle_count > 0
+	if platoon is GroundVehiclePlatoon:
+		if platoon.team != 2:
+			return false
+		for member in platoon.get_members():
+			if member.is_queued_for_deletion():
+				continue
+			var health: float = float(member.get("current_health")) if "current_health" in member else float(member.get("health")) if "health" in member else 1.0
+			if health > 0.0:
+				return true
+	return false
+
+
+static func attack_platoon_position(platoon: Variant) -> Vector3:
+	if not is_instance_valid(platoon):
+		return Vector3.INF
+	if platoon is EnemyVirtualPlatoon:
+		return platoon.position
+	if platoon is GroundVehiclePlatoon:
+		return platoon.get_contact_position()
+	return Vector3.INF
+
+
+static func attack_platoon_members(platoon: Variant) -> Array[Node3D]:
+	if is_instance_valid(platoon):
+		if platoon is EnemyVirtualPlatoon:
+			return platoon._active_vehicles.filter(func(member): return is_instance_valid(member))
+		if platoon is GroundVehiclePlatoon:
+			return platoon.get_members()
+	return []
+
+
+func _refresh_attack_platoon_position() -> void:
+	if mission == Mission.ATTACK and _attack_tracks_platoon and is_instance_valid(_attack_platoon):
+		_cas_area_center = attack_platoon_position(_attack_platoon)
+
+
+func set_intercept(target: Node3D, carrier: Node3D, altitude_m: float = 800.0, target_flight: Node = null) -> void:
 	mission = Mission.INTERCEPT
 	_mark_mission_dirty()
+	_intercept_flight = target_flight
+	_intercept_tracks_flight = target_flight != null
+	_intercept_update_s = 1.0
 	_intercept_target = target
 	_intercept_carrier = carrier
 	_intercept_altitude_m = altitude_m
@@ -320,9 +496,9 @@ func set_intercept(target: Node3D, carrier: Node3D, altitude_m: float = 800.0) -
 	_cap_route_lead_revision = -1
 	_claimed_targets.clear()
 	for aircraft in get_members():
-		_apply_intercept(aircraft)
+		_apply_current_mission(aircraft)
 	mission_changed.emit(mission)
-	var target_name: String = target.name if target and is_instance_valid(target) else "unknown"
+	var target_name: String = InterceptTarget.label(target_flight) if _intercept_tracks_flight else str(target.name) if is_instance_valid(target) else "unknown"
 	print("[Flight %s] INTERCEPT  target=%s  alt=%.0fm" % [flight_name, target_name, altitude_m])
 
 func set_rtb() -> void:
@@ -347,6 +523,8 @@ func _apply_current_mission(aircraft: Node3D) -> bool:
 			applied = _apply_cap(aircraft)
 		Mission.CAS:
 			applied = _apply_cas(aircraft)
+		Mission.ATTACK:
+			applied = _apply_attack(aircraft)
 		Mission.INTERCEPT:
 			applied = _apply_intercept(aircraft)
 		Mission.RTB:
@@ -361,14 +539,21 @@ func _apply_cap(aircraft: Node3D) -> bool:
 	var pilot := _get_pilot(aircraft)
 	if not pilot or _is_deck_busy(pilot):
 		return false
-	pilot.ground_attack_enabled = false
+	if pilot.current_state in [AIPilot.State.ATTACK_DIVE, AIPilot.State.ATTACK_BREAK_OFF]:
+		return false
+	pilot.ground_attack_enabled = patrol_engagement != "air"
 	pilot.dogfight_enabled = true
 	var cap_center: Vector3 = _cap_carrier.global_position \
 		if _cap_carrier != null and is_instance_valid(_cap_carrier) else Vector3.INF
 	var cap_task: Variant = AirTaskModel.patrol(cap_center, NAN, _cap_altitude_m)
-	cap_task.metadata = {"mission": "cap", "carrier_relative": true}
+	cap_task.metadata = {"mission": "patrol", "patrol_engagement": patrol_engagement, "carrier_relative": _cap_route_points.is_empty()}
+	if not _cap_route_points.is_empty():
+		cap_task.metadata["patrol_route"] = _cap_route_points.duplicate()
 	if aircraft == _get_lead_aircraft():
 		_refresh_lead_guidance(aircraft, pilot)
+	elif not _cap_route_points.is_empty():
+		# Wingmen retain the assigned route if they leave formation or become lead.
+		_assign_cap_route_waypoints(aircraft, pilot)
 	else:
 		# Clear waypoints so AIPilot rebuilds its carrier-centered patrol.
 		_clear_navigation_waypoints(pilot, true)
@@ -406,6 +591,8 @@ func _apply_cas(aircraft: Node3D) -> bool:
 	return true
 
 func _apply_intercept(aircraft: Node3D) -> bool:
+	if _intercept_tracks_flight:
+		return _apply_flight_intercept(aircraft)
 	var pilot := _get_pilot(aircraft)
 	if not pilot or _is_deck_busy(pilot):
 		return false
@@ -421,6 +608,61 @@ func _apply_intercept(aircraft: Node3D) -> bool:
 		_clear_navigation_waypoints(pilot, true)
 		if pilot.current_state not in [AIPilot.State.SEARCH]:
 			pilot.change_state(AIPilot.State.SEARCH)
+	return true
+
+func _update_intercept_assignment() -> void:
+	if not InterceptTarget.is_valid(_intercept_flight):
+		mission_reason = "Intercept target gone — returning"
+		set_rtb()
+		return
+	for aircraft in get_members():
+		_apply_flight_intercept(aircraft)
+
+
+func _apply_flight_intercept(aircraft: Node3D) -> bool:
+	var pilot := _get_pilot(aircraft)
+	if not pilot or _is_deck_busy(pilot) or not InterceptTarget.is_valid(_intercept_flight):
+		return false
+	if pilot.current_state in [AIPilot.State.ATTACK_DIVE, AIPilot.State.ATTACK_BREAK_OFF]:
+		return false
+	var candidates: Array[Node3D] = InterceptTarget.members(_intercept_flight)
+	var previous: Variant = pilot.get_current_air_task()
+	var same_order: bool = previous != null and int(previous.metadata.get("flight_mission_revision", -1)) == _mission_revision \
+		and previous.metadata.has("intercept_flight")
+	# Keep a live engagement stable; controller reports guide pursuit but do not grant visual firing permission.
+	if same_order and pilot.current_state == AIPilot.State.DOGFIGHT and is_instance_valid(pilot.combat_target) \
+			and candidates.has(pilot.combat_target):
+		previous.set_target(pilot.combat_target)
+		pilot.receive_intercept_contact_report(pilot.combat_target, pilot.combat_target.global_position, pilot.combat_target.linear_velocity)
+		return true
+	pilot.ground_attack_enabled = false
+	pilot.dogfight_enabled = true
+	pilot.clear_formation_guidance()
+	var target: Node3D = null
+	var nearest := INF
+	for candidate in candidates:
+		var distance := aircraft.global_position.distance_squared_to(candidate.global_position)
+		if distance < nearest:
+			nearest = distance
+			target = candidate
+	var center: Vector3 = InterceptTarget.position(_intercept_flight)
+	var task: Variant
+	if target != null:
+		task = AirTaskModel.intercept_target(target)
+	else:
+		if same_order and previous.kind == AirTaskModel.Kind.PATROL \
+				and previous.metadata.get("search_route_center", Vector3.INF).distance_to(center) < 250.0:
+			return true
+		task = AirTaskModel.patrol(center, NAN, maxf(center.y, _intercept_altitude_m))
+	task.metadata = {"mission": "intercept", "intercept_flight": weakref(_intercept_flight), "flight_mission_revision": _mission_revision}
+	task.requested_altitude_m = maxf(center.y, _intercept_altitude_m)
+	if not pilot.assign_air_task(task):
+		return false
+	if target == null:
+		var heading: Vector3 = _intercept_flight.heading
+		var route: Array[Vector3] = [center, center + heading * 1200.0]
+		task.metadata["search_route_center"] = center
+		pilot.set_waypoints(pilot.build_terrain_safe_waypoints(route, CAP_ROUTE_MIN_AGL_M, true), false)
 	return true
 
 func _apply_rtb(aircraft: Node3D) -> bool:
@@ -478,7 +720,7 @@ func _pick_unclaimed_target(from_pos: Vector3) -> Node3D:
 			continue  # already claimed by a flight-mate
 		var flat_dist := Vector2(node.global_position.x - _cas_area_center.x,
 								node.global_position.z - _cas_area_center.z).length()
-		if flat_dist > _cas_area_radius:
+		if not (mission == Mission.ATTACK and _attack_tracks_platoon) and flat_dist > _cas_area_radius:
 			continue  # outside assigned area
 		var d := from_pos.distance_to(node.global_position)
 		var threat_tier: int = GroundTargetPriority.threat_tier(node)
@@ -489,6 +731,8 @@ func _pick_unclaimed_target(from_pos: Vector3) -> Node3D:
 	return best
 
 func _get_cas_target_nodes() -> Array[Node3D]:
+	if mission == Mission.ATTACK and _attack_tracks_platoon:
+		return attack_platoon_members(_attack_platoon)
 	if AirOpsManager != null and is_instance_valid(AirOpsManager) and AirOpsManager.has_method("get_reported_ground_targets"):
 		var reported: Array = AirOpsManager.get_reported_ground_targets(_cas_area_center, _cas_area_radius)
 		var reported_targets: Array[Node3D] = []
@@ -564,6 +808,11 @@ func _update_formation() -> void:
 		var member_pilot := _get_pilot(aircraft)
 		if member_pilot and member_pilot.has_method("clear_formation_guidance"):
 			member_pilot.clear_formation_guidance()
+	# Designated targets supply each aircraft's own ingress/pursuit route, even
+	# while the target is virtual and pilots remain in SEARCH. Reattaching the
+	# cruise formation here overrides those routes and caps the leader's turn.
+	if mission == Mission.ATTACK or (mission == Mission.INTERCEPT and _intercept_tracks_flight):
+		return
 	var lead := _get_active_formation_lead_aircraft()
 	if not lead:
 		return
@@ -701,7 +950,8 @@ func _formation_soft_band_t(error_m: float, close_m: float, soft_m: float) -> fl
 	return 1.0 - clampf((error_m - close_m) / maxf(soft_m - close_m, 1.0), 0.0, 1.0)
 
 func _can_pilot_hold_formation(pilot: AIPilot) -> bool:
-	return pilot != null and pilot.current_state in FORMATION_ACTIVE_STATES
+	return pilot != null and pilot.current_state in FORMATION_ACTIVE_STATES \
+		and not pilot.is_air_contact_search_active()
 
 func _get_aircraft_speed_mps(aircraft: Node3D, pilot: AIPilot) -> float:
 	if aircraft and is_instance_valid(aircraft) and "linear_velocity" in aircraft:
@@ -822,7 +1072,15 @@ func get_mission_map_points() -> Array[Vector3]:
 			return []
 		Mission.CAS:
 			return [_cas_area_center]
+		Mission.ATTACK:
+			_refresh_attack_platoon_position()
+			return [_cas_area_center]
 		Mission.INTERCEPT:
+			if _intercept_tracks_flight:
+				var center: Vector3 = InterceptTarget.position(_intercept_flight)
+				if center.is_finite():
+					return [center]
+				return []
 			if _intercept_target and is_instance_valid(_intercept_target):
 				return [_intercept_target.global_position]
 			if _intercept_carrier and is_instance_valid(_intercept_carrier):
@@ -839,6 +1097,10 @@ func has_looped_mission_map() -> bool:
 	return mission == Mission.CAP and get_mission_map_points().size() >= 2
 
 func get_mission_name() -> String:
+	if mission in [Mission.CAP, Mission.CAS]:
+		return "PATROL"
+	if mission == Mission.INTERCEPT:
+		return "ATTACK"
 	return Mission.keys()[mission]
 
 func get_lead_state_name() -> String:
@@ -848,9 +1110,15 @@ func get_lead_state_name() -> String:
 	return AIPilot.State.keys()[lead_pilot.current_state]
 
 func get_status_summary() -> Dictionary:
+	_refresh_attack_platoon_position()
 	return {
+		"intercept_target_center": InterceptTarget.position(_intercept_flight) if mission == Mission.INTERCEPT and _intercept_tracks_flight else Vector3.INF,
+		"attack_area_radius_m": _cas_area_radius if mission == Mission.ATTACK and not _attack_tracks_platoon else 0.0,
+		"attack_tracks_platoon": mission == Mission.ATTACK and _attack_tracks_platoon,
+		"attack_area_center": _cas_area_center,
 		"name": flight_name,
 		"mission": get_mission_name(),
+		"patrol_engagement": "ground" if mission == Mission.CAS else patrol_engagement,
 		"order_source": mission_source,
 		"order_reason": mission_reason,
 		"strength": strength(),
@@ -941,6 +1209,11 @@ func _assign_cap_lead_waypoints(aircraft: Node3D, pilot: AIPilot) -> void:
 		return
 	if aircraft == _cap_route_lead and _cap_route_lead_revision == _cap_route_revision:
 		return
+	_assign_cap_route_waypoints(aircraft, pilot)
+	_cap_route_lead = aircraft
+	_cap_route_lead_revision = _cap_route_revision
+
+func _assign_cap_route_waypoints(aircraft: Node3D, pilot: AIPilot) -> void:
 	if _cap_route_points.is_empty():
 		pilot.waypoints.clear()
 		pilot.waypoints_follow_carrier = true
@@ -951,7 +1224,7 @@ func _assign_cap_lead_waypoints(aircraft: Node3D, pilot: AIPilot) -> void:
 		elif pilot.has_method("build_terrain_safe_waypoints"):
 			cap_route = pilot.build_terrain_safe_waypoints(cap_route, CAP_ROUTE_MIN_AGL_M, true, true)
 		cap_route = _rotate_route_to_nearest_waypoint(cap_route, aircraft.global_position)
-		pilot.set_waypoints(cap_route, false)
+		pilot.set_patrol_route(cap_route)
 		if debug_print and cap_route.size() > 1:
 			var first: Vector3 = cap_route[0]
 			var second: Vector3 = cap_route[1]
@@ -962,8 +1235,6 @@ func _assign_cap_lead_waypoints(aircraft: Node3D, pilot: AIPilot) -> void:
 				first.x, first.y, first.z,
 				second.x, second.y, second.z
 			])
-	_cap_route_lead = aircraft
-	_cap_route_lead_revision = _cap_route_revision
 
 func _get_lead_aircraft() -> Node3D:
 	var active_lead := _get_active_formation_lead_aircraft()

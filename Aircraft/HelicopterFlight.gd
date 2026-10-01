@@ -25,6 +25,8 @@ class_name HelicopterFlight
 @export var tilt_input_curve: float = 1.15
 
 @export_group("Attitude")
+## Soft settled cruise attitude, not a rotation or cyclic limit. Zero disables it.
+@export var cruise_body_pitch_deg: float = 15.0
 @export var body_follow_strength: float = 18.0
 @export var body_follow_high_speed_bonus: float = 14.0
 @export var fuselage_leveling_strength: float = 0.0
@@ -71,6 +73,7 @@ var current_yaw_input: float = 0.0
 
 var current_disc_tilt: Vector2 = Vector2.ZERO
 var target_disc_tilt: Vector2 = Vector2.ZERO
+var _pitch_settle_s: float = 0.0
 var current_ground_effect: float = 1.0
 var max_total_speed_mps: float = 0.0
 var max_forward_speed_seen_mps: float = 0.0
@@ -133,10 +136,15 @@ func _update_disc_tilt(delta: float, speed_t: float) -> void:
 	var response: float = lerpf(low_speed_cyclic_response, high_speed_cyclic_response, speed_t)
 	var blend: float = 1.0 - exp(-maxf(response, 0.01) * delta)
 	current_disc_tilt = current_disc_tilt.lerp(target_disc_tilt, blend)
+	# Relax cruise trim during a cyclic manoeuvre, then ease it back in.
+	if absf(target_disc_tilt.x - current_disc_tilt.x) > deg_to_rad(2.0):
+		_pitch_settle_s = 0.0
+	else:
+		_pitch_settle_s = minf(_pitch_settle_s + delta, 5.0)
 
 
 func _get_rotor_direction() -> Vector3:
-	var basis: Basis = rb.global_transform.basis
+	var basis: Basis = _get_flight_basis()
 	var up: Vector3 = basis.y.normalized()
 	var forward: Vector3 = basis.z.normalized()
 	var right: Vector3 = basis.x.normalized()
@@ -146,9 +154,42 @@ func _get_rotor_direction() -> Vector3:
 	return rotor_dir.normalized()
 
 
+func _pitch_attitude_compensation() -> float:
+	if cruise_body_pitch_deg <= 0.0 or fuselage_leveling_strength <= 0.0:
+		return 0.0
+	var speed_t := _smoothstep(0.0, maxf(cyclic_full_response_speed_mps, 0.1), get_air_relative_velocity().length())
+	var power := _get_collective() / maxf(hover_collective, 0.01)
+	var follow := (body_follow_strength + body_follow_high_speed_bonus * speed_t) * clampf(power, 0.0, 1.35)
+	var leveling := fuselage_leveling_strength * lerpf(1.0, 1.0 - clampf(fuselage_leveling_high_speed_loss, 0.0, 0.95), speed_t) * clampf(power, 0.0, 1.2)
+	if leveling <= 0.0001:
+		return 0.0
+	var unrestricted_pitch := atan(sin(current_disc_tilt.x)) * follow / leveling
+	return unrestricted_pitch * (1.0 - 1.0 / _cruise_pitch_leveling_multiplier(_get_collective(), speed_t))
+
+
+func _cruise_pitch_leveling_multiplier(collective: float, speed_t: float) -> float:
+	if cruise_body_pitch_deg <= 0.0 or fuselage_leveling_strength <= 0.0:
+		return 1.0
+	var power := collective / maxf(hover_collective, 0.01)
+	var follow := (body_follow_strength + body_follow_high_speed_bonus * speed_t) * clampf(power, 0.0, 1.35)
+	var leveling := fuselage_leveling_strength * lerpf(1.0, 1.0 - clampf(fuselage_leveling_high_speed_loss, 0.0, 0.95), speed_t) * clampf(power, 0.0, 1.2)
+	if leveling <= 0.0001:
+		return 1.0
+	var full_cyclic_pitch := atan(sin(deg_to_rad(max_disc_tilt_deg))) * follow / leveling
+	var multiplier := maxf(1.0, full_cyclic_pitch / deg_to_rad(cruise_body_pitch_deg))
+	var settled := _smoothstep(1.0, 4.0, _pitch_settle_s)
+	return lerpf(1.0, multiplier, speed_t * settled)
+
+
+func _get_flight_basis() -> Basis:
+	# Retain the old thrust AND drag attitude while the actual fuselage leans less.
+	# This preserves each airframe's cruise balance rather than adding engine power.
+	var basis := rb.global_transform.basis.orthonormalized()
+	return basis.rotated(basis.x, _pitch_attitude_compensation())
+
+
 func _apply_rotor_lift(rotor_dir: Vector3, collective: float, speed_t: float) -> void:
-	var gravity_mag: float = float(ProjectSettings.get_setting("physics/3d/default_gravity", 9.8))
-	var hover_thrust: float = max_rotor_thrust_n if max_rotor_thrust_n > 0.0 else rb.mass * gravity_mag * maxf(rb.gravity_scale, 0.0)
+	var hover_thrust: float = get_reference_rotor_thrust_n()
 	var collective_ratio: float = collective / maxf(hover_collective, 0.01)
 	var translational_bonus: float = 1.0 + translational_lift_bonus * speed_t
 	var lift_multiplier: float = clampf(
@@ -171,6 +212,9 @@ func _get_biased_thrust_direction(rotor_dir: Vector3) -> Vector3:
 
 
 func _apply_hanging_attitude(rotor_dir: Vector3, collective: float, speed_t: float) -> void:
+	# Attitude follows the physical fuselage, not the compensated force direction.
+	var body_basis := rb.global_transform.basis.orthonormalized()
+	rotor_dir = (body_basis.y + body_basis.z * sin(current_disc_tilt.x) + body_basis.x * sin(current_disc_tilt.y)).normalized()
 	var body_up: Vector3 = rb.global_transform.basis.y.normalized()
 	var axis: Vector3 = body_up.cross(rotor_dir)
 	if axis.length_squared() > 0.000001:
@@ -196,7 +240,11 @@ func _apply_fuselage_leveling(collective: float, speed_t: float) -> void:
 	var angle: float = asin(clampf(axis.length(), -1.0, 1.0))
 	var power_t: float = clampf(collective / maxf(hover_collective, 0.01), 0.0, 1.2)
 	var speed_scale: float = lerpf(1.0, 1.0 - clampf(fuselage_leveling_high_speed_loss, 0.0, 0.95), speed_t)
-	rb.apply_torque(axis.normalized() * angle * fuselage_leveling_strength * rb.mass * power_t * speed_scale)
+	var torque := axis.normalized() * angle * fuselage_leveling_strength * rb.mass * power_t * speed_scale
+	var right := rb.global_transform.basis.x.normalized()
+	# A spring-like pitching moment: never clamp attitude, angular velocity or input.
+	torque += right * torque.dot(right) * (_cruise_pitch_leveling_multiplier(collective, speed_t) - 1.0)
+	rb.apply_torque(torque)
 
 
 func _apply_yaw(collective: float, speed_t: float, delta: float) -> void:
@@ -235,7 +283,7 @@ func _apply_vertical_stabilizer_yaw(yaw_axis: Vector3, yaw_rate: float) -> void:
 
 
 func _apply_drag(speed: float) -> void:
-	var basis: Basis = rb.global_transform.basis
+	var basis: Basis = _get_flight_basis()
 	var vel: Vector3 = get_air_relative_velocity()
 	var forward: Vector3 = basis.z.normalized()
 	var right: Vector3 = basis.x.normalized()
@@ -538,3 +586,26 @@ func _smoothstep(edge0: float, edge1: float, value: float) -> float:
 		return 1.0 if value >= edge1 else 0.0
 	var t: float = clampf((value - edge0) / (edge1 - edge0), 0.0, 1.0)
 	return t * t * (3.0 - 2.0 * t)
+
+
+func _get_lift_reference_mass_kg() -> float:
+	# Loading weapons must not manufacture extra rotor power.
+	if rb.has_method("get_unloaded_mass_kg"):
+		return maxf(float(rb.get_unloaded_mass_kg()), 0.001)
+	return rb.mass
+
+
+func get_reference_rotor_thrust_n() -> float:
+	if max_rotor_thrust_n > 0.0:
+		return max_rotor_thrust_n
+	var gravity := float(ProjectSettings.get_setting("physics/3d/default_gravity", 9.8))
+	return _get_lift_reference_mass_kg() * gravity * maxf(rb.gravity_scale, 0.0)
+
+
+func get_loaded_hover_collective() -> float:
+	var gravity := float(ProjectSettings.get_setting("physics/3d/default_gravity", 9.8))
+	return clampf(hover_collective * rb.mass * gravity * maxf(rb.gravity_scale, 0.0) / maxf(get_reference_rotor_thrust_n(), 0.001), 0.0, 1.0)
+
+
+func get_max_static_rotor_thrust_n() -> float:
+	return get_reference_rotor_thrust_n() * clampf(1.0 / maxf(hover_collective, 0.01), min_lift_multiplier, max_lift_multiplier)

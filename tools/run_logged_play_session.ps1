@@ -1,14 +1,15 @@
 param(
     [double]$SampleIntervalSeconds = 1.0,
     [switch]$GpuProfile,
-    [switch]$ScriptProfiling
+    [switch]$ScriptProfiling,
+    [string]$GodotPath = 'C:\Godot\Godot_v4.7.2-stable_win64.exe'
 )
 
 $ErrorActionPreference = 'Stop'
 $invariantCulture = [System.Globalization.CultureInfo]::InvariantCulture
 
 $project = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
-$godot = 'C:\Godot\Godot_v4.6.2-stable_win64.exe'
+$godot = $GodotPath
 if (-not (Test-Path -LiteralPath $godot)) {
     throw "Godot executable not found: $godot"
 }

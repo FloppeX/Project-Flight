@@ -1,0 +1,17 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://LandCarrier/DeckStatusSigns.gd" id="1"]
+[ext_resource type="PackedScene" path="res://LandCarrier/DeckStatusPanel.tscn" id="2"]
+
+[node name="DeckStatusSigns" type="Node3D"]
+script = ExtResource("1")
+
+[node name="CommandRoom" parent="." instance=ExtResource("2")]
+position = Vector3(-21.05, 11.04375, 3.25)
+rotation_degrees = Vector3(0, 180, 0)
+scale = Vector3(0.25, 0.25, 0.25)
+
+[node name="AirOps" parent="." instance=ExtResource("2")]
+position = Vector3(-18.65, 15.92375, -6.22)
+rotation_degrees = Vector3(0, -90, 0)
+scale = Vector3(0.25, 0.25, 0.25)

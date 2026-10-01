@@ -1,6 +1,8 @@
 extends Control
 
 const DATA_FONT: FontFile = preload("res://UI/Fonts/JetBrainsMono-Variable.ttf")
+const PLANE_ICON: Texture2D = preload("res://UI/MapIcons/plane.svg")
+const HELICOPTER_ICON: Texture2D = preload("res://UI/MapIcons/helicopter.svg")
 const TRACKED_TEAMS: PackedStringArray = ["friendlies", "enemies"]
 const GRID_DIVISIONS: int = 8
 const GRID_COLOR: Color = Color(0.29, 0.48, 0.48, 0.20)
@@ -63,6 +65,15 @@ var show_outpost_range_estimates := true
 @export var plant_patch_marker_size_px: float = 12.0
 
 var _counts_label: Label
+var _selected_flight_name: String = ""
+var _attack_area_center := Vector3.INF
+var _attack_area_radius_m := 0.0
+var _attack_draft_center := Vector3.INF
+var _attack_draft_radius_m := 100.0
+var _attack_platoon_center := Vector3.INF
+var _intercept_center := Vector3.INF
+var _intercept_draft_center := Vector3.INF
+var _attack_draft_platoon_center := Vector3.INF
 var _selection_world_pos: Vector3 = Vector3.INF
 var _selection_world_color: Color = selection_color
 var _selection_route_origin_world: Vector3 = Vector3.INF
@@ -115,6 +126,18 @@ func refresh_now() -> void:
 	queue_redraw()
 
 func apply_origin_shift(offset: Vector3) -> void:
+	if _intercept_center != Vector3.INF:
+		_intercept_center -= offset
+	if _intercept_draft_center != Vector3.INF:
+		_intercept_draft_center -= offset
+	if _attack_platoon_center != Vector3.INF:
+		_attack_platoon_center -= offset
+	if _attack_draft_platoon_center != Vector3.INF:
+		_attack_draft_platoon_center -= offset
+	if _attack_area_center != Vector3.INF:
+		_attack_area_center -= offset
+	if _attack_draft_center != Vector3.INF:
+		_attack_draft_center -= offset
 	if _selection_world_pos != Vector3.INF:
 		_selection_world_pos -= offset
 	if _selection_route_origin_world != Vector3.INF:
@@ -143,12 +166,19 @@ func _draw() -> void:
 	if not TerrainNavGrid.is_ready():
 		return
 	_draw_vector_decor()
+	_draw_attack_area(_attack_area_center, _attack_area_radius_m, friendly_color)
+	_draw_attack_area(_attack_draft_center, _attack_draft_radius_m, draft_waypoint_color)
 	_draw_plant_patch_markers()
 	var carrier := get_tree().get_first_node_in_group("carrier") as Node3D
 	if carrier and is_instance_valid(carrier):
 		_draw_route_from_points(carrier.global_position, _get_active_route_points(carrier), carrier_waypoint_color, true)
 		_draw_carrier_marker(carrier)
 	_draw_downed_pilot_markers()
+	var selected_members: Array[Node3D] = []
+	var selected_flight := AirOpsManager.get_flight(_selected_flight_name)
+	if selected_flight != null:
+		selected_members = selected_flight.get_members()
+	var selected_markers: Array[Node3D] = []
 
 	for group_name: String in TRACKED_TEAMS:
 		for node in get_tree().get_nodes_in_group(group_name):
@@ -171,7 +201,10 @@ func _draw() -> void:
 					var air_route := _get_active_route_points(node_3d)
 					if not air_route.is_empty():
 						_draw_route_from_points(node_3d.global_position, air_route, helicopter_waypoint_color, true, false, aircraft_route_display_simplify_enabled, true, true)
-				_draw_air_marker(node_3d)
+				if selected_members.has(node_3d):
+					selected_markers.append(node_3d)
+				else:
+					_draw_air_marker(node_3d)
 
 	for node in get_tree().get_nodes_in_group("ground_vehicle_platoons"):
 		if not (node is GroundVehiclePlatoon) or not is_instance_valid(node):
@@ -193,6 +226,13 @@ func _draw() -> void:
 	_draw_poi_markers()
 	_draw_selection_route()
 	_draw_command_draft()
+	_draw_attack_platoon(_attack_platoon_center, friendly_color)
+	_draw_attack_platoon(_attack_draft_platoon_center, draft_waypoint_color)
+	_draw_intercept_marker(_intercept_center, friendly_color)
+	_draw_intercept_marker(_intercept_draft_center, draft_waypoint_color)
+	# Keep the selected aircraft visible over nearby contacts and route lines.
+	for aircraft in selected_markers:
+		_draw_air_marker(aircraft, true)
 	_draw_selection_focus()
 
 func _layout_counts_label() -> void:
@@ -260,24 +300,38 @@ func _draw_carrier_marker(carrier: Node3D) -> void:
 	draw_polygon(PackedVector2Array([p0, p1, p2, p3]), PackedColorArray([c_color]))
 	draw_polyline(PackedVector2Array([p0, p1, p2, p3, p0]), Color(0.92, 0.98, 1.0, 1.0), 1.5)
 
-func _draw_air_marker(node_3d: Node3D) -> void:
+func _draw_air_marker(node_3d: Node3D, selected: bool = false) -> void:
 	if not _is_world_in_map_bounds(node_3d.global_position):
 		return
 	var map_pos: Vector2 = _world_to_map(node_3d.global_position)
 	var team_color := _color_for_team_node(node_3d)
-	var outline_alpha: float = 0.85 * (unsensed_alpha if not _is_visible_to_player(node_3d) else 1.0)
 	var heading := _basis_to_map_forward(node_3d.global_basis)
-	if heading.length() < 0.001:
-		heading = Vector2(0.0, -1.0)
-	else:
-		heading = heading.normalized()
-	var perp := Vector2(heading.y, -heading.x)
-	var s := aircraft_marker_size_px * 1.55
-	var tip: Vector2 = map_pos + heading * s
-	var bl: Vector2 = map_pos - heading * (s * 0.55) + perp * (s * 0.52)
-	var br: Vector2 = map_pos - heading * (s * 0.55) - perp * (s * 0.52)
-	draw_polygon(PackedVector2Array([tip, bl, br]), PackedColorArray([team_color]))
-	draw_polyline(PackedVector2Array([tip, bl, br, tip]), Color(1.0, 1.0, 1.0, outline_alpha), 1.0)
+	_draw_air_silhouette(map_pos, heading, team_color, _aircraft_icon(node_3d), selected)
+
+
+func _aircraft_icon(aircraft: Node3D) -> Texture2D:
+	if bool(aircraft.get_meta("is_helicopter", false)) \
+			or str(aircraft.get_meta("aircraft_role", "")).to_lower().contains("helicopter") \
+			or aircraft.has_node("HelicopterFlight"):
+		return HELICOPTER_ICON
+	return PLANE_ICON
+
+
+func _draw_air_silhouette(center: Vector2, heading: Vector2, color: Color, icon: Texture2D, selected: bool = false) -> void:
+	if heading.length_squared() < 0.001:
+		heading = Vector2.UP
+	# SVGs face up; aircraft forward is +Z in world space and +Y on the map.
+	var angle := heading.angle() + PI * 0.5
+	var side := aircraft_marker_size_px * 3.1
+	var icon_rect := Rect2(Vector2.ONE * (-side * 0.5), Vector2.ONE * side)
+	draw_set_transform(center, angle)
+	# Dilate the same silhouette to preserve the selected flight's white outline.
+	if selected:
+		for i in range(8):
+			var offset := Vector2.from_angle(float(i) * TAU / 8.0) * 2.0
+			draw_texture_rect(icon, Rect2(icon_rect.position + offset, icon_rect.size), false, Color.WHITE)
+	draw_texture_rect(icon, icon_rect, false, color)
+	draw_set_transform(Vector2.ZERO)
 
 func _draw_ground_marker(node_3d: Node3D) -> void:
 	if not _is_world_in_map_bounds(node_3d.global_position):
@@ -503,6 +557,81 @@ func _flat_distance_world(a: Vector3, b: Vector3) -> float:
 	return Vector2(a.x - b.x, a.z - b.z).length()
 
 
+func set_intercept_markers(center: Vector3, draft_center: Vector3) -> void:
+	_intercept_center = center
+	_intercept_draft_center = draft_center
+	queue_redraw()
+
+
+func _draw_intercept_marker(center: Vector3, color: Color) -> void:
+	if center == Vector3.INF:
+		return
+	var point := _world_to_map(center)
+	draw_arc(point, 23.0, 0, TAU, 40, color, 2.0, true)
+	draw_string(DATA_FONT, point + Vector2(28, -28), "ATTACK FLIGHT", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, color)
+
+
+func set_attack_platoon_markers(center: Vector3, draft_center: Vector3) -> void:
+	_attack_platoon_center = center
+	_attack_draft_platoon_center = draft_center
+	queue_redraw()
+
+
+func _draw_attack_platoon(center: Vector3, color: Color) -> void:
+	if center == Vector3.INF:
+		return
+	var point := _world_to_map(center)
+	draw_arc(point, 16.0, 0, TAU, 32, color, 2.0, true)
+	draw_string(DATA_FONT, point + Vector2(20, -28), "ATTACK PLATOON", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, color)
+
+
+func set_attack_areas(center: Vector3, radius_m: float, draft_center: Vector3, draft_radius_m: float) -> void:
+	_attack_area_center = center
+	_attack_area_radius_m = radius_m
+	_attack_draft_center = draft_center
+	_attack_draft_radius_m = draft_radius_m
+	queue_redraw()
+
+
+func _draw_attack_area(center: Vector3, radius_m: float, color: Color) -> void:
+	if center == Vector3.INF or radius_m <= 0.0:
+		return
+	var points := PackedVector2Array()
+	for i in range(65):
+		var angle := TAU * float(i) / 64.0
+		points.append(_world_to_map(center + Vector3(cos(angle), 0, sin(angle)) * radius_m))
+	draw_colored_polygon(points, Color(color, 0.12))
+	draw_polyline(points, color, 2.0, true)
+	draw_string(DATA_FONT, _world_to_map(center) + Vector2(10, -28),
+		"ATTACK  R %.0f m" % radius_m, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, color)
+
+
+func set_selected_flight(flight_name: String) -> void:
+	_selected_flight_name = flight_name
+	queue_redraw()
+
+
+func pick_friendly_flight(local_position: Vector2) -> String:
+	if not TerrainNavGrid.is_ready() or not Rect2(Vector2.ZERO, size).has_point(local_position):
+		return ""
+	var nearest := ""
+	var nearest_distance := maxf(aircraft_marker_size_px * 1.55 + 3.0, 18.0)
+	for flight_name in AirOpsManager.get_flight_names():
+		var flight := AirOpsManager.get_flight(flight_name)
+		for aircraft in flight.get_members():
+			if not aircraft.is_inside_tree() or not aircraft.is_in_group("friendlies") \
+					or _is_enemy_node(aircraft) or aircraft.is_in_group("ground_vehicles") \
+					or not _is_world_in_map_bounds(aircraft.global_position):
+				continue
+			var marker := _world_to_map(aircraft.global_position)
+			if not Rect2(Vector2.ZERO, size).has_point(marker):
+				continue
+			var distance := marker.distance_to(local_position)
+			if distance < nearest_distance:
+				nearest_distance = distance
+				nearest = flight_name
+	return nearest
+
 func set_selection_focus(world_pos: Vector3, color: Color = selection_color) -> void:
 	_selection_world_pos = world_pos
 	_selection_world_color = color
@@ -726,7 +855,7 @@ func _draw_enemy_bases() -> void:
 			diamond[0], diamond[1], diamond[2], diamond[3], diamond[0]
 		]), Color(1.0, 1.0, 1.0, 0.55 * (unsensed_alpha if not base_sensed else 1.0)), 1.2)
 
-		# Virtual flight arrow markers
+		# Distant flights use the same silhouette as their materialized aircraft.
 		for flight in base.get_flights():
 			if not is_instance_valid(flight):
 				continue
@@ -734,17 +863,14 @@ func _draw_enemy_bases() -> void:
 				continue
 			var fmp := _world_to_map(flight.position)
 			var fh  := Vector2(flight.heading.x, flight.heading.z)
-			if fh.length_squared() < 0.001:
-				fh = Vector2(0.0, -1.0)
-			fh = fh.normalized()
-			var perp := Vector2(fh.y, -fh.x)
-			var fs   := aircraft_marker_size_px * 1.55
-			var tip  := fmp + fh * fs
-			var bl   := fmp - fh * (fs * 0.55) + perp * (fs * 0.52)
-			var br   := fmp - fh * (fs * 0.55) - perp * (fs * 0.52)
 			var alpha := 0.50 if flight.vstate == EnemyVirtualFlight.VState.VIRTUAL else 1.0
 			var fc    := Color(color.r, color.g, color.b, alpha)
-			draw_colored_polygon(PackedVector2Array([tip, bl, br]), fc)
+			var icon := PLANE_ICON
+			for member in flight.active_aircraft:
+				if is_instance_valid(member):
+					icon = _aircraft_icon(member)
+					break
+			_draw_air_silhouette(fmp, fh, fc, icon)
 
 
 func _draw_enemy_outposts() -> void:

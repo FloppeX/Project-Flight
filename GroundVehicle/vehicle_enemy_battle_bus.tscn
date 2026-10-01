@@ -37,7 +37,7 @@ script = ExtResource("4_tctrl")
 weapon_scene = ExtResource("6_weapon")
 
 [node name="VehicleLMGTurret" parent="TurretController" unique_id=960769053 instance=ExtResource("5_lmg")]
-transform = Transform3D(0.9, 0, 0, 0, 0.9, 0, 0, 0, 0.9, -0.654678, 0.506386, 1.50081)
+transform = Transform3D(0.9, 0, 0, 0, 0.9, 0, 0, 0, 0.9, -0.654678, 0.756386, 1.50081)
 
 [node name="HeavyTurretController" type="Node3D" parent="." unique_id=1182330980]
 transform = Transform3D(0.99863, 0, 0.052336, 0, 1, 0, -0.052336, 0, 0.99863, 0, 2.42, 1.45)

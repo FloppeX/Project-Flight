@@ -43,10 +43,12 @@ var _scatter_target_local: Vector2 = Vector2.ZERO
 var _scatter_target_timer_s: float = 0.0
 var _rocket_audio_player: AudioStreamPlayer3D = null
 var _tuning_impact_emitted: bool = false
+var _salvo_peers: Array[WeakRef] = []
 
 func _ready() -> void:
 	var configured_mass: float = mass
 	super._ready()
+	add_to_group("live_rocket_projectiles")
 	mass = configured_mass
 	damage = damage_amount
 	creates_explosion = false
@@ -64,6 +66,7 @@ func _ready() -> void:
 	_setup_rocket_audio()
 
 func _exit_tree() -> void:
+	_clear_salvo_collision_exceptions()
 	_emit_tuning_impact(global_position)
 	if is_instance_valid(_rocket_audio_player):
 		_rocket_audio_player.stop()
@@ -92,6 +95,16 @@ func _setup_rocket_audio() -> void:
 
 func fire(initial_velocity: Vector3, firing_aircraft: Node3D) -> void:
 	super.fire(initial_velocity, firing_aircraft)
+	# A salvo may be spawned between physics ticks. Its overlapping launch bodies
+	# must not collide with each other, including the swept ray from the old muzzle
+	# position. Keep collisions with terrain, targets, and other shooters' rockets.
+	if is_instance_valid(firing_aircraft):
+		for peer in get_tree().get_nodes_in_group("live_rocket_projectiles"):
+			if peer != self and peer is RocketProjectile and peer.shooter == firing_aircraft:
+				add_collision_exception_with(peer)
+				peer.add_collision_exception_with(self)
+				_salvo_peers.append(weakref(peer))
+				peer._salvo_peers.append(weakref(self))
 	if not firing_aircraft or not is_instance_valid(firing_aircraft):
 		_launch_reference_speed_mps = linear_velocity.length()
 		return
@@ -106,6 +119,23 @@ func fire(initial_velocity: Vector3, firing_aircraft: Node3D) -> void:
 	_flight_age_s = 0.0
 	if is_instance_valid(_rocket_audio_player) and not _rocket_audio_player.playing:
 		_rocket_audio_player.play()
+
+func _get_projectile_query_excludes() -> Array:
+	var excludes: Array = super._get_projectile_query_excludes()
+	for reference in _salvo_peers:
+		var peer = reference.get_ref()
+		if is_instance_valid(peer):
+			excludes.append(peer.get_rid())
+	return excludes
+
+func _clear_salvo_collision_exceptions() -> void:
+	# Jolt can retain an exception RID after its body is freed. Remove each side
+	# while both bodies still exist; query exclusions only retain weak references.
+	for reference in _salvo_peers:
+		var peer = reference.get_ref()
+		if is_instance_valid(peer):
+			peer.remove_collision_exception_with(self)
+			remove_collision_exception_with(peer)
 
 func _physics_process(delta: float) -> void:
 	if has_impacted:

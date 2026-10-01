@@ -1,12 +1,15 @@
-[gd_scene load_steps=4 format=3]
+[gd_scene load_steps=5 format=3]
 
 [ext_resource type="PackedScene" path="res://Models/LandCarrier/Land carrier 4.glb" id="1"]
 [ext_resource type="Script" path="res://LandCarrier/CarrierIslandIntegration.gd" id="2"]
 [ext_resource type="Script" path="res://LandCarrier/LandCarrier4VisualIntegration.gd" id="3"]
+[ext_resource type="PackedScene" path="res://LandCarrier/CarrierIslandCollision.tscn" id="4_exterior_collision"]
 
 [node name="CarrierWithInterior" instance=ExtResource("1")]
 script = ExtResource("2")
 metadata/island_baked = true
+
+[node name="IslandExteriorCollision" parent="." instance=ExtResource("4_exterior_collision")]
 
 [node name="DoorIntegrator" type="Node" parent="."]
 script = ExtResource("3")

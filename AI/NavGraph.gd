@@ -853,10 +853,21 @@ func _heap_pop(heap: Array) -> Array:
 
 # ── Save / Load ─────────────────────────────────────────────────────────────
 
-const _CACHE_VERSION := 12
+const _CACHE_VERSION := 13
+
+func _terrain_grid_signature() -> String:
+	# Seed/profile names alone do not identify the terrain after generator edits.
+	# Heights are frame-independent, so the signature also survives origin shifts.
+	var context := HashingContext.new()
+	context.start(HashingContext.HASH_SHA256)
+	context.update(var_to_bytes([TerrainNavGrid._cols, TerrainNavGrid._rows,
+		TerrainNavGrid.cell_size_m, TerrainNavGrid.get_bake_profile_id()]))
+	context.update(TerrainNavGrid._heights.to_byte_array())
+	return context.finish().hex_encode()
 
 func _save(path: String) -> void:
 	var data := {
+		"terrain_grid_signature": _terrain_grid_signature(),
 		"grid_origin_x": _query_grid.get("origin_x", TerrainNavGrid._origin_x),
 		"grid_origin_z": _query_grid.get("origin_z", TerrainNavGrid._origin_z),
 		"version":      _CACHE_VERSION,
@@ -892,6 +903,8 @@ func _load(path: String) -> bool:
 		return false
 	if int(data.get("version", 0)) != _CACHE_VERSION:
 		return false
+	if str(data.get("terrain_grid_signature", "")) != _terrain_grid_signature():
+		return false
 	if absf(float(data.get("node_spacing", 0.0)) - _effective_node_spacing_m()) > 0.1:
 		return false
 	if absf(float(data.get("max_edge_length", 0.0)) - _effective_max_edge_length_m()) > 0.1:
@@ -912,8 +925,7 @@ func _load(path: String) -> bool:
 	_edge_cl     = data["edge_cl"]
 	_cl_map      = cached_clearance as PackedFloat32Array
 	_capture_query_grid()
-	# Older v12 caches store nodes in the cache-key's current frame. New caches
-	# also retain the build-frame origin, allowing explicit saves after a rebase.
+	# Retain the build-frame origin, allowing explicit saves after a rebase.
 	var old_x: float = data.get("grid_origin_x", _query_grid.origin_x)
 	var old_z: float = data.get("grid_origin_z", _query_grid.origin_z)
 	_frame_lock.lock()

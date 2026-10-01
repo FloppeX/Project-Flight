@@ -11,10 +11,12 @@ class_name AircraftModule_ControlEngine
 @export var AbsoluteSmoothing: float = 6.0    # higher = quicker to RT value
 @export var AutoStartPowerLimit: float = 1.0  # caps throttle during auto-start; 1.0 keeps old behavior
 @export var AutoStartLimitRequiresThrottleRelease: bool = false
+@export var RequireThrottleReleaseAfterManualStart: bool = false
 
 var engine_modules: Array = []
 var target_power: float = 0.0  # 0..1
 var _auto_start_power_limited: bool = false
+var _manual_start_throttle_latched: bool = false
 
 func _ready() -> void:
 	# We poll every frame instead of using event callbacks.
@@ -42,15 +44,27 @@ func _physics_process(delta: float) -> void:
 	# Incremental throttle (e.g., D-pad up/down or keys)
 	var up: float = Input.get_action_strength("throttle_up")
 	var down: float = Input.get_action_strength("throttle_down")
+	var abs_throttle: float = Input.get_action_strength("throttle_abs") if UseAbsoluteThrottle and InputMap.has_action("throttle_abs") else 0.0
+	if _manual_start_throttle_latched:
+		if up <= 0.01 and abs_throttle <= 0.01:
+			_manual_start_throttle_latched = false
+		else:
+			up = 0.0
+			abs_throttle = 0.0
 	var inc: float = (up - down) * ThrottleRate * delta
 	target_power = clamp(target_power + inc, 0.0, 1.0)
 
 	# Absolute throttle (e.g., RT trigger mapped to 0..1)
 	if UseAbsoluteThrottle and InputMap.has_action("throttle_abs"):
-		var abs_throttle: float = Input.get_action_strength("throttle_abs")
 		if abs_throttle > 0.01:
 			var t: float = clamp(AbsoluteSmoothing * delta, 0.0, 1.0)
 			target_power = lerp(target_power, abs_throttle, t)
+
+	# A manual cold-start gesture starts at idle. Release and press again to
+	# choose collective, instead of accumulating full power during unfolding.
+	if RequireThrottleReleaseAfterManualStart and previous_power <= 0.01 and target_power > 0.01 and not _any_engine_working():
+		target_power = 0.02
+		_manual_start_throttle_latched = true
 
 	# Automatic engine start/stop based on throttle
 	handle_automatic_engine_control(previous_power)

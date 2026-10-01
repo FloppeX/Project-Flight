@@ -1,31 +1,23 @@
-[gd_scene load_steps=3 format=3]
+[gd_scene load_steps=4 format=3]
 
-[ext_resource type="Script" uid="uid://c1jwpg25tydnr" path="res://Weapons/Turrets/turret.gd" id="1_turret"]
-[ext_resource type="PackedScene" uid="uid://cyf6h1u6ckoja" path="res://Models/Vehicles/Vehicle LMG.glb" id="2_model"]
+[ext_resource type="Script" path="res://Weapons/Turrets/ReceiverVehicleTurret.gd" id="1"]
+[ext_resource type="PackedScene" path="res://Models/Turrets/receiver monopod.blend" id="2"]
+[ext_resource type="PackedScene" path="res://Weapons/Turrets/UniversalReceiver.tscn" id="3"]
 
-[node name="VehicleLMGTurret" type="Node3D" node_paths=PackedStringArray("base_mesh", "barrel_mount", "firing_points")]
-script = ExtResource("1_turret")
+[node name="VehicleLMGTurret" type="Node3D" node_paths=PackedStringArray("base_mesh", "barrel_mount")]
+script = ExtResource("1")
 turn_speed = 90.0
 pitch_speed = 90.0
 max_pitch_up = 75.0
 max_pitch_down = -20.0
-base_mesh = NodePath("StandModel/lmg stand")
+base_mesh = NodePath("StandModel/Monopod")
 barrel_mount = NodePath("BarrelMount")
-firing_points = [NodePath("BarrelMount/Muzzle")]
 barrel_forward_axis_local = Vector3(0, 0, 1)
 barrel_pitch_axis_local = Vector3(1, 0, 0)
 
-[node name="StandModel" parent="." instance=ExtResource("2_model")]
-
-[node name="machine gun" parent="StandModel" index="0"]
-visible = false
+[node name="StandModel" parent="." instance=ExtResource("2")]
 
 [node name="BarrelMount" type="Node3D" parent="."]
 
-[node name="GunModel" parent="BarrelMount" instance=ExtResource("2_model")]
-
-[node name="lmg stand" parent="BarrelMount/GunModel" index="1"]
-visible = false
-
-[node name="Muzzle" type="Node3D" parent="BarrelMount"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.001834, 0.007369, 1.80908)
+[node name="Receiver" parent="BarrelMount" instance=ExtResource("3")]
+caliber_mm = 10

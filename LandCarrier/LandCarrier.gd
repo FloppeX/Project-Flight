@@ -35,6 +35,8 @@ const VEHICLE_BAY_SCRIPT := preload("res://LandCarrier/VehicleBayManager.gd")
 const FrameProfiler: Script = preload("res://Debug/FrameProfiler.gd")
 const TRACK_MARK_FADE_SHADER := preload("res://LandCarrier/track_mark_fade.gdshader")
 const PERF_OVERRIDE_PATH := "user://land_carrier_perf_override.json"
+const ReverseDrive = preload("res://GroundVehicle/ReverseDrive.gd")
+var _reverse_driving: bool = false
 
 # --- Waypoints ---
 @export var waypoints: Array[NodePath] = []
@@ -43,6 +45,7 @@ const PERF_OVERRIDE_PATH := "user://land_carrier_perf_override.json"
 
 # --- Movement ---
 @export var max_speed: float = 10.0
+@export_range(0.1, 0.75, 0.05) var reverse_speed_ratio: float = 0.3
 @export var acceleration: float = 1.5
 @export var deceleration: float = 2.5
 @export var turn_speed: float = 0.25
@@ -98,6 +101,7 @@ const PERF_OVERRIDE_PATH := "user://land_carrier_perf_override.json"
 
 # --- Terrain feeler avoidance ---
 @export var feeler_height_threshold_m: float = 15.0  # terrain rise above carrier base that counts as obstacle
+@export_range(1.0, 30.0, 0.5) var max_drive_slope_deg: float = 15.0
 
 # --- Pathfinding ---
 @export var path_max_slope_m: float = 12.0    # max height variation within clearance radius (carrier-specific)
@@ -106,9 +110,9 @@ const PERF_OVERRIDE_PATH := "user://land_carrier_perf_override.json"
 ## Disabled in normal play: after safe placement, the carrier waits for a player order.
 @export var automatic_patrol_enabled: bool = false
 @export var default_cross_map_route: bool = true
-## Zero preserves random gameplay placement; nonzero makes diagnostic starts repeatable.
+## Seed for diagnostic/random patrols. Normal new games search the southern start band.
 @export var startup_placement_seed: int = 0
-@export var route_start_edge_margin_m: float = 1800.0
+@export var route_start_edge_margin_m: float = 2000.0
 @export var route_goal_edge_margin_m: float = 0.0
 @export var route_center_search_width_m: float = 4200.0
 @export var route_edge_search_depth_m: float = 3200.0
@@ -153,6 +157,7 @@ const MAX_TREAD_STEER: float = 0.4
 
 # --- State ---
 var _raw_waypoints: Array[Vector3] = []
+var _startup_site: Dictionary = {}
 var _raw_waypoint_index: int = 0
 var _waypoint_positions: Array[Vector3] = []
 var _waypoint_index: int = 0
@@ -333,6 +338,8 @@ func _apply_perf_override() -> void:
 	])
 
 func apply_origin_shift(offset: Vector3) -> void:
+	if not _startup_site.is_empty():
+		_startup_site.position -= offset
 	for i in range(_raw_waypoints.size()):
 		_raw_waypoints[i] -= offset
 	for i in range(_waypoint_positions.size()):
@@ -589,6 +596,17 @@ func _set_north_heading() -> void:
 	else:
 		NavGraph.graph_ready.connect(_start_random_patrol, CONNECT_ONE_SHOT)
 
+func get_start_site_requirements() -> Dictionary:
+	return {"margin": route_start_edge_margin_m, "max_slope": path_max_slope_m,
+		"radius": spawn_clearance_radius_m, "variation": spawn_clearance_max_height_variation_m,
+		"distance": aircraft_launch_corridor_distance_m, "half_width": aircraft_launch_corridor_half_width_m,
+		"max_rise": aircraft_launch_corridor_max_terrain_rise_m}
+
+
+func set_startup_site(ground_position: Vector3, heading: Vector3) -> void:
+	_startup_site = {"position": ground_position, "heading": heading}
+
+
 func _start_random_patrol() -> void:
 	if _heli_test_stationary:
 		visible = true
@@ -622,6 +640,7 @@ func _start_random_patrol() -> void:
 	var body_ride_h := BODY_RIDE_HEIGHT
 	var current_pos := global_position
 	var build_automatic_patrol := automatic_patrol_enabled
+	var selected_site := _startup_site.duplicate()
 	var initial_heading := global_transform.basis.z
 	initial_heading.y = 0.0
 	if initial_heading.length_squared() <= 0.001:
@@ -637,6 +656,29 @@ func _start_random_patrol() -> void:
 		var fallback_patrol := false
 		var placement_ready := false
 		var route_plan_details := {}
+
+		if is_default_route and not build_automatic_patrol:
+			var southern_start := selected_site
+			if not southern_start.is_empty():
+				var p: Vector3 = southern_start.position
+				var h: Vector3 = southern_start.heading
+				if not TerrainNavGrid.is_low_clear_position(p.x, p.z, max_slope) \
+						or not TerrainNavGrid.is_stable_footprint(p.x, p.z, spawn_clear_radius, spawn_clear_variation, spawn_clear_variation) \
+						or not NavGraph.can_anchor(p, CARRIER_CLEARANCE_M) \
+						or not TerrainNavGrid.is_directional_launch_corridor_clear(p.x, p.z, h.x, h.z,
+							launch_corridor_distance, launch_corridor_half_width, launch_corridor_max_rise):
+					southern_start = {}
+			if southern_start.is_empty():
+				southern_start = _find_southern_start(
+					start_margin, max_slope, spawn_clear_radius, spawn_clear_variation,
+					launch_corridor_distance, launch_corridor_half_width, launch_corridor_max_rise)
+			if southern_start.is_empty():
+				return {"placement_failed": true}
+			return {
+				"routed_path": routed_path,
+				"final_pos": southern_start.position + Vector3.UP * body_ride_h,
+				"route_plan_details": {"startup_heading": southern_start.heading},
+			}
 
 		if is_default_route:
 			var routed_start := TerrainNavGrid.get_centered_edge_position(
@@ -791,8 +833,60 @@ func _start_random_patrol() -> void:
 	var job_id: int = NavPathScheduler.request_work(work, _on_random_patrol_job_result, 1, "LandCarrier.random_patrol")
 	if job_id < 0:
 		_is_pathfinding = false
-		visible = true
-		_mark_initial_placement_completed()
+		get_tree().create_timer(0.25).timeout.connect(_start_random_patrol, CONNECT_ONE_SHOT)
+
+
+## Search only the southern band, never a random fallback elsewhere on the map.
+## Prefer a site near the centre and 2 km inland, with an open northward launch lane.
+func _find_southern_start(
+		margin_m: float, max_slope: float, footprint_radius: float, footprint_variation: float,
+		corridor_distance: float, corridor_half_width: float, corridor_max_rise: float
+) -> Dictionary:
+	var south_z: float = TerrainNavGrid._origin_z + (TerrainNavGrid._rows - 1) * TerrainNavGrid.cell_size_m
+	var centre_x: float = TerrainNavGrid._origin_x + (TerrainNavGrid._cols - 1) * TerrainNavGrid.cell_size_m * 0.5
+	var half_width: float = (TerrainNavGrid._cols - 1) * TerrainNavGrid.cell_size_m * 0.5
+	var border: float = maxf(footprint_radius + TerrainNavGrid.cell_size_m * 2.0, 500.0)
+	var target_margin := maxf(margin_m, border + 500.0)
+	# Badlands has continuous elevations and protected routes above its lowest
+	# basin; a global minimum-height filter would exclude usable southern roads.
+	var varied_elevation: bool = TerrainNavGrid.get_bake_profile_id() == "layered_badlands"
+	var headings: Array[Vector3] = []
+	for angle in [0.0, -15.0, 15.0, -30.0, 30.0, -45.0, 45.0]:
+		headings.append(Vector3.FORWARD.rotated(Vector3.UP, deg_to_rad(angle)))
+	# Coarse search normally succeeds quickly. A cell-resolution pass catches
+	# narrow clearings without ever abandoning the 1.5–3 km southern start band.
+	for spacing in [maxf(TerrainNavGrid.cell_size_m, 120.0), TerrainNavGrid.cell_size_m]:
+		var candidates: Array[Vector3] = []
+		var depth := target_margin - 500.0
+		while depth <= target_margin + 1000.0:
+			var offset_x := 0.0
+			while offset_x <= half_width - border:
+				for side in [1.0, -1.0]:
+					if offset_x == 0.0 and side < 0.0:
+						continue
+					# Store the preference score in y until a candidate is evaluated.
+					candidates.append(Vector3(centre_x + offset_x * side,
+						absf(depth - target_margin) * 2.0 + offset_x * 0.1, south_z - depth))
+				offset_x += spacing
+			depth += spacing
+		candidates.sort_custom(func(a: Vector3, b: Vector3) -> bool: return a.y < b.y)
+		for candidate in candidates:
+			var ground_clear: bool = TerrainNavGrid.is_clear_position(candidate.x, candidate.z, max_slope) if varied_elevation \
+				else TerrainNavGrid.is_low_clear_position(candidate.x, candidate.z, max_slope)
+			if not ground_clear:
+				continue
+			if not TerrainNavGrid.is_stable_footprint(candidate.x, candidate.z,
+					footprint_radius, footprint_variation, footprint_variation):
+				continue
+			candidate.y = TerrainNavGrid.sample_query_height(candidate.x, candidate.z)
+			if not NavGraph.can_anchor(candidate, CARRIER_CLEARANCE_M):
+				continue
+			for heading in headings:
+				if corridor_distance <= 0.0 or TerrainNavGrid.is_directional_launch_corridor_clear(
+						candidate.x, candidate.z, heading.x, heading.z,
+						corridor_distance, corridor_half_width, corridor_max_rise):
+					return {"position": candidate, "heading": heading}
+	return {}
 
 func _on_random_patrol_job_result(result: Variant) -> void:
 	if not result is Dictionary:
@@ -802,6 +896,10 @@ func _on_random_patrol_job_result(result: Variant) -> void:
 		_start_random_patrol.call_deferred()
 		return
 	var data: Dictionary = result as Dictionary
+	if data.get("placement_failed", false):
+		_is_pathfinding = false
+		push_error("[LandCarrier] No safe carrier start in the southern band (stable ground and northward launch clearance required).")
+		return
 	_on_random_patrol_computed(
 		data.get("routed_path", []),
 		data.get("routed_destination", Vector3.ZERO),
@@ -819,6 +917,10 @@ func _on_random_patrol_computed(routed_path: Array[Vector3], routed_destination:
 		return
 
 	global_position = final_pos
+	if route_plan_details.has("startup_heading"):
+		_face_route_destination(final_pos + Vector3(route_plan_details.startup_heading) * 1000.0)
+	elif using_cross_route or fallback_patrol:
+		_face_route_destination(routed_destination)
 	visible = true
 	_mark_initial_placement_completed()
 	if not automatic_patrol_enabled:
@@ -1753,19 +1855,19 @@ func _get_precise_terrain_provider() -> Node:
 		_terrain_provider = get_tree().get_first_node_in_group("terrain_provider")
 	return _terrain_provider
 
-func _get_avoidance_steer() -> float:
+func _get_avoidance_steer(drive_direction: float = 1.0) -> float:
 	# Multi-range terrain feelers: sample heights at various offsets around the
 	# carrier and steer away from rising terrain.  Uses the baked heightmap so
 	# there is no physics cost.
 	if not TerrainNavGrid.is_ready():
 		return 0.0
 
-	var fwd := global_transform.basis.z
+	var fwd := global_transform.basis.z * drive_direction
 	fwd.y = 0.0
 	if fwd.length_squared() < 0.0001:
 		return 0.0
 	fwd = fwd.normalized()
-	var right := global_transform.basis.x
+	var right := global_transform.basis.x * drive_direction
 	right.y = 0.0
 	if right.length_squared() < 0.0001:
 		right = Vector3(fwd.z, 0.0, -fwd.x)
@@ -1900,12 +2002,15 @@ func _refresh_drive_command(delta: float) -> void:
 	current_forward.y = 0.0
 	current_forward = current_forward.normalized() if current_forward.length_squared() > 0.0001 else Vector3.FORWARD
 
-	var turn_angle: float = current_forward.signed_angle_to(desired_dir, Vector3.UP)
+	_reverse_driving = ReverseDrive.choose_reverse(current_forward.dot(desired_dir), _reverse_driving)
+	var drive_direction := -1.0 if _reverse_driving else 1.0
+	var travel_forward := current_forward * drive_direction
+	var turn_angle: float = travel_forward.signed_angle_to(desired_dir, Vector3.UP)
 	var turn_angle_deg: float = abs(rad_to_deg(turn_angle))
-	var dot: float = clampf(current_forward.dot(desired_dir), -1.0, 1.0)
+	var dot: float = clampf(travel_forward.dot(desired_dir), -1.0, 1.0)
 
 	var wp_steer: float = clampf(turn_angle / deg_to_rad(75.0), -1.0, 1.0)
-	var avoidance: float = _get_avoidance_steer()
+	var avoidance: float = _get_avoidance_steer(drive_direction)
 	# Avoidance blends with waypoint steering but cannot fully oppose it.
 	# If avoidance and waypoint steer are in opposite directions, cap avoidance
 	# so the carrier always retains some forward waypoint progress.
@@ -1919,20 +2024,20 @@ func _refresh_drive_command(delta: float) -> void:
 	var target_steer := clampf(lerpf(wp_steer, wp_steer + effective_avoidance * 2.0, avoid_blend), -1.0, 1.0)
 	if absf(target_steer) < steer_deadzone:
 		target_steer = 0.0
-	_current_steer = move_toward(_current_steer, target_steer, steer_response * delta)
+	_current_steer = move_toward(_current_steer, target_steer * drive_direction, steer_response * delta)
 	if turn_angle_deg < settle_turn_angle_deg and absf(avoidance) < steer_deadzone and absf(_current_steer) < settle_steer_deadzone:
 		_current_steer = 0.0
 	# When turning in place (large angle to waypoint), turn faster to recover sooner
 	var effective_turn_speed := turn_speed
 	if turn_angle_deg > turn_in_place_angle_deg:
 		effective_turn_speed = turn_speed * 2.0
-	var target_yaw_rate := _current_steer * effective_turn_speed
+	var target_yaw_rate := _current_steer * effective_turn_speed * drive_direction
 
 	var turn_speed_factor := clampf(1.0 - absf(_current_steer) * turn_speed_slowdown, 0.2, 1.0)
 	var throttle: float = clamp((dot + 1.0) * 0.5, 0.0, 1.0) * turn_speed_factor
 	if turn_angle_deg > turn_in_place_angle_deg:
 		throttle = maxf(throttle, maxf(hard_turn_crawl_speed_mps, 0.0) / maxf(max_speed, 0.01))
-	_drive_target_speed_mps = throttle * max_speed
+	_drive_target_speed_mps = throttle * max_speed * (-reverse_speed_ratio if _reverse_driving else 1.0)
 	_drive_target_yaw_rate_rad_s = target_yaw_rate
 
 
@@ -1972,12 +2077,17 @@ func _apply_drive_motion(delta: float, target_speed_mps: float, target_yaw_rate_
 	var constrained_motion := _apply_recovery_motion_constraint(target_speed_mps, target_yaw_rate_rad_s, delta)
 	target_speed_mps = float(constrained_motion.get("speed", target_speed_mps))
 	target_yaw_rate_rad_s = float(constrained_motion.get("yaw_rate", target_yaw_rate_rad_s))
+	# Final authority after deck overrides: direct position updates do not have
+	# a physics collision response to stop the carrier climbing a mountain.
+	var travel_sign := signf(_current_planar_speed_mps) if absf(_current_planar_speed_mps) > 0.001 else signf(target_speed_mps)
+	var terrain_speed_limit := _get_terrain_drive_speed_limit(maxf(absf(target_speed_mps), absf(_current_planar_speed_mps)), travel_sign)
+	target_speed_mps = clampf(target_speed_mps, -terrain_speed_limit, terrain_speed_limit)
+	_current_planar_speed_mps = clampf(_current_planar_speed_mps, -terrain_speed_limit, terrain_speed_limit)
 
-	var speed_rate := acceleration if target_speed_mps > _current_planar_speed_mps else deceleration
-	_current_planar_speed_mps = move_toward(
+	_current_planar_speed_mps = ReverseDrive.approach_speed(
 		_current_planar_speed_mps,
 		target_speed_mps,
-		maxf(speed_rate, 0.0) * delta
+		acceleration, deceleration, delta
 	)
 	var target_axle_yaw_rate := _get_axle_steering_yaw_rate(_current_planar_speed_mps, target_yaw_rate_rad_s)
 	var yaw_reversing: bool = _current_yaw_rate_rad_s * target_axle_yaw_rate < 0.0
@@ -2010,6 +2120,34 @@ func _apply_drive_motion(delta: float, target_speed_mps: float, target_yaw_rate_
 	_last_planar_speed_mps = _current_planar_speed_mps
 
 
+func _get_terrain_drive_speed_limit(requested_speed: float, drive_direction: float = 1.0) -> float:
+	var forward := global_basis.z.slide(Vector3.UP).normalized()
+	var travel_forward := forward * (-1.0 if drive_direction < 0.0 else 1.0)
+	var right := global_basis.x.slide(Vector3.UP).normalized()
+	var braking := maxf(deceleration, 0.1)
+	var step_m := 5.0
+	var lookahead := maxf(requested_speed * requested_speed / (2.0 * braking) + step_m * 2.0, step_m * 2.0)
+	var origins: Array[Vector2] = _tread_local_xz.duplicate()
+	if origins.is_empty():
+		origins.assign([Vector2.ZERO])
+	var limit := INF
+	var max_grade := tan(deg_to_rad(max_drive_slope_deg))
+	for offset in origins:
+		var start := global_position + right * offset.x + forward * offset.y
+		var previous_height := _sample_precise_terrain_y(start.x, start.z)
+		var distance := step_m
+		while distance <= lookahead + step_m:
+			var point := start + travel_forward * distance
+			var height := _sample_precise_terrain_y(point.x, point.z)
+			if not is_finite(height) or absf(height - previous_height) > max_grade * step_m:
+				var safe_distance := maxf(distance - step_m * 2.0, 0.0)
+				limit = minf(limit, sqrt(2.0 * braking * safe_distance))
+				break
+			previous_height = height
+			distance += step_m
+	return limit
+
+
 func _get_axle_steering_yaw_rate(speed_mps: float, requested_yaw_rate_rad_s: float) -> float:
 	var yaw_limit := absf(requested_yaw_rate_rad_s)
 	if yaw_limit <= 0.00001 or absf(speed_mps) <= 0.001:
@@ -2036,6 +2174,15 @@ func _apply_recovery_motion_constraint(target_speed_mps: float, target_yaw_rate_
 		return {"speed": target_speed_mps, "yaw_rate": target_yaw_rate_rad_s}
 	if not bool(deck_manager.call("is_carrier_recovery_constraint_active")):
 		return {"speed": target_speed_mps, "yaw_rate": target_yaw_rate_rad_s}
+	# Recovery aircraft follow the carrier's navigation order; landing clearance
+	# must not take ownership of its speed or heading.
+	var launch_constraint: bool = deck_manager.has_method("is_launch_constraint_active") \
+			and bool(deck_manager.call("is_launch_constraint_active"))
+	if not launch_constraint:
+		return {"speed": target_speed_mps, "yaw_rate": target_yaw_rate_rad_s}
+	# A pending launch must not turn a backing-up order into forward motion.
+	if target_speed_mps < 0.0 or _current_planar_speed_mps < 0.0:
+		return {"speed": target_speed_mps, "yaw_rate": target_yaw_rate_rad_s}
 
 	var speed_limit := maxf(recovery_constraint_default_speed_limit_mps, 0.0)
 	if deck_manager.has_method("get_carrier_recovery_speed_limit_mps"):
@@ -2049,9 +2196,7 @@ func _apply_recovery_motion_constraint(target_speed_mps: float, target_yaw_rate_
 	_current_steer = move_toward(_current_steer, 0.0, 4.0 * delta)
 	# For a LAUNCH constraint, keep an already-commanded route moving straight. An
 	# explicit HOLD remains authoritative: launching must not create movement when
-	# there is no navigation order. Recovery/landing constraints keep the low cap.
-	var launch_constraint: bool = deck_manager.has_method("is_launch_constraint_active") \
-			and bool(deck_manager.call("is_launch_constraint_active"))
+	# there is no navigation order.
 	if launch_constraint and has_active_navigation_order():
 		constrained_speed = maxf(constrained_speed, maxf(launch_constraint_min_speed_mps, 0.0))
 	if debug_motion_constraints and _recovery_constraint_log_s <= 0.0:
@@ -2087,7 +2232,7 @@ func turn_right(_amount: float = 30.0) -> void:
 	pass
 
 func get_speed() -> float:
-	return _last_planar_speed_mps
+	return absf(_last_planar_speed_mps)
 
 func get_yaw_rate_rad_s() -> float:
 	return _current_yaw_rate_rad_s
@@ -2141,7 +2286,7 @@ func _update_deck_audio(delta: float) -> void:
 	if _deck_audio_player == null:
 		return
 
-	var speed_factor := clampf(_last_planar_speed_mps / maxf(deck_sound_full_speed_mps, 0.01), 0.0, 1.0)
+	var speed_factor := clampf(absf(_last_planar_speed_mps) / maxf(deck_sound_full_speed_mps, 0.01), 0.0, 1.0)
 	speed_factor = speed_factor * speed_factor * (3.0 - 2.0 * speed_factor)
 	speed_factor = maxf(deck_sound_idle_factor, speed_factor)
 	var target_volume := lerpf(deck_sound_idle_volume_db, deck_sound_max_volume_db, speed_factor)

@@ -5,6 +5,8 @@
 
 [resource]
 script = ExtResource("1_profile_script")
+empty_mass_kg = 35.0
+round_mass_kg = 0.04
 profile_name = "10 mm Machine Gun"
 caliber_mm = 10
 weapon_name = "10 mm Machine Gun"

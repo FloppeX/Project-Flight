@@ -88,6 +88,9 @@ var _barrel_recoil: Node
 ## Do not scatter individual rounds around that solution a second time.
 var use_controller_burst_error: bool = false
 
+func _init() -> void:
+	round_mass_kg = 0.1
+
 func _ready() -> void:
 	_apply_gun_profile()
 	automatic_fire = true
@@ -163,6 +166,7 @@ func fire() -> bool:
 	_spawn_bullet(spawn_transform, firing_entity)
 	if last_fired_projectile != null and is_instance_valid(last_fired_projectile):
 		physical_rounds_fired += 1
+		_emit_muzzle_flash(spawn_transform, firing_turret)
 		_kick_barrel_recoil(firing_turret, cooldown_s)
 		_queue_virtual_rounds(
 			spawn_transform,
@@ -240,8 +244,25 @@ func _fire_virtual_round(pending: Dictionary) -> void:
 	)):
 		return
 	virtual_rounds_fired += 1
+	_emit_muzzle_flash(spawn_transform, firing_turret)
 	_kick_barrel_recoil(firing_turret, 1.0 / maxf(fire_rate, 0.01))
 	_play_shot_sound(tracer_origin)
+
+func _emit_muzzle_flash(muzzle: Transform3D, firing_turret: Turret) -> void:
+	if not is_instance_valid(firing_turret):
+		preload("res://Weapons/Guns/MuzzleFlash.gd").emit_hardpoint(
+			self, muzzle, gun_profile.caliber_mm if gun_profile != null else 15, _barrel_recoil)
+		return
+	var anchor: Node3D = firing_turret.barrel_mount
+	var closest := INF
+	for point in firing_turret.firing_points:
+		if not is_instance_valid(point): continue
+		var distance: float = point.global_position.distance_squared_to(muzzle.origin)
+		if distance < closest:
+			closest = distance
+			anchor = point
+	preload("res://Weapons/Guns/MuzzleFlash.gd").emit(
+		self, muzzle, gun_profile.caliber_mm if gun_profile != null else 15, anchor)
 
 func _kick_barrel_recoil(firing_turret: Turret, shot_interval_s: float) -> void:
 	if is_instance_valid(firing_turret) and gun_profile != null:
@@ -336,10 +357,9 @@ func can_fire() -> bool:
 	return super.can_fire()
 
 func _spawn_bullet(spawn_transform: Transform3D, firing_entity: Node3D) -> void:
+	last_fired_projectile = null
 	if not bullet_scene:
 		return
-
-	last_fired_projectile = null
 
 	var root = get_tree().current_scene
 	if not root:
@@ -517,3 +537,9 @@ func _pick_random_shot_sound() -> AudioStream:
 		index = (index + 1 + (randi() % (sound_bank.size() - 1))) % sound_bank.size()
 	_last_shot_sound_index = index
 	return sound_bank[index] as AudioStream
+
+
+func get_payload_mass_kg() -> float:
+	if gun_profile != null:
+		return maxf(gun_profile.empty_mass_kg, 0.0) + maxf(ammo_count, 0) * maxf(gun_profile.round_mass_kg, 0.0)
+	return super.get_payload_mass_kg()

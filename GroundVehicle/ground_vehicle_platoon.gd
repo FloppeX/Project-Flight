@@ -40,6 +40,7 @@ enum ObjectiveType {
 @export var contact_anchor_distance_m: float = 220.0
 @export var contact_anchor_search_samples: int = 12
 @export var route_preview_repath_interval_s: float = 2.5
+@export_range(0.05, 0.5, 0.01) var tactical_update_interval_s: float = 0.10
 @export var max_concurrent_route_preview_jobs: int = 1
 @export var path_job_retry_min_s: float = 0.45
 @export var path_job_retry_max_s: float = 1.25
@@ -71,6 +72,10 @@ var _route_preview_goal: Vector3 = Vector3.INF
 var _route_preview_origin: Vector3 = Vector3.INF
 var _route_preview_repath_timer_s: float = 0.0
 var _is_route_preview_pathfinding: bool = false
+var _tactical_update_timer_s := 0.0
+var _tactical_update_elapsed_s := 0.0
+var _tactical_update_phase := 1.0
+var _tactical_update_reschedule := true
 
 static var _global_route_preview_jobs: int = 0
 
@@ -79,6 +84,7 @@ func _ready() -> void:
 	add_to_group("ground_vehicle_platoons")
 	set_physics_process(true)
 	_route_preview_repath_timer_s = randf() * maxf(route_preview_repath_interval_s, 0.1)
+	_tactical_update_phase = float(int(get_instance_id()) % 97 + 1) / 97.0
 
 func _exit_tree() -> void:
 	if _is_route_preview_pathfinding:
@@ -100,19 +106,36 @@ func apply_origin_shift(offset: Vector3) -> void:
 		_shared_hostile_cache_origin -= offset
 
 func _physics_process(delta: float) -> void:
+	_tactical_update_elapsed_s += maxf(delta, 0.0)
+	_tactical_update_timer_s -= maxf(delta, 0.0)
+	if _tactical_update_timer_s > 0.000001:
+		return
+	var elapsed := _tactical_update_elapsed_s
+	_tactical_update_elapsed_s = 0.0
+	# Spread recurring work after the immediate first/command update. Run once
+	# after a slow frame, passing elapsed time instead of a burst of catch-up work.
+	_tactical_update_timer_s = maxf(tactical_update_interval_s, 0.05) \
+		* (_tactical_update_phase if _tactical_update_reschedule else 1.0)
+	_tactical_update_reschedule = false
 	var _profiler_start: int = FrameProfiler.begin("GroundVehiclePlatoon.physics")
-	_update_contact_position(delta)
-	_update_route_preview(delta)
+	_update_contact_position(elapsed)
+	_update_route_preview(elapsed)
 	FrameProfiler.end("GroundVehiclePlatoon.physics", _profiler_start)
+
+func _request_tactical_update() -> void:
+	_tactical_update_timer_s = 0.0
+	_tactical_update_reschedule = true
 
 func register_vehicle(vehicle: Node3D) -> void:
 	if not vehicle or not is_instance_valid(vehicle):
 		return
 	if not _members.has(vehicle):
 		_members.append(vehicle)
+		_request_tactical_update()
 
 func unregister_vehicle(vehicle: Node3D) -> void:
 	_members.erase(vehicle)
+	_request_tactical_update()
 
 func get_members() -> Array[Node3D]:
 	var valid_members: Array[Node3D] = []
@@ -282,6 +305,7 @@ func get_formation_destination_for(vehicle: Node3D, fallback_destination: Vector
 	return slot_world
 
 func set_hold_objective() -> void:
+	_request_tactical_update()
 	objective_type = ObjectiveType.NONE
 	protected_node = null
 	attack_node = null
@@ -293,6 +317,7 @@ func set_hold_objective() -> void:
 			member.set_patrol_waypoints(empty)
 
 func set_move_objective(position: Vector3) -> void:
+	_request_tactical_update()
 	objective_type = ObjectiveType.MOVE_TO_POSITION
 	objective_position = position
 	protected_node = null
@@ -310,6 +335,7 @@ func get_passenger_count() -> int:
 	return count
 
 func set_pursue_enemies(range_m: float = 1200.0) -> void:
+	_request_tactical_update()
 	objective_type = ObjectiveType.PURSUE_ENEMIES
 	pursue_range_m = maxf(range_m, 50.0)
 	protected_node = null
@@ -317,6 +343,7 @@ func set_pursue_enemies(range_m: float = 1200.0) -> void:
 	escort_node = null
 
 func set_protect_node(node: Node3D, radius_m: float = 250.0) -> void:
+	_request_tactical_update()
 	objective_type = ObjectiveType.PROTECT_NODE
 	protected_node = node
 	objective_position = node.global_position if node and is_instance_valid(node) else objective_position
@@ -325,6 +352,7 @@ func set_protect_node(node: Node3D, radius_m: float = 250.0) -> void:
 	escort_node = null
 
 func set_protect_position(position: Vector3, radius_m: float = 250.0) -> void:
+	_request_tactical_update()
 	objective_type = ObjectiveType.PROTECT_POSITION
 	objective_position = position
 	protect_radius_m = maxf(radius_m, 25.0)
@@ -333,6 +361,7 @@ func set_protect_position(position: Vector3, radius_m: float = 250.0) -> void:
 	escort_node = null
 
 func set_attack_node(node: Node3D, radius_m: float = 300.0) -> void:
+	_request_tactical_update()
 	objective_type = ObjectiveType.ATTACK_NODE
 	attack_node = node
 	objective_position = node.global_position if node and is_instance_valid(node) else objective_position
@@ -341,6 +370,7 @@ func set_attack_node(node: Node3D, radius_m: float = 300.0) -> void:
 	escort_node = null
 
 func set_attack_position(position: Vector3, radius_m: float = 300.0) -> void:
+	_request_tactical_update()
 	objective_type = ObjectiveType.ATTACK_POSITION
 	objective_position = position
 	attack_radius_m = maxf(radius_m, 50.0)
@@ -349,6 +379,7 @@ func set_attack_position(position: Vector3, radius_m: float = 300.0) -> void:
 	escort_node = null
 
 func set_escort_carrier(carrier: Node3D, distance_m: float = 100.0) -> void:
+	_request_tactical_update()
 	objective_type = ObjectiveType.ESCORT_CARRIER
 	escort_node = carrier
 	escort_distance_m = maxf(distance_m, 20.0)
@@ -356,6 +387,7 @@ func set_escort_carrier(carrier: Node3D, distance_m: float = 100.0) -> void:
 	attack_node = null
 
 func set_return_to_base(carrier: Node3D, distance_m: float = 90.0) -> void:
+	_request_tactical_update()
 	objective_type = ObjectiveType.RETURN_TO_BASE
 	escort_node = carrier
 	escort_distance_m = maxf(distance_m, 20.0)
@@ -495,9 +527,16 @@ func _get_route_navigation_anchor() -> Vector3:
 	if objective_type == ObjectiveType.ESCORT_CARRIER:
 		return Vector3.INF
 	var contact_pos := get_contact_position()
+	# Slot zero drives through the route anchor; the map marker follows the
+	# member nearest the group centre, which may stop in an offset rear slot.
+	var members := get_members()
+	if not members.is_empty():
+		contact_pos = members[0].global_position
 	if not _is_valid_contact_world_position(contact_pos):
 		return Vector3.INF
 	var reach_distance: float = maxf(contact_waypoint_reach_distance_m, 2.0)
+	if not members.is_empty() and "waypoint_reach_distance" in members[0]:
+		reach_distance = maxf(reach_distance, float(members[0].get("waypoint_reach_distance")) + 1.0)
 	_route_preview_index = clampi(_route_preview_index, 0, _route_preview_positions.size())
 	while _route_preview_index < _route_preview_positions.size():
 		var waypoint: Vector3 = _route_preview_positions[_route_preview_index]
@@ -645,8 +684,14 @@ func _get_escort_navigation_position(vehicle: Node3D, slot_world: Vector3) -> Ve
 	var side_sign: float = 1.0 if slot_local.x >= 0.0 else -1.0
 	var lane_x: float = side_sign * (32.0 + escort_lane_side_clearance_m + escort_distance_m * 0.25)
 	var lane_z: float = 48.0 + escort_lane_end_clearance_m + escort_distance_m * 0.15
+	# Advance the staging leg before the driver declares its waypoint reached.
+	# Otherwise it can hold 25 m short while this sequence waits for 10 m.
+	var lane_reach: float = escort_lane_deadband_m
+	var vehicle_reach: Variant = vehicle.get("waypoint_reach_distance")
+	if vehicle_reach is float or vehicle_reach is int:
+		lane_reach = maxf(lane_reach, float(vehicle_reach) + 5.0)
 	var side_error: float = absf(vehicle_local.x - lane_x)
-	var on_correct_side: bool = side_error <= escort_lane_deadband_m
+	var on_correct_side: bool = side_error <= lane_reach
 	var wants_front_slot: bool = slot_local.z >= 0.0
 	var lane_entry_z: float = clampf(vehicle_local.z, -lane_z, lane_z)
 
@@ -657,14 +702,14 @@ func _get_escort_navigation_position(vehicle: Node3D, slot_world: Vector3) -> Ve
 
 	# Step 2: once on the flank, run up or down that lane to the desired longitudinal band.
 	if wants_front_slot:
-		if vehicle_local.z < lane_z - escort_lane_deadband_m:
+		if vehicle_local.z < lane_z - lane_reach:
 			return _escort_local_to_world(Vector3(lane_x, 0.0, lane_z))
 	else:
-		if vehicle_local.z > -lane_z + escort_lane_deadband_m:
+		if vehicle_local.z > -lane_z + lane_reach:
 			return _escort_local_to_world(Vector3(lane_x, 0.0, -lane_z))
 
 	# Step 3: only then close in from the lane to the final slot.
-	if absf(vehicle_local.x) < absf(lane_x) - escort_lane_deadband_m:
+	if absf(vehicle_local.x) < absf(lane_x) - lane_reach:
 		return _escort_local_to_world(Vector3(lane_x, 0.0, slot_local.z))
 	return slot_world
 
@@ -711,7 +756,8 @@ func _update_contact_position(_delta: float) -> void:
 		FrameProfiler.end("GroundVehiclePlatoon.contact", _profiler_start)
 		return
 
-	_contact_world_position = _project_contact_to_ground(contact_target)
+	# The representative-member helper already projects this point onto terrain.
+	_contact_world_position = contact_target
 	FrameProfiler.end("GroundVehiclePlatoon.contact", _profiler_start)
 
 func _update_route_preview(delta: float) -> void:

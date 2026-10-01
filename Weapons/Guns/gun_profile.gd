@@ -4,6 +4,11 @@ class_name GunProfile
 @export var profile_name: String = "Gun Profile"
 @export var weapon_name: String = "Autocannon"
 @export var caliber_mm: int = 0
+## Full ammunition load for one aircraft-mounted gun.
+@export var aircraft_ammo_capacity: int = 200
+## Gameplay masses: complete mounted gun and each carried round, in kilograms.
+@export var empty_mass_kg: float = 50.0
+@export var round_mass_kg: float = 0.1
 @export var rounds_per_minute: float = 600.0
 @export var muzzle_velocity_mps: float = 500.0
 @export var spread_angle_deg: float = 1.0

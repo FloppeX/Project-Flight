@@ -95,5 +95,36 @@ func _run() -> void:
 	var removed := craft.calculate_rocket_ccip_impact_point()
 	_check(removed.has_impact and removed.impact_position.is_equal_approx(clear.impact_position),
 		"Freed projectiles and obstacles leave no stale prediction state")
+	# Actual launch exclusions must agree with the predictor. Previously a newer
+	# rocket could occupy the previous one's swept segment and explode the salvo.
+	var salvo: Array[RocketProjectile] = []
+	for i in 2:
+		var rocket := preload("res://Projectiles/Rocket/rocket.tscn").instantiate() as RocketProjectile
+		rocket.freeze = true
+		rocket.position = Vector3(100, 100, 10 + i)
+		add_child(rocket)
+		rocket.fire(Vector3(0, 0, 220), craft)
+		salvo.append(rocket)
+	_check(salvo[0].get_collision_exceptions().has(salvo[1]) \
+		and salvo[1].get_collision_exceptions().has(salvo[0]),
+		"Same-aircraft rockets cannot physically collide in either direction")
+	_check(salvo[0]._get_projectile_query_excludes().has(salvo[1].get_rid()) \
+		and salvo[1]._get_projectile_query_excludes().has(salvo[0].get_rid()),
+		"Swept impact rays also exclude the other rockets in the salvo")
+	wall = StaticBody3D.new()
+	wall.position = Vector3(100, 100, 20)
+	_shape(wall, Vector3(5, 5, 1))
+	add_child(wall)
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	var query := PhysicsRayQueryParameters3D.create(Vector3(100, 100, 0), Vector3(100, 100, 30))
+	query.exclude = salvo[0]._get_projectile_query_excludes()
+	var hit := get_world_3d().direct_space_state.intersect_ray(query)
+	_check(hit.get("collider") == wall, "Ignoring a salvo peer still permits the real obstacle hit")
+	var retired_rid := salvo[1].get_rid()
+	salvo[1].free()
+	_check(not salvo[0]._get_projectile_query_excludes().has(retired_rid) \
+		and salvo[0].get_collision_exceptions().size() == 1,
+		"Retiring a salvo peer removes its physics exception and swept-query RID")
 	print("ROCKET_CCIP_SALVO_SMOKETEST checks=%d failures=%d" % [checks, failures])
 	get_tree().quit(0 if failures == 0 else 1)

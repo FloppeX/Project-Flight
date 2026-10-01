@@ -1,6 +1,7 @@
 extends CanvasLayer
 
 const WorldMapTextureBuilder = preload("res://UI/WorldMapTextureBuilder.gd")
+const InterceptTarget = preload("res://AirOps/InterceptTarget.gd")
 
 const HEADLINE_FONT: FontFile = preload("res://UI/Fonts/ArchivoNarrow-Variable.ttf")
 const DATA_FONT: FontFile = preload("res://UI/Fonts/JetBrainsMono-Variable.ttf")
@@ -33,7 +34,7 @@ const ROUTE_SEGMENT_HIT_RADIUS_PX: float = 8.0
 const CAP_LOOP_HALF_SIDE_M: float = 900.0
 const CAP_ROUTE_PREVIEW_ENTRY_SKIP_DISTANCE_M: float = 140.0
 const FLIGHT_CAP_ALTITUDE_M: float = 800.0
-const FLIGHT_CAS_RADIUS_M: float = 3000.0
+const FLIGHT_ATTACK_RADIUS_M: float = 100.0
 const PLATOON_ATTACK_RADIUS_M: float = 300.0
 const PLATOON_PROTECT_RADIUS_M: float = 250.0
 
@@ -137,6 +138,13 @@ var _map_hover_active: bool = false
 
 var _asset_buttons: Array = []
 var _mission_buttons: Array = []
+var _draft_attack_platoon: Node = null
+var _draft_tracks_platoon := false
+var _draft_intercept_target: Node = null
+var _draft_tracks_flight: bool = false
+var _draft_patrol_engagement: String = "air"
+var _patrol_controls: HBoxContainer
+var _patrol_buttons: Dictionary = {}
 var _mission_signature: String = ""
 var _selected_asset_kind: AssetKind = AssetKind.NONE
 var _selected_asset_name: String = ""
@@ -286,6 +294,15 @@ func _build_ui() -> void:
 
 	_draft_title = _make_label("ORDER DRAFT", 13, VECTOR_AMBER_COLOR, HORIZONTAL_ALIGNMENT_LEFT, DATA_FONT)
 	_left_panel.add_child(_draft_title)
+	_patrol_controls = HBoxContainer.new()
+	_patrol_controls.add_theme_constant_override("separation", 6)
+	_left_panel.add_child(_patrol_controls)
+	for mode in ["air", "ground", "both"]:
+		var button := _make_button(mode.to_upper(), VECTOR_TEXT_COLOR, 32.0)
+		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		button.pressed.connect(_set_patrol_engagement.bind(mode))
+		_patrol_controls.add_child(button)
+		_patrol_buttons[mode] = button
 	_draft_summary = _make_label("", 14, VECTOR_STATUS_COLOR)
 	_draft_summary.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_left_panel.add_child(_draft_summary)
@@ -523,7 +540,7 @@ func _layout_ui() -> void:
 	_asset_title.position = Vector2(left_inner_x, left_y)
 	_asset_title.size = Vector2(left_inner_w, 20.0)
 	left_y += 28.0
-	var draft_reserved: float = 24.0 + 132.0 + SECTION_GAP_PX
+	var draft_reserved: float = 24.0 + 180.0 + SECTION_GAP_PX
 	var asset_height := maxf(_left_panel.size.y - left_y - draft_reserved - SECTION_GAP_PX, 160.0)
 	_asset_scroll.position = Vector2(left_inner_x, left_y)
 	_asset_scroll.size = Vector2(left_inner_w, asset_height)
@@ -532,6 +549,11 @@ func _layout_ui() -> void:
 	_draft_title.position = Vector2(left_inner_x, left_y)
 	_draft_title.size = Vector2(left_inner_w, 20.0)
 	left_y += 24.0
+	_patrol_controls.visible = _selected_asset_kind == AssetKind.FLIGHT and _selected_mission_id == "PATROL"
+	_patrol_controls.position = Vector2(left_inner_x, left_y)
+	_patrol_controls.size = Vector2(left_inner_w, 32.0)
+	if _patrol_controls.visible:
+		left_y += 40.0
 	var remaining_h: float = _left_panel.size.y - left_y - 16.0
 	_draft_summary.position = Vector2(left_inner_x, left_y)
 	_draft_summary.size = Vector2(left_inner_w, maxf(remaining_h, 56.0))
@@ -1025,13 +1047,20 @@ func _rebuild_mission_buttons() -> void:
 	for spec in _get_selected_mission_specs():
 		var accent: Color = spec.get("accent", VECTOR_TEXT_COLOR)
 		var button := _make_button(spec.get("label", "MISSION"), accent, BUTTON_HEIGHT_PX)
+		button.tooltip_text = str(spec.get("description", ""))
 		button.pressed.connect(_begin_mission_draft.bind(String(spec.get("id", ""))))
 		_mission_list.add_child(button)
 		_mission_buttons.append({"id": String(spec.get("id", "")), "button": button, "accent": accent})
 
 func _refresh_ui(force_rebuild: bool = false) -> void:
+	if _selected_mission_id == "ATTACK" and _draft_tracks_flight:
+		_draft_points.clear()
+		if InterceptTarget.is_valid(_draft_intercept_target):
+			_draft_points.append(InterceptTarget.position(_draft_intercept_target))
 	if _root == null:
 		return
+	if _draft_tracks_platoon and Flight.is_attack_platoon_valid(_draft_attack_platoon):
+		_draft_points = [Flight.attack_platoon_position(_draft_attack_platoon)]
 	if force_rebuild:
 		_rebuild_asset_buttons()
 	var mission_signature := _get_mission_signature()
@@ -1180,18 +1209,32 @@ func _refresh_draft_summary() -> void:
 	var lines: Array[String] = []
 	lines.append("ASSET: %s" % _selected_asset_name.to_upper())
 	lines.append("MISSION: %s" % _selected_mission_id)
+	if _selected_asset_kind == AssetKind.FLIGHT and _selected_mission_id == "ATTACK":
+		if _draft_tracks_flight:
+			lines.append("TARGET FLIGHT: %s" % InterceptTarget.label(_draft_intercept_target))
+			lines.append("Follow and attack this flight, then return.")
+		elif _draft_tracks_platoon:
+			lines.append("TARGET: MOVING PLATOON")
+			lines.append("Follow and destroy this platoon, then return.")
+		else:
+			lines.append("Clear the marked area, then return.")
+			lines.append("RADIUS: %.0f m" % FLIGHT_ATTACK_RADIUS_M)
+	elif _selected_asset_kind == AssetKind.FLIGHT and _selected_mission_id == "PATROL":
+		lines.append("ENGAGE: %s" % _draft_patrol_engagement.to_upper())
+		lines.append("Remain on patrol after engagements.")
 	if _mission_requires_target(_selected_mission_id):
-		lines.append("TARGETS: %d" % _draft_points.size())
+		if _selected_mission_id != "PATROL":
+			lines.append("TARGETS: %d" % _draft_points.size())
 		if _mission_allows_waypoints(_selected_mission_id):
 			if _selected_asset_kind == AssetKind.FLIGHT:
 				if _draft_points.is_empty():
 					lines.append("Click the map to place the first patrol point.")
 				else:
-					lines.append("Drag nodes to move them. Left-click a segment to add a node. Right-click a node to remove it.")
+					lines.append("Drag route nodes to adjust.")
 			else:
 				lines.append("LMB adds route points. RMB removes the last point.")
 		elif _draft_points.is_empty():
-			lines.append("Click the map to place the target area.")
+			lines.append("Click an enemy flight, platoon, or terrain." if _selected_mission_id == "ATTACK" else "Click the map to place the target area.")
 	else:
 		lines.append("No map target required.")
 	_draft_summary.text = "\n".join(lines)
@@ -1225,14 +1268,17 @@ func _refresh_map_hint() -> void:
 	if _selected_asset_kind == AssetKind.NONE:
 		_map_hint.text = "Select the Carrier, a flight, or a platoon to issue a command."
 		return
-	if _selected_asset_kind == AssetKind.FLIGHT and String(status.get("mission", "")) == "CAP" and _selected_mission_id.is_empty():
-		_map_hint.text = "Selected CAP route: drag nodes to move, left-click a route segment to add a node, right-click a node to remove it."
+	if _selected_asset_kind == AssetKind.FLIGHT and String(status.get("mission", "")) == "PATROL" and _selected_mission_id.is_empty():
+		_map_hint.text = "Selected patrol route: drag nodes to move, left-click a route segment to add a node, right-click a node to remove it."
 		return
 	if _selected_mission_id.is_empty():
 		_map_hint.text = "Choose a mission from the menu beside the selected asset."
 		return
-	if _selected_asset_kind == AssetKind.FLIGHT and _selected_mission_id == "CAP":
-		_map_hint.text = "Editing CAP route: drag nodes to move, left-click a segment to add a node, right-click a node to remove it, then confirm."
+	if _selected_asset_kind == AssetKind.FLIGHT and _selected_mission_id == "ATTACK":
+		_map_hint.text = "ATTACK: click an enemy flight, a moving platoon, or terrain for a 100 m area. Then confirm."
+		return
+	if _selected_asset_kind == AssetKind.FLIGHT and _selected_mission_id == "PATROL":
+		_map_hint.text = "Editing patrol route: drag nodes to move, left-click a segment to add a node, right-click a node to remove it, then confirm."
 		return
 	if _selected_mission_id == "RECON":
 		if _draft_points.is_empty():
@@ -1252,6 +1298,23 @@ func _refresh_map_overlays() -> void:
 	if _symbol_layer == null:
 		return
 	var status := _get_selected_asset_status()
+	var area_center: Vector3 = status.get("attack_area_center", Vector3.INF)
+	var staging_intercept := _selected_mission_id == "ATTACK"
+	_symbol_layer.call("set_intercept_markers",
+		Vector3.INF if staging_intercept else status.get("intercept_target_center", Vector3.INF),
+		InterceptTarget.position(_draft_intercept_target) if staging_intercept and _draft_tracks_flight else Vector3.INF)
+	var area_radius := float(status.get("attack_area_radius_m", 0.0))
+	var draft_center := Vector3.INF
+	var staging_attack := _selected_asset_kind == AssetKind.FLIGHT and _selected_mission_id == "ATTACK" and not _draft_points.is_empty()
+	if staging_attack:
+		area_radius = 0.0
+	if _selected_asset_kind == AssetKind.FLIGHT and _selected_mission_id == "ATTACK" and not _draft_points.is_empty() and not _draft_tracks_platoon and not _draft_tracks_flight:
+		draft_center = _draft_points[0]
+	_symbol_layer.call("set_attack_areas", area_center, area_radius, draft_center, FLIGHT_ATTACK_RADIUS_M)
+	_symbol_layer.call("set_attack_platoon_markers",
+		area_center if bool(status.get("attack_tracks_platoon", false)) and not staging_attack else Vector3.INF,
+		_draft_points[0] if _draft_tracks_platoon and not _draft_points.is_empty() else Vector3.INF)
+	_symbol_layer.call("set_selected_flight", _selected_asset_name if _selected_asset_kind == AssetKind.FLIGHT and not status.is_empty() else "")
 	if status.is_empty():
 		_symbol_layer.call("clear_selection_focus")
 		_symbol_layer.call("clear_selection_route")
@@ -1260,7 +1323,7 @@ func _refresh_map_overlays() -> void:
 	var position: Vector3 = status.get("position", Vector3.ZERO)
 	var selection_accent := VECTOR_TEXT_COLOR if _selected_asset_kind == AssetKind.FLIGHT else VECTOR_AMBER_COLOR
 	_symbol_layer.call("set_selection_focus", position, selection_accent)
-	var editing_flight_route: bool = _selected_asset_kind == AssetKind.FLIGHT and _selected_mission_id == "CAP" and not _draft_points.is_empty()
+	var editing_flight_route: bool = _selected_asset_kind == AssetKind.FLIGHT and _selected_mission_id in ["PATROL", "ATTACK"] and not _draft_points.is_empty()
 	if (_selected_asset_kind == AssetKind.FLIGHT and not editing_flight_route) or _selected_asset_kind == AssetKind.CARRIER:
 		var mission_points_variant = status.get("mission_map_points", [])
 		var mission_points: Array = mission_points_variant if mission_points_variant is Array else []
@@ -1327,6 +1390,10 @@ func _layout_mission_popup() -> void:
 
 
 func _select_asset(kind: AssetKind, asset_name: String, source_button: Button) -> void:
+	_draft_tracks_platoon = false
+	_draft_attack_platoon = null
+	_draft_tracks_flight = false
+	_draft_intercept_target = null
 	_selected_outpost = null
 	_clear_command_error()
 	_selected_asset_kind = kind
@@ -1340,11 +1407,18 @@ func _select_asset(kind: AssetKind, asset_name: String, source_button: Button) -
 	_show_mission_popup(source_button)
 
 func _begin_mission_draft(mission_id: String) -> void:
+	_draft_tracks_platoon = false
+	_draft_attack_platoon = null
+	_draft_tracks_flight = false
+	_draft_intercept_target = null
 	_selected_outpost = null
 	if _selected_asset_kind == AssetKind.NONE or _selected_asset_name.is_empty():
 		return
 	_clear_command_error()
 	_selected_mission_id = mission_id
+	if mission_id == "PATROL":
+		_draft_patrol_engagement = AirOpsManager.default_patrol_engagement(_selected_asset_name)
+		_refresh_patrol_buttons()
 	_draft_points.clear()
 	_route_drag_index = -1
 	_mission_popup.visible = false
@@ -1357,7 +1431,7 @@ func _confirm_draft() -> void:
 	var accepted := true
 	match _selected_asset_kind:
 		AssetKind.FLIGHT:
-			_confirm_flight_order()
+			accepted = _confirm_flight_order()
 		AssetKind.PLATOON:
 			if _selected_mission_id == "RESCUE":
 				accepted = not _draft_points.is_empty() and GroundOpsManager.order_rescue_near(_selected_asset_name, _draft_points[0])
@@ -1372,23 +1446,48 @@ func _confirm_draft() -> void:
 			return
 	if not accepted:
 		return
+	_draft_tracks_platoon = false
+	_draft_attack_platoon = null
+	_draft_tracks_flight = false
+	_draft_intercept_target = null
 	_selected_mission_id = ""
 	_draft_points.clear()
 	_route_drag_index = -1
 	_refresh_ui()
 
-func _confirm_flight_order() -> void:
+func _confirm_flight_order() -> bool:
 	match _selected_mission_id:
-		"CAP":
-			AirOpsManager.order_cap_route(_selected_asset_name, _draft_points.duplicate(), FLIGHT_CAP_ALTITUDE_M)
-		"CAS":
-			if _draft_points.is_empty():
-				return
-			AirOpsManager.order_cas(_selected_asset_name, _draft_points[0], FLIGHT_CAS_RADIUS_M)
+		"PATROL":
+			AirOpsManager.order_patrol(_selected_asset_name, _draft_points.duplicate(), _draft_patrol_engagement, FLIGHT_CAP_ALTITUDE_M)
+		"ATTACK":
+			if _draft_tracks_flight:
+				if not AirOpsManager.order_intercept(_selected_asset_name, _draft_intercept_target):
+					_set_command_error("TARGET UNAVAILABLE - select an enemy flight")
+					_refresh_ui()
+					return false
+			elif _draft_points.is_empty() or (_draft_tracks_platoon and not Flight.is_attack_platoon_valid(_draft_attack_platoon)) \
+					or not AirOpsManager.order_attack(_selected_asset_name, _draft_points[0], FLIGHT_ATTACK_RADIUS_M, _draft_attack_platoon):
+				_set_command_error("ATTACK AREA UNAVAILABLE - select an explored area")
+				_refresh_ui()
+				return false
 		"AUTO":
 			AirOpsManager.release_to_automatic(_selected_asset_name)
 		"RTB":
 			AirOpsManager.order_rtb(_selected_asset_name)
+		_:
+			return false
+	return true
+
+func _set_patrol_engagement(mode: String) -> void:
+	_draft_patrol_engagement = mode
+	_refresh_patrol_buttons()
+	_refresh_ui()
+
+func _refresh_patrol_buttons() -> void:
+	for mode in _patrol_buttons:
+		var button: Button = _patrol_buttons[mode]
+		button.text = ("> " if mode == _draft_patrol_engagement else "") + str(mode).to_upper()
+		button.tooltip_text = {"air": "Engage aircraft; leave ground targets alone.", "ground": "Engage ground threats within 3 km of the route; retain self-defense.", "both": "Engage air and ground threats near the route; air threats take priority."}[mode]
 
 func _confirm_platoon_order() -> void:
 	match _selected_mission_id:
@@ -1446,6 +1545,10 @@ func _confirm_carrier_order() -> bool:
 
 
 func _cancel_draft() -> void:
+	_draft_tracks_platoon = false
+	_draft_attack_platoon = null
+	_draft_tracks_flight = false
+	_draft_intercept_target = null
 	_clear_command_error()
 	_selected_mission_id = ""
 	_draft_points.clear()
@@ -1460,6 +1563,8 @@ func _on_map_gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion:
 		_map_hover_active = true
 		_update_map_hover_readout((event as InputEventMouseMotion).position)
+	if _selected_mission_id.is_empty() and _route_drag_index < 0 and _try_select_map_flight(event):
+		return
 	var status := _get_selected_asset_status()
 	if _handle_selected_flight_route_input(event, status):
 		return
@@ -1472,7 +1577,26 @@ func _on_map_gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.pressed and not event.double_click:
 		var mouse_event := event as InputEventMouseButton
 		if mouse_event.button_index == MOUSE_BUTTON_LEFT:
-			if _selected_asset_kind == AssetKind.FLIGHT and _selected_mission_id == "CAP" and not _draft_points.is_empty():
+			if _selected_asset_kind == AssetKind.FLIGHT and _selected_mission_id == "ATTACK":
+				_draft_points.clear()
+				_draft_intercept_target = _pick_intercept_flight(mouse_event.position)
+				_draft_tracks_flight = InterceptTarget.is_valid(_draft_intercept_target)
+				_draft_attack_platoon = null
+				_draft_tracks_platoon = false
+				if _draft_tracks_flight:
+					_clear_command_error()
+					_refresh_ui()
+					get_viewport().set_input_as_handled()
+					return
+				_draft_attack_platoon = _pick_attack_platoon(mouse_event.position)
+				_draft_tracks_platoon = is_instance_valid(_draft_attack_platoon)
+				if _draft_tracks_platoon:
+					_clear_command_error()
+					_draft_points = [Flight.attack_platoon_position(_draft_attack_platoon)]
+					_refresh_ui()
+					get_viewport().set_input_as_handled()
+					return
+			if _selected_asset_kind == AssetKind.FLIGHT and _selected_mission_id == "PATROL" and not _draft_points.is_empty():
 				return
 			if _selected_mission_id == "RECON":
 				var snapped := _snap_to_poi_world(mouse_event.position)
@@ -1507,12 +1631,66 @@ func _on_map_gui_input(event: InputEvent) -> void:
 			get_viewport().set_input_as_handled()
 			return
 		elif mouse_event.button_index == MOUSE_BUTTON_RIGHT and not _draft_points.is_empty():
-			if _selected_asset_kind == AssetKind.FLIGHT and _selected_mission_id == "CAP":
+			if _selected_asset_kind == AssetKind.FLIGHT and _selected_mission_id == "PATROL":
 				return
 			_draft_points.pop_back()
+			_draft_tracks_platoon = false
+			_draft_attack_platoon = null
+			_draft_tracks_flight = false
+			_draft_intercept_target = null
 			_refresh_ui()
 			get_viewport().set_input_as_handled()
 			return
+
+
+func _try_select_map_flight(event: InputEvent) -> bool:
+	if not event is InputEventMouseButton or not event.pressed \
+			or event.button_index != MOUSE_BUTTON_LEFT:
+		return false
+	var flight_name: String = _symbol_layer.call("pick_friendly_flight", event.position)
+	if flight_name.is_empty():
+		return false
+	for entry in _asset_buttons:
+		if entry.kind == AssetKind.FLIGHT and entry.name == flight_name:
+			_select_asset(AssetKind.FLIGHT, flight_name, entry.button)
+			get_viewport().set_input_as_handled()
+			return true
+	return false
+
+
+func _pick_intercept_flight(local_position: Vector2) -> Node:
+	var closest: Node = null
+	var nearest := 24.0
+	for target in AirOpsManager.get_interceptable_flights():
+		# Match the formation marker actually drawn by the symbol layer, plus each individual aircraft.
+		var positions: Array[Vector3] = [target.position if target is EnemyVirtualFlight else target.global_position]
+		for member in InterceptTarget.members(target):
+			positions.append(member.global_position)
+		for position in positions:
+			if not _is_world_explored(position):
+				continue
+			var distance := _world_to_map_local(position).distance_to(local_position)
+			if distance < nearest:
+				nearest = distance
+				closest = target
+	return closest
+
+
+func _pick_attack_platoon(local_position: Vector2) -> Node:
+	var closest: Node = null
+	var nearest := 20.0
+	for platoon in AirOpsManager.get_attackable_platoons():
+		var positions: Array[Vector3] = [Flight.attack_platoon_position(platoon)]
+		for member in Flight.attack_platoon_members(platoon):
+			positions.append(member.global_position)
+		for position in positions:
+			if not _is_world_explored(position):
+				continue
+			var distance := _world_to_map_local(position).distance_to(local_position)
+			if distance < nearest:
+				nearest = distance
+				closest = platoon
+	return closest
 
 
 func _try_select_outpost(event: InputEvent) -> bool:
@@ -1609,12 +1787,10 @@ func _get_selected_mission_specs() -> Array[Dictionary]:
 	match _selected_asset_kind:
 		AssetKind.FLIGHT:
 			return [
-				{"id": "CAP", "label": "> CAP", "accent": VECTOR_TEXT_COLOR},
-				{"id": "CAS", "label": "> CAS", "accent": VECTOR_AMBER_COLOR},
-				{"id": "RTB", "label": "> RECALL / RTB", "accent": VECTOR_AMBER_COLOR},
+				{"id": "PATROL", "label": "> PATROL", "accent": VECTOR_TEXT_COLOR},
+				{"id": "ATTACK", "label": "> ATTACK", "accent": VECTOR_AMBER_COLOR, "description": "Attack an enemy flight, moving platoon, or a 100 m radius area, then return."},
+				{"id": "RTB", "label": "> RECALL", "accent": VECTOR_AMBER_COLOR},
 				{"id": "AUTO", "label": "> RELEASE TO AIROPS", "accent": VECTOR_STATUS_COLOR},
-				{"id": "STRIKE", "label": "> STRIKE", "accent": VECTOR_AMBER_COLOR, "supported": false},
-				{"id": "ESCORT", "label": "> ESCORT", "accent": VECTOR_TEXT_COLOR, "supported": false},
 			]
 		AssetKind.PLATOON:
 			return [
@@ -1651,6 +1827,10 @@ func _is_mission_enabled(spec: Dictionary, status: Dictionary) -> bool:
 func _can_confirm_draft() -> bool:
 	if _selected_asset_kind == AssetKind.NONE or _selected_asset_name.is_empty() or _selected_mission_id.is_empty():
 		return false
+	if _draft_tracks_platoon and not Flight.is_attack_platoon_valid(_draft_attack_platoon):
+		return false
+	if _draft_tracks_flight and not InterceptTarget.is_valid(_draft_intercept_target):
+		return false
 	if _mission_requires_target(_selected_mission_id):
 		if _draft_points.is_empty():
 			return false
@@ -1663,6 +1843,8 @@ func _can_confirm_draft() -> bool:
 
 
 func _requires_explored_ground_target() -> bool:
+	if _selected_asset_kind == AssetKind.FLIGHT:
+		return _selected_mission_id == "ATTACK" and not _draft_tracks_flight
 	if _selected_asset_kind == AssetKind.CARRIER:
 		return _selected_mission_id == "MOVE"
 	if _selected_asset_kind != AssetKind.PLATOON:
@@ -1726,14 +1908,14 @@ func _get_active_command_error() -> String:
 	return ""
 
 func _mission_requires_target(mission_id: String) -> bool:
-	return mission_id in ["CAP", "CAS", "INTERDICTION", "STRIKE", "MOVE", "RECON", "RESCUE", "ATTACK", "PROTECT"]
+	return mission_id in ["PATROL", "INTERDICTION", "STRIKE", "MOVE", "RECON", "RESCUE", "ATTACK", "PROTECT"]
 
 func _mission_allows_waypoints(mission_id: String) -> bool:
-	return mission_id == "CAP"
+	return mission_id == "PATROL"
 
 func _get_draft_preview_points() -> Dictionary:
 	var accent := VECTOR_TEXT_COLOR if _selected_asset_kind == AssetKind.FLIGHT else VECTOR_AMBER_COLOR
-	if _selected_mission_id == "CAP":
+	if _selected_mission_id == "PATROL":
 		return {
 			"points": _get_cap_route_preview(_draft_points),
 			"closed_loop": not _draft_points.is_empty(),
@@ -1820,6 +2002,8 @@ func _format_asset_info(status: Dictionary) -> String:
 	if status.get("kind", "") == "flight":
 		lines.append("TYPE: FLIGHT")
 		lines.append("MISSION: %s" % status.get("mission", "NONE"))
+		if _selected_asset_kind == AssetKind.FLIGHT and status.get("mission", "") == "PATROL":
+			lines.append("ENGAGE: %s" % str(status.get("patrol_engagement", "air")).to_upper())
 		lines.append("ORDERS: %s" % str(status.get("order_source", "automatic")).to_upper())
 		lines.append("STATE: %s | READY %d/%d" % [status.get("phase", "INACTIVE"), int(status.get("ready_count", 0)), int(status.get("strength", 0))])
 		lines.append("STRENGTH: %d" % int(status.get("strength", 0)))
@@ -1916,37 +2100,39 @@ func _handle_selected_flight_route_input(event: InputEvent, status: Dictionary) 
 func _get_visible_selected_flight_route_points(status: Dictionary) -> Array[Vector3]:
 	if _selected_asset_kind != AssetKind.FLIGHT:
 		return []
-	if _selected_mission_id == "CAP" and not _draft_points.is_empty():
+	if _selected_mission_id == "PATROL" and not _draft_points.is_empty():
 		if _draft_points.size() == 1:
 			return _get_cap_route_preview(_draft_points)
 		return _draft_points.duplicate()
-	if String(status.get("mission", "")) != "CAP":
+	if String(status.get("mission", "")) != "PATROL":
 		return []
 	return _variant_to_vector3_array(status.get("mission_map_points", []))
 
 func _is_selected_flight_route_closed_loop(status: Dictionary, route_points: Array[Vector3]) -> bool:
-	if _selected_mission_id == "CAP" and not route_points.is_empty():
+	if _selected_mission_id == "PATROL" and not route_points.is_empty():
 		return route_points.size() >= 2
 	return bool(status.get("mission_map_closed_loop", false))
 
 func _ensure_cap_route_edit_draft(status: Dictionary) -> bool:
 	if _selected_asset_kind != AssetKind.FLIGHT:
 		return false
-	if _selected_mission_id == "CAP":
+	if _selected_mission_id == "PATROL":
 		return true
-	if String(status.get("mission", "")) != "CAP":
+	if String(status.get("mission", "")) != "PATROL":
 		return false
 	var mission_points := _variant_to_vector3_array(status.get("mission_map_points", []))
 	if mission_points.is_empty():
 		return false
-	_selected_mission_id = "CAP"
+	_selected_mission_id = "PATROL"
+	_draft_patrol_engagement = str(status.get("patrol_engagement", "air"))
+	_refresh_patrol_buttons()
 	_draft_points = mission_points
 	_route_drag_index = -1
 	_refresh_ui()
 	return true
 
 func _materialize_cap_draft_points_for_editing() -> void:
-	if _selected_mission_id != "CAP" or _draft_points.size() != 1:
+	if _selected_mission_id != "PATROL" or _draft_points.size() != 1:
 		return
 	_draft_points = _get_cap_route_preview(_draft_points)
 

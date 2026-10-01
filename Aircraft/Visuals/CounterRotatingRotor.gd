@@ -148,6 +148,10 @@ func update_interface(values: Dictionary) -> void:
 	_print_debug_line("update_interface")
 
 
+func get_rotor_speed_ratio() -> float:
+	return _power
+
+
 func prepare_for_engine_start() -> void:
 	_unfold_requested = true
 	_startup_unfold_latched = true

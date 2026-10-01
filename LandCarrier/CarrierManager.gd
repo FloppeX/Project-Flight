@@ -44,6 +44,14 @@ func ensure_initialized() -> void:
 func ensure_aircraft_data_has_pilot(aircraft_data: Dictionary) -> bool:
 	ensure_initialized()
 	var metadata := _ensure_metadata_dict(aircraft_data)
+	if not str(metadata.get("assembly_pilot_id", "")).is_empty():
+		# Player-selected roster pilots replace the legacy hangar reservation.
+		# Release that internal slot so a lost assembled aircraft cannot exhaust it.
+		var legacy_id := int(metadata.get("pilot_id", -1))
+		if _pilot_records.has(legacy_id) and str(_pilot_records[legacy_id].get("assignment", "")) == "hangar":
+			_set_pilot_assignment(legacy_id, "available")
+		metadata.erase("pilot_id")
+		return PilotRoster.can_reserve_for_airframe(str(metadata.assembly_pilot_id), str(metadata.get("airframe_id", "")))
 	if bool(metadata.get("heli_navigation_test_mode", false)):
 		var reusable_test_pilot_id := _pick_living_pilot_id()
 		if reusable_test_pilot_id <= 0:
@@ -75,6 +83,8 @@ func bind_pilot_to_live_aircraft(aircraft: RigidBody3D, aircraft_data: Dictionar
 	ensure_initialized()
 
 	var metadata := _ensure_metadata_dict(aircraft_data)
+	if not str(metadata.get("assembly_pilot_id", "")).is_empty():
+		return PilotRoster.bind_reserved_aircraft(aircraft, str(metadata.assembly_pilot_id))
 	var pilot_id := int(metadata.get("pilot_id", -1))
 	if pilot_id <= 0:
 		if not ensure_aircraft_data_has_pilot(aircraft_data):
@@ -105,6 +115,9 @@ func bind_pilot_to_live_aircraft(aircraft: RigidBody3D, aircraft_data: Dictionar
 func mark_aircraft_stored(aircraft: RigidBody3D, aircraft_data: Dictionary) -> void:
 	ensure_initialized()
 	var metadata := _ensure_metadata_dict(aircraft_data)
+	if not str(metadata.get("assembly_pilot_id", "")).is_empty():
+		_release_pilot_roster_assignment(aircraft)
+		return
 	var pilot_id := int(metadata.get("pilot_id", -1))
 	if pilot_id <= 0:
 		if not ensure_aircraft_data_has_pilot(aircraft_data):

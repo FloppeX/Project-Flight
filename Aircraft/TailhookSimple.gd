@@ -6,11 +6,12 @@ extends Node3D
 ## Mount in aircraft-local coordinates: lower middle of the fuselage centerline.
 @export var stowed_mount_position := Vector3(0.0, -0.65, 0.0)
 @export_range(0.05, 5.0) var deployment_duration_s: float = 0.8
+@export_range(0.0, 0.3) var deck_tip_clearance_m: float = 0.08
 
 # Identify this module for external systems (e.g., FlightDeckManager)
 var ModuleType: String = "tailhook"
 
-# Simple spring/damper to let the hook flex on deck contact
+# Legacy scene properties. Contact now pivots the hook instead of lifting the airframe.
 @export var spring_strength: float = 2500.0       # N/m (small compared to landing gear)
 @export var spring_damping: float = 1200.0        # N*s/m
 @export var wheel_rest_height: float = 0.2        # m from hook tip to deck at rest
@@ -26,8 +27,12 @@ var _technical_index_preview_fraction: float = 1.0
 var _visual_fraction: float = 0.0
 var _visual_tween: Tween
 var _shaft_length: float = 0.0
+var _contact_tip: Vector3
+var _contact_tip_valid := false
 
 func _ready():
+	# Resolve contact before the cable reads its capture area's position.
+	process_physics_priority = -10
 	_cache_nodes()
 	if bool(get_meta("technical_index_preview_component", false)):
 		set_technical_index_preview_fraction(_technical_index_preview_fraction)
@@ -99,6 +104,9 @@ func deploy():
 
 func stow():
 	_is_deployed = false
+	_contact_tip_valid = false
+	if _area:
+		_area.position = Vector3.ZERO
 	set_physics_process(false)
 	if _area:
 		_area.monitoring = false
@@ -124,9 +132,9 @@ func _apply_visual_fraction(fraction: float) -> void:
 	if _mesh_node == null:
 		return
 	_mesh_node.visible = _visual_fraction > 0.001
-	# Keep the scene root and cable detector at the authored deployed tip. Only
-	# the visual shaft telescopes from the belly mount toward that exact point.
-	var tip := position
+	# The mount stays fixed; deck contact rotates the full-length deployed shaft.
+	# The cable detector follows that same tip, rather than the authored rest tip.
+	var tip := _contact_tip if _contact_tip_valid else position
 	var shaft := stowed_mount_position - tip
 	if shaft.length_squared() < 0.0001:
 		return
@@ -141,42 +149,57 @@ func _apply_visual_fraction(fraction: float) -> void:
 	var visual_tip := stowed_mount_position.lerp(tip, _visual_fraction)
 	_mesh_node.transform = transform.affine_inverse() * Transform3D(visual_basis, visual_tip)
 
-func _physics_process(delta: float) -> void:
+func _physics_process(_delta: float) -> void:
 	if not _is_deployed:
 		return
 	if not _aircraft or not is_instance_valid(_aircraft):
 		_aircraft = _find_aircraft()
 		if not _aircraft:
 			return
-	# Raycast from hook tip toward down to detect deck/contact
-	var tip_pos = global_position
-	var space_state = get_world_3d().direct_space_state
-	var ray_to = tip_pos + Vector3.DOWN * (wheel_rest_height + ray_length_margin)
-	var query = PhysicsRayQueryParameters3D.create(tip_pos, ray_to)
-	query.exclude = []
-	if _aircraft:
-		query.exclude.append(_aircraft)
-	# Check default and terrain layers (1 and 10)
+	var parent := get_parent() as Node3D
+	var rest_tip := parent.to_global(position)
+	var length := position.distance_to(stowed_mount_position)
+	# Start above the rest tip: a downward ray from an already submerged hook
+	# misses the top of the deck. Keep this probe independent of last frame's bend.
+	var query := PhysicsRayQueryParameters3D.create(
+		rest_tip + Vector3.UP * (length + ray_length_margin),
+		rest_tip + Vector3.DOWN * (wheel_rest_height + ray_length_margin))
+	query.exclude = [_aircraft.get_rid()]
 	query.collision_mask = (1 << 0) | (1 << 9)
-	var hit = space_state.intersect_ray(query)
-	if hit:
-		var dist = tip_pos.distance_to(hit.position)
-		var compression = wheel_rest_height - dist
-		compression = clamp(compression, 0.0, max_compression)
-		if compression > 0.001:
-			# Apply spring force along hit normal
-			var n: Vector3 = hit.normal.normalized()
-			# Damping based on aircraft velocity component toward the surface
-			var v = _aircraft.linear_velocity
-			var v_toward = -v.dot(n)  # positive when moving into surface
-			var spring_force = spring_strength * compression
-			var damping_force = spring_damping * v_toward
-			var total = spring_force + damping_force
-			if total < 0.0:
-				total = 0.0
-			var force_vec = n * total
-			var lever = tip_pos - _aircraft.global_position
-			_aircraft.apply_force(force_vec, lever)
+	var hit := get_world_3d().direct_space_state.intersect_ray(query)
+	_contact_tip = position
+	if not hit.is_empty():
+		var normal: Vector3 = hit.normal
+		var plane_point := parent.to_local(hit.position + normal * deck_tip_clearance_m)
+		var local_normal := (parent.global_basis.transposed() * normal).normalized()
+		_contact_tip = _solve_hinged_tip(plane_point, local_normal)
+	_contact_tip_valid = true
+	if _area:
+		_area.position = transform.affine_inverse() * _contact_tip
+	_apply_visual_fraction(_visual_fraction)
+
+func _solve_hinged_tip(plane_point: Vector3, plane_normal: Vector3) -> Vector3:
+	if (position - plane_point).dot(plane_normal) >= 0.0:
+		return position
+	var arm := position - stowed_mount_position
+	var direction := 1.0 if Vector3.RIGHT.cross(arm).dot(plane_normal) >= 0.0 else -1.0
+	var low := 0.0
+	# Find the first contact-clearing angle without changing the shaft length.
+	for step in range(1, 37):
+		var high := deg_to_rad(float(step) * 5.0)
+		var candidate := stowed_mount_position + arm.rotated(Vector3.RIGHT, high * direction)
+		if (candidate - plane_point).dot(plane_normal) >= 0.0:
+			for iteration in range(16):
+				var middle := (low + high) * 0.5
+				candidate = stowed_mount_position + arm.rotated(Vector3.RIGHT, middle * direction)
+				if (candidate - plane_point).dot(plane_normal) >= 0.0:
+					high = middle
+				else:
+					low = middle
+			return stowed_mount_position + arm.rotated(Vector3.RIGHT, high * direction)
+		low = high
+	# An unreachable plane means the fuselage itself is below the surface.
+	return position
 
 func _find_aircraft() -> RigidBody3D:
 	var n: Node = self

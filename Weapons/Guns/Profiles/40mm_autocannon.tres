@@ -5,8 +5,11 @@
 
 [resource]
 script = ExtResource("1_profile_script")
+empty_mass_kg = 180.0
+round_mass_kg = 0.95
 profile_name = "40 mm Autocannon"
 caliber_mm = 40
+aircraft_ammo_capacity = 60
 weapon_name = "40 mm Autocannon"
 rounds_per_minute = 120.0
 muzzle_velocity_mps = 430.0

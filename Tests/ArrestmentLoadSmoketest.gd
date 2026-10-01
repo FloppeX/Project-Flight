@@ -27,7 +27,15 @@ func _run() -> void:
 	await _lateral_plane()
 	await _pitch_damping(-0.8)
 	await _pitch_damping(0.8)
-	if not OS.get_cmdline_user_args().has("--arrest-unit-only"):
+	if OS.get_cmdline_user_args().has("--arrest-controls-probe"):
+		for model in [1, 2, 5]:
+			for variant in ["aero_neutral", "aero_stale", "aero_no_lean"]:
+				await _arrest(model, 0.0, variant)
+	elif OS.get_cmdline_user_args().has("--arrest-tailhook-probe"):
+		for model in [1, 2, 5]:
+			for variant in ["hook_enabled", "hook_disabled"]:
+				await _arrest(model, 0.0, variant)
+	elif not OS.get_cmdline_user_args().has("--arrest-unit-only"):
 		for model in [1, 2, 5]:
 			for bank in [-5.0, 5.0]:
 				var variants := ["none"] if OS.get_cmdline_user_args().has("--arrest-no-hold-only") else ["both", "gear_only", "cable_only", "none"]
@@ -93,6 +101,36 @@ func _arrest(model: int, bank: float, variant: String, speed: float = 55.0, sink
 	shape.position.y = -1
 	deck.add_child(shape)
 	host.add_child(deck)
+	var render_probe := OS.get_cmdline_user_args().has("--arrest-render-probe")
+	var camera: Camera3D
+	if render_probe:
+		var deck_mesh := MeshInstance3D.new()
+		var deck_box := BoxMesh.new()
+		deck_box.size = box.size
+		deck_mesh.mesh = deck_box
+		var deck_material := StandardMaterial3D.new()
+		deck_material.albedo_color = Color(0.22, 0.25, 0.28)
+		deck_mesh.material_override = deck_material
+		deck_mesh.position.y = -1.0
+		host.add_child(deck_mesh)
+		var light := DirectionalLight3D.new()
+		light.rotation_degrees = Vector3(-55, -30, 0)
+		light.shadow_enabled = true
+		host.add_child(light)
+		var environment := WorldEnvironment.new()
+		environment.environment = Environment.new()
+		environment.environment.background_mode = Environment.BG_COLOR
+		environment.environment.background_color = Color(0.3, 0.4, 0.5)
+		environment.environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+		environment.environment.ambient_light_color = Color.WHITE
+		environment.environment.ambient_light_energy = 0.6
+		host.add_child(environment)
+		camera = Camera3D.new()
+		camera.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
+		camera.projection = Camera3D.PROJECTION_ORTHOGONAL
+		camera.size = 12.0
+		host.add_child(camera)
+		camera.make_current()
 	var craft := (load("res://Aircraft/Aircraft_%d.tscn" % model) as PackedScene).instantiate() as RigidBody3D
 	craft.freeze = true
 	craft.position.y = 1000
@@ -116,11 +154,26 @@ func _arrest(model: int, bank: float, variant: String, speed: float = 55.0, sink
 	await process_frame
 	craft.global_position.y += 0.05 - bottom
 	craft.linear_velocity = Vector3(0, -sink, speed)
+	# The aircraft was already flying at approach speed before the catch.
+	# Do not mistake fixture initialization for a launch acceleration impulse.
+	gear.set("_prev_forward_speed_mps", speed)
 	craft.angular_velocity = Vector3.ZERO
 	craft.sleeping = false
 	craft.set_meta("arresting_engaged", true)
 	craft.set_meta("arresting_hold_until_manual_release", true)
 	var hook := craft.get_node("TailHook/HookArea") as Node3D
+	var aero := craft.get_node("SimpleAero")
+	if variant.begins_with("aero_"):
+		craft.set_meta("controls_disabled", true)
+		if variant == "aero_no_lean":
+			gear.set("use_accel_lean", false)
+		aero.set("pitch_input", -0.5 if variant == "aero_stale" else 0.0)
+		aero.set("roll_input", 0.0)
+		aero.set("yaw_input", 0.0)
+	var hook_module := craft.get_node("TailHook")
+	if variant.begins_with("hook_"):
+		hook_module.deploy()
+		hook_module.set_physics_process(false)
 	var cable := _cable(host)
 	cable.global_position = Vector3(0, 0, hook.global_position.z)
 	cable.set("_aircraft", craft)
@@ -143,11 +196,16 @@ func _arrest(model: int, bank: float, variant: String, speed: float = 55.0, sink
 	var stable := 0.0
 	var damaged := false
 	var max_compression := 0.0
+	var stopped_wheel_error := 0.0
 	for step in range(600):
 		if not is_instance_valid(craft) or craft.is_queued_for_deletion():
 			damaged = true
 			break
 		gear.call("process_physic_frame", 1.0 / 60.0)
+		if variant.begins_with("aero_"):
+			aero.call("_physics_process", 1.0 / 60.0)
+		if variant == "hook_enabled":
+			hook_module.call("_physics_process", 1.0 / 60.0)
 		cable.call("_physics_process", 1.0 / 60.0)
 		for compression in gear.get("gear_compressions"):
 			max_compression = maxf(max_compression, compression)
@@ -157,11 +215,24 @@ func _arrest(model: int, bank: float, variant: String, speed: float = 55.0, sink
 		if not is_instance_valid(craft):
 			damaged = true
 			break
+		if render_probe:
+			var target := craft.global_position + Vector3(0, -0.4, 0)
+			camera.global_position = target + Vector3(-18, 2, -5)
+			camera.look_at(target)
+			if step == 60:
+				await RenderingServer.frame_post_draw
+				root.get_texture().get_image().save_png("res://logs/arrest_%d_%s.png" % [model, variant])
 		peak_bank = maxf(peak_bank, absf(rad_to_deg(craft.rotation.z)))
 		peak_pitch = maxf(peak_pitch, absf(rad_to_deg(craft.rotation.x)))
 		stable = stable + 1.0 / 60.0 if craft.linear_velocity.length() < 2.0 else 0.0
 		stopped = stopped or stable >= 2.0
 		if step % 15 == 0:
+			var wheel_gaps: Array[float] = []
+			for wheel_index in wheels.size():
+				wheel_gaps.append(wheels[wheel_index].global_position.y - float(gear.call("get_wheel_rest_height", wheel_index)))
+			if step >= 60 and craft.linear_velocity.length() < 2.0:
+				for gap in wheel_gaps:
+					stopped_wheel_error = maxf(stopped_wheel_error, absf(gap - float(gear.get("suspension_contact_skin_m"))))
 			var body_lowest := INF
 			for body_shape in body_bounds:
 				if not is_instance_valid(body_shape.node):
@@ -171,6 +242,8 @@ func _arrest(model: int, bank: float, variant: String, speed: float = 55.0, sink
 					body_lowest = minf(body_lowest, (body_shape.node.global_transform * bounds.get_endpoint(corner)).y)
 			samples.append({"t": step / 60.0, "y": craft.position.y, "speed": craft.linear_velocity.length(),
 				"bank": rad_to_deg(craft.rotation.z), "pitch": rad_to_deg(craft.rotation.x),
+				"wheel_gaps": wheel_gaps,
+				"lean_offsets": gear.get("_lean_offsets").duplicate(),
 				"compression": gear.get("gear_compressions").duplicate(), "spring_forces": gear.get("gear_normal_forces_n").duplicate(),
 				"body_aabb_clearance_m": body_lowest, "braking_force": cable.get("last_braking_force_n"),
 				"lateral_force": cable.get("last_lateral_force_n"), "attitude_torque": cable.get("last_attitude_torque_nm"),
@@ -184,6 +257,9 @@ func _arrest(model: int, bank: float, variant: String, speed: float = 55.0, sink
 		"peak_bank": peak_bank, "peak_pitch": peak_pitch, "max_compression": max_compression, "samples": samples,
 		"hard_stop_corrections": cable.get("hard_stop_corrections")}
 	rows.append(row)
+	if variant.begins_with("aero_"):
+		_check(stopped and not damaged and not bottomed, "Aircraft %d must arrest safely with flight forces active" % model)
+		_check(stopped_wheel_error < 0.05, "Aircraft %d stopped wheels must follow suspension contact, error %.3fm" % [model, stopped_wheel_error])
 	print("ARREST_CASE model=%d bank=%.0f variant=%s stopped=%s critical=%s bottomed=%s roll=%.1f pitch=%.1f" % [model, bank, variant, stopped, damaged, bottomed, peak_bank, peak_pitch])
 	if variant == "none" and mass_scale == 1.0:
 		_check(not damaged and stopped, "Aircraft %d bank %.0f must survive and stop without hold forces" % [model, bank])

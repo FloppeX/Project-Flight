@@ -46,10 +46,16 @@ func check_gun(controller: Node, caliber: int) -> void:
 	check(mount != null and muzzle != null, "missing modular rig")
 	if mount == null or muzzle == null:
 		return
-	check(mount.global_position.is_equal_approx(locator.global_position), "barrel missed authored position")
+	var barrel: Node3D = turret.get("mounted_barrel")
+	var collar: Node3D = turret.get("barrel_base")
+	check(collar != null and collar.get_parent() == mount, "authored collar did not join elevation rig")
+	# Previous caliber may have left the rig pitched; compare in the mount's rest pose.
+	var rest: Basis = turret.get("_barrel_rest_basis")
+	var authored_gun_position := Transform3D(rest, mount.position) * barrel.position
+	check(authored_gun_position.is_equal_approx(locator.position), "barrel missed authored insertion point")
 	check(mount.scale.is_equal_approx(Vector3.ONE), "locator scale distorted barrel")
 	check(not locator.visible, "locator mesh is still visible")
-	check(mount.get_child_count() == 2, "old barrel remained after swap")
+	check(mount.get_child_count() == 3, "old barrel remained after swap or collar was lost")
 	check(muzzle.position.z > 1.0, "muzzle did not reach imported barrel tip")
 	var shot: Transform3D = turret.call("get_current_muzzle_transform")
 	check(shot.origin.is_equal_approx(muzzle.global_position), "shot did not use barrel muzzle")
@@ -63,6 +69,22 @@ func check_gun(controller: Node, caliber: int) -> void:
 	check(shot.basis.z.dot((target - shot.origin).normalized()) > 0.999, "barrel yaw/pitch did not track target")
 	print("MODULAR_GUN_OK caliber=%d muzzle=%s" % [caliber, muzzle.position])
 
+func check_mount(site: Node3D) -> void:
+	var controller: Node3D = site.get("built_turret")
+	var anchor := site.get_node(site.get("turret_anchor_path")) as Node3D
+	var body := controller.get_node("TurretScene/TurretModel/turret body") as MeshInstance3D
+	var to_anchor := anchor.global_transform.affine_inverse() * body.global_transform
+	var roof: float = site.get("mount_surface_y_m")
+	if site.has_node("TurretBase"):
+		var platform := site.get_node("TurretBase").find_children("*", "MeshInstance3D", true, false)[0] as MeshInstance3D
+		var platform_bounds := (anchor.global_transform.affine_inverse() * platform.global_transform) * platform.get_aabb()
+		check(absf(roof - platform_bounds.end.y) < 0.001, "%s roof is not the top of its platform" % site.name)
+	var bottom := (to_anchor * Vector3(0, body.mesh.get_aabb().position.y, 0)).y
+	check(absf(bottom - roof) < 0.001, "%s axle does not meet its roof" % site.name)
+	var housing := (to_anchor * Vector3(0, 0.055, 0)).y
+	check(absf(housing - roof - 0.22) < 0.001, "%s lost the authored short axle clearance" % site.name)
+	check((to_anchor * body.mesh.get_aabb()).end.y - roof < 1.01, "%s turret is no longer low-profile" % site.name)
+
 func run() -> void:
 	var carrier := make_carrier()
 	var loadout := carrier.get_node("CarrierDefenseLoadout")
@@ -70,6 +92,10 @@ func run() -> void:
 	check(sites.size() == 9, "expected four hull sites plus five island sites")
 	for site in sites:
 		check(not site.call("is_built"), "authored site was not empty")
+		check(site.call("build_turret", 20), "%s could not build its mount-check turret" % site.name)
+		if site.call("is_built"):
+			check_mount(site)
+		site.call("clear_turret")
 		if String(site.name).begins_with("TurretPosition "):
 			var carrier_up := carrier.global_basis.y.normalized()
 			var carrier_forward := carrier.global_basis.z.normalized()
@@ -139,6 +165,11 @@ func run() -> void:
 	# without running unrelated vehicle navigation/terrain systems.
 	var vehicle := (load("res://GroundVehicle/vehicle_friendly_light.tscn") as PackedScene).instantiate()
 	var controller := vehicle.get_node("Body/TurretController")
+	var visual := vehicle.get_node("Body/body") as MeshInstance3D
+	var roof := (visual.transform * visual.get_aabb()).end.y
+	var axle: float = controller.position.y + (controller.get_node("TurretScene") as Node3D).position.y
+	# Recess the axle into the vehicle roof, leaving 7 cm below the armor.
+	check(absf(axle + 0.22 - roof - 0.07) < 0.001, "friendly vehicle turret housing clearance is not 7 cm")
 	controller.owner = null
 	controller.get_parent().remove_child(controller)
 	vehicle.free()

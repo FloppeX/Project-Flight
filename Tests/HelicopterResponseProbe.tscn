@@ -1,0 +1,4 @@
+[gd_scene load_steps=2 format=3]
+[ext_resource type="Script" path="res://Tests/HelicopterResponseProbe.gd" id="1"]
+[node name="HelicopterResponseProbe" type="Node"]
+script = ExtResource("1")

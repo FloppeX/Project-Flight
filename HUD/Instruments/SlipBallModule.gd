@@ -34,6 +34,11 @@ func set_aircraft_reference(aircraft_node: Node) -> void:
 
 
 func update_from_aircraft(delta: float) -> void:
+	if is_inside_tree() and get_tree().paused:
+		# Pooled panels keep processing in menus, but the aircraft no longer accelerates.
+		# Preserve the last flight reading and prime a fresh sample after resuming.
+		_reset_acceleration_history()
+		return
 	var target := 0.0
 	if aircraft != null and is_instance_valid(aircraft) and aircraft is Node3D and "linear_velocity" in aircraft:
 		var velocity: Vector3 = aircraft.get("linear_velocity")

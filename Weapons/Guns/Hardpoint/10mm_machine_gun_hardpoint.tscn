@@ -2,16 +2,17 @@
 
 [ext_resource type="Script" path="res://Weapons/Autocannon/autocannon.gd" id="1_script"]
 [ext_resource type="Resource" path="res://Weapons/Guns/Profiles/10mm_machine_gun.tres" id="2_profile"]
-[ext_resource type="PackedScene" path="res://Models/Weapons/machine gun low poly.glb" id="3_model"]
+[ext_resource type="PackedScene" path="res://Models/Turrets/gun barrel 10 mm.blend" id="3_model"]
 
 [node name="10mmMachineGunHardpoint" type="Node3D"]
 script = ExtResource("1_script")
 gun_profile = ExtResource("2_profile")
 
 [node name="GunModel" parent="." instance=ExtResource("3_model")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.182019, -0.146, 0.605749)
+transform = Transform3D(1.139349930, 0, 0, 0, 1.139349930, 0, 0, 0, 1.139349930, 0, 0, -0.305921648)
 
 [node name="AttachmentPoint" type="Node3D" parent="."]
 
 [node name="BulletSpawnPoint" type="Node3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.182019, -0.146, 1.35)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1.464772)
+

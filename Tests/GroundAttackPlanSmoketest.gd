@@ -354,5 +354,34 @@ func _run() -> void:
 		"Entry guidance and live target share one translated line origin")
 	aligner.apply_origin_shift(Vector3(1000, 0, -500))
 	_check(aligner._direct_intercept_entry_waypoint == Vector3(-990, 300, -880), "Floating-origin shift rebases the entry pose")
+	aligner.ground_attack_alternate_axis_enabled = false
+	aligner._terrain_height_callable = _flat_ground
+	aligner._run_weapon_type = "Guns"
+	craft.position = Vector3(0, 300, -2600)
+	craft.rotation = Vector3.ZERO
+	craft.linear_velocity = Vector3(0, 0, 110)
+	aligner._setup_direct_ground_attack_intercept(Vector3.ZERO)
+	var entry := Vector3(0, aligner._bomb_run_altitude_m, -1400)
+	_check(is_zero_approx(aligner._score_attack_run_corridor_obstruction(entry, Vector3.ZERO, aligner._attack_egress_waypoint)),
+		"Direct gun setup clears its own commit corridor even from a low initial altitude")
+	craft.position = Vector3(0, 1400, -2600)
+	aligner.current_state = AIPilot.State.ATTACK_POSITIONING
+	aligner._setup_direct_ground_attack_intercept(Vector3.ZERO)
+	var commits_before_descent := aligner._attack_commit_count
+	aligner._state_direct_ground_attack_intercept(0.016, depot, Vector3.ZERO)
+	_check(aligner._direct_intercept_extension_waypoint != Vector3.INF \
+		and aligner._attack_commit_count == commits_before_descent,
+		"A high close approach establishes descent room instead of committing a no-shot dive")
+	craft.position = Vector3(0, 600, -1400)
+	aligner._run_weapon_type = "Bomb"
+	aligner.current_state = AIPilot.State.ATTACK_POSITIONING
+	aligner._setup_direct_ground_attack_intercept(Vector3.ZERO)
+	aligner._state_direct_ground_attack_intercept(0.016, depot, Vector3.ZERO)
+	_check(aligner._direct_intercept_extension_waypoint == Vector3.INF \
+		and aligner._attack_commit_count > commits_before_descent,
+		"A viable bomb entry does not inherit the shallow direct-fire descent restriction")
+	aligner._gun_ccip_yaw_integral = 0.2
+	aligner._clear_gun_ccip_aim_error()
+	_check(is_zero_approx(aligner._gun_ccip_yaw_integral), "Losing the gun impact solution clears accumulated aim correction")
 	print("GROUND_ATTACK_PLAN_SMOKETEST checks=%d failures=%d" % [checks, failures])
 	get_tree().quit(0 if failures == 0 else 1)

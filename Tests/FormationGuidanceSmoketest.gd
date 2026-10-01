@@ -1,5 +1,11 @@
 extends Node
 
+class SearchPilot extends AIPilot:
+	var navigated_without_formation := false
+	func _navigate_to_waypoint(_delta: float):
+		navigated_without_formation = not formation_anchor_active and formation_peer_ids.is_empty() \
+			and formation_speed_cap_mps < 0.0 and formation_lead_bank_rad == 0.0
+
 var failures: Array[String] = []
 
 func _ready() -> void:
@@ -19,7 +25,7 @@ func run() -> void:
 		craft.linear_velocity = Vector3(0, 0, 80)
 		add_child(craft)
 		craft.add_to_group("ai_aircraft")
-		var pilot := AIPilot.new()
+		var pilot := SearchPilot.new()
 		pilot.name = "AIPilot"
 		craft.add_child(pilot)
 		pilot.set_physics_process(false)
@@ -59,6 +65,27 @@ func run() -> void:
 	check(absf(wingman.formation_anchor.x - craft_list[2].position.x) < 0.01, "remaining wingman keeps left slot")
 	check(is_equal_approx(wingman._get_effective_target_speed(), 80.0), "station holding matches lead speed")
 	check(wingman.formation_anchor.z > craft_list[2].position.z + 100.0, "station holding steers ahead")
+	# A remembered enemy overrides patrol without changing the SEARCH state.
+	var track = preload("res://AI/VisualContactTrack.gd").new()
+	track.observe(Vector3(2600, 742, -3600), Vector3(24, 0, 6), 0.0)
+	wingman._visual_contacts[123] = track
+	wingman._visual_clock_s = 12.0
+	wingman.dogfight_enabled = true
+	wingman._terrain_height_callable = func(_position: Vector3) -> float: return 0.0
+	check(wingman._dogfight_search_remerge(1.0 / 60.0), "expired contact still owns finite search maneuver")
+	check(wingman.navigated_without_formation, "search clears formation before issuing steering")
+	flight._update_formation()
+	check(not wingman.formation_anchor_active and wingman.formation_peer_ids.is_empty(), "flight update cannot reattach searching wingman")
+	check(not pilot.formation_peer_ids.has(craft_list[2].get_instance_id()), "searching aircraft loses formation separation exemptions")
+	wingman._visual_clock_s = 19.0
+	flight._update_formation()
+	check(wingman.formation_anchor_active, "formation resumes after bounded search expires")
+	pilot._visual_contacts[124] = track
+	pilot._visual_clock_s = 12.0
+	pilot.dogfight_enabled = true
+	flight._update_formation()
+	check(pilot.formation_peer_ids.is_empty() and pilot.formation_speed_cap_mps < 0.0, "searching leader is not slowed by formation")
+	pilot._visual_contacts.clear()
 	pilot.change_state(AIPilot.State.DOGFIGHT)
 	check(pilot.formation_speed_cap_mps < 0.0 and pilot.formation_peer_ids.is_empty(), "leader immediately releases formation waiting speed")
 	flight._update_formation()
@@ -67,6 +94,19 @@ func run() -> void:
 	check(not breaking.formation_anchor_active, "combat exit does not restore stale formation commands")
 	flight._update_formation()
 	check(breaking.formation_peer_ids.size() > 1, "formation resumes after return to patrol")
+	# Explicit orders often remain in SEARCH until a distant formation materializes.
+	# Cruise formation must not replace their own ingress routes or cap their turns.
+	for explicit_mission in [Flight.Mission.ATTACK, Flight.Mission.INTERCEPT]:
+		flight.mission = explicit_mission
+		flight._intercept_tracks_flight = explicit_mission == Flight.Mission.INTERCEPT
+		flight._update_formation()
+		for craft in craft_list:
+			var member := craft.get_node("AIPilot") as AIPilot
+			check(not member.formation_anchor_active and member.formation_peer_ids.is_empty(), "designated mission owns each aircraft's ingress guidance")
+			check(member.formation_speed_cap_mps < 0.0, "designated mission releases formation waiting speed")
+	flight.mission = Flight.Mission.CAP
+	flight._update_formation()
+	check(breaking.formation_peer_ids.size() > 1, "CAP formation still resumes after explicit mission")
 	print("FORMATION_GUIDANCE_%s failures=%s" % ["PASS" if failures.is_empty() else "FAIL", failures])
 	for craft in craft_list: craft.queue_free()
 	await get_tree().process_frame

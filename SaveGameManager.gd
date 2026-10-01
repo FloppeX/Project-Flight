@@ -25,10 +25,14 @@ var _last_saved_fingerprint := 0
 var _restore_started := false
 var _restore_wait_frames := 0
 var _availability_poll_elapsed_s := 0.0
+var _initial_checkpoint_saved := false
+var _initial_checkpoint_retry_s := 0.0
 
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_PAUSABLE
+	# Capture a new campaign before routine operation managers start deploying.
+	process_priority = -100
 	if OS.get_cmdline_user_args().has("--disable-campaign-autosave"):
 		autosave_enabled = false
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path("user://saves"))
@@ -43,6 +47,9 @@ func _process(delta: float) -> void:
 		_autosave_elapsed_s = 0.0
 		_last_saved_fingerprint = 0
 		_availability_poll_elapsed_s = 0.0
+		return
+
+	if _try_save_initial_checkpoint(delta):
 		return
 
 	_availability_poll_elapsed_s += maxf(delta, 0.0)
@@ -71,6 +78,31 @@ func _process(delta: float) -> void:
 	if _autosave_elapsed_s >= AUTOSAVE_INTERVAL_S or _last_saved_fingerprint == 0:
 		_autosave_elapsed_s = 0.0
 		_save_campaign(true)
+
+
+func _try_save_initial_checkpoint(delta: float) -> bool:
+	if not autosave_enabled or not GameSession.is_new_game \
+			or GameSession.is_trailer_scenario or _initial_checkpoint_saved:
+		return false
+	_initial_checkpoint_retry_s = maxf(_initial_checkpoint_retry_s - delta, 0.0)
+	if _initial_checkpoint_retry_s > 0.0:
+		return true
+	if not TerrainNavGrid.is_ready() or not NavGraph.is_ready():
+		return true
+	# Placement, deck operations, and combat still have to be safe. Only the
+	# calm-window delay is skipped for the first checkpoint.
+	_raw_blockers = _collect_raw_blockers()
+	if not _raw_blockers.is_empty():
+		_set_cached_availability(false, str(_raw_blockers[0].get("message", "Campaign is still starting")))
+		return true
+	var result := _save_campaign(true)
+	if bool(result.get("ok", false)):
+		_initial_checkpoint_saved = true
+		_autosave_elapsed_s = 0.0
+	else:
+		# Keep trying without hammering the disk or reporting failure every frame.
+		_initial_checkpoint_retry_s = 5.0
+	return true
 
 
 func can_save_campaign() -> bool:
@@ -118,6 +150,28 @@ func load_save_metadata() -> Dictionary:
 	return metadata_variant as Dictionary if metadata_variant is Dictionary else {}
 
 
+## Read appearance for the menu without preparing a restore or changing GameSession.
+## Use the same primary/backup preference as Continue.
+func load_carrier_appearance() -> Dictionary:
+	var state := _read_valid_save(SAVE_PATH)
+	if state.is_empty():
+		state = _read_valid_save(BACKUP_PATH)
+	var campaign: Dictionary = state.get("campaign", {})
+	var session_value: Variant = campaign.get("session", {})
+	if not session_value is Dictionary:
+		return {}
+	var session: Dictionary = session_value
+	if session.is_empty():
+		return {}
+	return {
+		"name": session.get("carrier_name", GameSession.DEFAULT_CARRIER_NAME),
+		"primary": session.get("carrier_primary_color", GameSession.DEFAULT_PRIMARY_COLOR),
+		"secondary": session.get("carrier_secondary_color", GameSession.DEFAULT_SECONDARY_COLOR),
+		"pattern": session.get("carrier_pattern_index", GameSession.DEFAULT_PATTERN_INDEX),
+		"insignia": session.get("carrier_insignia_index", GameSession.DEFAULT_INSIGNIA_INDEX),
+	}
+
+
 func prepare_continue() -> Dictionary:
 	var state := _read_valid_save(SAVE_PATH)
 	var source_path := SAVE_PATH
@@ -147,6 +201,9 @@ func prepare_trailer_scenario() -> Dictionary:
 
 func clear_cached_runtime_state() -> void:
 	_raw_blockers.clear()
+	_initial_checkpoint_saved = false
+	_initial_checkpoint_retry_s = 0.0
+	_last_saved_fingerprint = 0
 	_calm_elapsed_s = 0.0
 	_last_can_save = false
 	_last_message = "Campaign is still starting"

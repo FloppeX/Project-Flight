@@ -344,6 +344,13 @@ func _update_outpost_patrol_route() -> void:
 @export var terrain_landing_settled_speed_mps: float = 3.0
 @export var terrain_landing_settled_vertical_mps: float = 1.0
 @export var terrain_landing_settled_time_s: float = 1.5
+@export_group("Surface Safety")
+@export var touchdown_max_tilt_deg: float = 12.0
+@export var touchdown_max_angular_speed_radps: float = 0.25
+@export var touchdown_max_planar_speed_mps: float = 0.8
+@export var touchdown_max_vertical_speed_mps: float = 0.8
+@export var touchdown_contact_cyclic_limit: float = 0.06
+@export var ground_takeoff_clearance_m: float = 6.0
 
 @export_group("Rescue Cabin")
 @export_range(0, 16, 1) var passenger_capacity: int = 1
@@ -550,6 +557,8 @@ func _update_outpost_patrol_route() -> void:
 @export var takeoff_clear_max_climb_mps: float = 3.5
 
 @export_group("Controls")
+## Faster navigation/hover corrections; fades out into the final landing controller.
+@export_range(1.0, 2.0, 0.05) var navigation_response_scale: float = 1.3
 @export var max_cyclic_input: float = 1.0
 @export var max_yaw_input: float = 0.85
 @export var cyclic_rate: float = 0.5
@@ -991,7 +1000,12 @@ enum CarrierApproachPhase {
 var destination: Vector3 = Vector3.ZERO
 var _has_destination: bool = false
 var _rescue_target: Node3D = null   # downed pilot we are picking up
-var _passengers: int = 0            # pilots on board
+const PASSENGER_MASS_KG: float = 80.0
+var _passengers: int = 0:            # pilots on board
+	set(value):
+		_passengers = maxi(value, 0)
+		_refresh_passenger_mass()
+
 var _passenger_positions: Array[Node3D] = []
 var _passenger_visuals: Array[Node3D] = []
 var _passenger_positions_warning_emitted: bool = false
@@ -1026,6 +1040,8 @@ var _nav_shuttle_outbound: bool = true  # nav-test: true=heading to LZ, false=he
 var _landing_on_carrier: bool = false
 var _takeoff_start_altitude_m: float = NAN
 var _takeoff_started_from_deck: bool = false
+var _takeoff_start_position := Vector3.ZERO
+var _surface_trace_timer_s := 0.0
 var _prev_fwd_speed: float = 0.0
 var _prev_lat_speed: float = 0.0
 var _prev_vertical_speed: float = 0.0
@@ -1267,6 +1283,7 @@ var _phys_max_decel_mps2: float = 4.0
 var _phys_max_climb_mps: float = 5.0
 
 func _ready() -> void:
+	_refresh_passenger_mass()
 	add_to_group("origin_shifter")
 	set_physics_process(false)
 	_reset_combat_report_for_run_once()
@@ -1277,6 +1294,9 @@ func _ready() -> void:
 
 
 func _exit_tree() -> void:
+	var payload_carrier := get_parent()
+	if payload_carrier != null and payload_carrier.has_method("clear_payload_mass"):
+		payload_carrier.clear_payload_mass(self)
 	_release_combat_hunt_target_claim()
 	_atk_finish_tuning_trial("node_exit")
 	if _path_task_id != -1:
@@ -1338,6 +1358,7 @@ func apply_origin_shift(offset: Vector3) -> void:
 		_combat_route_points[i] -= offset
 	if not is_nan(_takeoff_start_altitude_m):
 		_takeoff_start_altitude_m -= offset.y
+	_takeoff_start_position -= offset
 	var metadata_aircraft := aircraft
 	if not is_instance_valid(metadata_aircraft) and get_parent() is RigidBody3D:
 		metadata_aircraft = get_parent() as RigidBody3D
@@ -1485,6 +1506,8 @@ func change_state(new_state: State) -> void:
 		return
 	_prev_forward_lean = 0.0
 	if new_state != State.LANDING:
+		if is_instance_valid(aircraft) and aircraft.has_meta("helicopter_touchdown_brake_frame"):
+			aircraft.remove_meta("helicopter_touchdown_brake_frame")
 		_terrain_landing_settled_timer_s = 0.0
 		_carrier_touchdown_settle_timer_s = 0.0
 		if state == State.LANDING and _landing_on_carrier:
@@ -1805,6 +1828,12 @@ func can_accept_passenger() -> bool:
 	return _passengers < maxi(passenger_capacity, 0)
 
 
+func _refresh_passenger_mass() -> void:
+	var carrier := get_parent()
+	if carrier != null and carrier.has_method("set_payload_mass"):
+		carrier.set_payload_mass(self, float(_passengers) * PASSENGER_MASS_KG)
+
+
 func get_passenger_count() -> int:
 	return _passengers
 
@@ -1987,6 +2016,7 @@ func _physics_process(delta: float) -> void:
 		FrameProfiler.end("HelicopterPilot.physics", _profiler_start)
 		return
 	_physics_delta = delta
+	_record_surface_trace(delta)
 	_air_attack_cooldown_s = maxf(0.0, _air_attack_cooldown_s - delta)
 	if state == State.LOW_LEVEL_TRANSIT:
 		_air_awareness.update_observations(delta, aircraft, _get_ground_height_at_position)
@@ -2105,7 +2135,11 @@ func _physics_process(delta: float) -> void:
 				_debug_event("takeoff_engine_ready", "power=%.2f" % engine_power)
 				
 			if _should_hold_vertical_takeoff():
-				_nav_waypoint = Vector3(aircraft.global_position.x, _desired_altitude_m, aircraft.global_position.z)
+				var hold_position := aircraft.global_position if _takeoff_started_from_deck else _takeoff_start_position
+				var hold_altitude := _desired_altitude_m
+				if not _takeoff_started_from_deck:
+					hold_altitude = maxf(hold_altitude, _takeoff_start_altitude_m + ground_takeoff_clearance_m + 2.0)
+				_nav_waypoint = Vector3(hold_position.x, hold_altitude, hold_position.z)
 			var _fly_profiler_start: int = FrameProfiler.begin("HelicopterPilot.fly_toward")
 			_fly_toward(_nav_waypoint, _get_takeoff_speed_limit(), delta)
 			FrameProfiler.end("HelicopterPilot.fly_toward", _fly_profiler_start)
@@ -2732,6 +2766,8 @@ func _update_physics_capabilities() -> void:
 	
 	var max_thrust: Variant = helicopter_flight.get("max_rotor_thrust_n")
 	var thrust_val := float(max_thrust) if max_thrust != null else 0.0
+	if helicopter_flight.has_method("get_max_static_rotor_thrust_n"):
+		thrust_val = helicopter_flight.get_max_static_rotor_thrust_n()
 	if thrust_val <= 0.0:
 		var mult: Variant = helicopter_flight.get("max_lift_multiplier")
 		if mult != null:
@@ -6969,8 +7005,8 @@ func _fly_transit_vector(target: Vector3, desired_speed: float, delta: float) ->
 	target_pitch = _apply_control_expo(target_pitch)
 	target_roll = _apply_control_expo(target_roll)
 	target_yaw = _apply_control_expo(target_yaw)
-	_pitch_cmd = move_toward(_pitch_cmd, target_pitch, maxf(cyclic_rate, 0.01) * pitch_rate_scale * delta)
-	_roll_cmd = move_toward(_roll_cmd, target_roll, maxf(cyclic_rate, 0.01) * delta)
+	_pitch_cmd = move_toward(_pitch_cmd, target_pitch, maxf(cyclic_rate, 0.01) * navigation_response_scale * pitch_rate_scale * delta)
+	_roll_cmd = move_toward(_roll_cmd, target_roll, maxf(cyclic_rate, 0.01) * navigation_response_scale * delta)
 	_yaw_cmd = move_toward(_yaw_cmd, target_yaw, maxf(yaw_command_rate, 0.01) * yaw_rate_scale * delta)
 
 	_debug_target_vertical_rate_mps = target_vertical_rate
@@ -7036,6 +7072,9 @@ func _fly_toward(target: Vector3, desired_speed: float, delta: float) -> void:
 	elif state == State.LANDING and _landing_on_carrier:
 		final_carrier_landing_t = 1.0
 	var final_landing_t: float = maxf(final_terrain_landing_t, final_carrier_landing_t)
+	# Strengthen velocity correction and its damping together. The touchdown
+	# controller already has higher gains, so retain its established response.
+	var response_scale := lerpf(navigation_response_scale, 1.0, final_landing_t)
 	var guidance_deadzone := 1.0
 	if state == State.TAKEOFF or state == State.LOW_LEVEL_TRANSIT:
 		guidance_deadzone = maxf(horizontal_guidance_deadzone_m, 1.0)
@@ -7180,12 +7219,12 @@ func _fly_toward(target: Vector3, desired_speed: float, delta: float) -> void:
 	_debug_vertical_rate_error_mps = vertical_rate_error
 
 	var pitch_velocity_gain := lerpf(
-		cyclic_speed_gain,
+		cyclic_speed_gain * response_scale,
 		maxf(landing_final_velocity_gain, cyclic_speed_gain),
 		final_landing_t
 	)
 	var pitch_accel_damping := lerpf(
-		cyclic_speed_d_gain,
+		cyclic_speed_d_gain * response_scale,
 		maxf(landing_final_accel_damping_gain, cyclic_speed_d_gain),
 		final_landing_t
 	)
@@ -7216,12 +7255,12 @@ func _fly_toward(target: Vector3, desired_speed: float, delta: float) -> void:
 		final_landing_t
 	)
 	var roll_velocity_gain := lerpf(
-		cyclic_lat_vel_gain,
+		cyclic_lat_vel_gain * response_scale,
 		maxf(landing_final_velocity_gain, cyclic_lat_vel_gain),
 		final_landing_t
 	)
 	var roll_accel_damping := lerpf(
-		cyclic_lat_d_gain,
+		cyclic_lat_d_gain * response_scale,
 		maxf(landing_final_accel_damping_gain, cyclic_lat_d_gain),
 		final_landing_t
 	)
@@ -7234,8 +7273,8 @@ func _fly_toward(target: Vector3, desired_speed: float, delta: float) -> void:
 	)
 
 	# Rate-limit both axes so commands build gradually, not instantly
-	_pitch_cmd = move_toward(_pitch_cmd, target_pitch, maxf(cyclic_rate, 0.01) * delta)
-	_roll_cmd = move_toward(_roll_cmd, target_roll, maxf(cyclic_rate, 0.01) * delta)
+	_pitch_cmd = move_toward(_pitch_cmd, target_pitch, maxf(cyclic_rate, 0.01) * response_scale * delta)
+	_roll_cmd = move_toward(_roll_cmd, target_roll, maxf(cyclic_rate, 0.01) * response_scale * delta)
 
 	_set_helicopter_input(_pitch_cmd, _roll_cmd, _yaw_cmd)
 	var collective_target := _calculate_collective(target.y)
@@ -7278,8 +7317,6 @@ func _apply_airborne_separation_speed_limit(requested_speed: float, control_vel:
 			if seen.has(id):
 				continue
 			seen[id] = true
-			if not _is_airborne_for_separation(other):
-				continue
 			var vertical_sep := absf(other.global_position.y - my_pos.y)
 			if vertical_sep > vertical_limit:
 				continue
@@ -7287,6 +7324,10 @@ func _apply_airborne_separation_speed_limit(requested_speed: float, control_vel:
 			var flat_rel := Vector3(rel_pos.x, 0.0, rel_pos.z)
 			var flat_dist := flat_rel.length()
 			if flat_dist > separation_range:
+				continue
+			# Ground clearance can sample terrain/raycast. Only pay for traffic
+			# inside the separation envelope, not every aircraft in the world.
+			if not _is_airborne_for_separation(other):
 				continue
 			var other_vel := _get_node_velocity(other)
 			var rel_vel := other_vel - control_vel
@@ -7383,8 +7424,6 @@ func _get_airborne_separation_velocity(control_vel: Vector3, forward: Vector3, r
 			if seen.has(id):
 				continue
 			seen[id] = true
-			if not _is_airborne_for_separation(other):
-				continue
 			var vertical_sep := absf(other.global_position.y - my_pos.y)
 			if vertical_sep > vertical_limit:
 				continue
@@ -7392,6 +7431,8 @@ func _get_airborne_separation_velocity(control_vel: Vector3, forward: Vector3, r
 			var flat_rel := Vector3(rel_pos.x, 0.0, rel_pos.z)
 			var flat_dist := flat_rel.length()
 			if flat_dist > start_distance:
+				continue
+			if not _is_airborne_for_separation(other):
 				continue
 			var other_vel := _get_node_velocity(other)
 			var rel_vel := other_vel - control_vel
@@ -7647,6 +7688,8 @@ func _calculate_transit_collective(base_collective: float, alt_error: float, hor
 
 func _get_collective_trim() -> float:
 	if helicopter_flight != null:
+		if helicopter_flight.has_method("get_loaded_hover_collective"):
+			return helicopter_flight.get_loaded_hover_collective()
 		var hover_variant: Variant = helicopter_flight.get("hover_collective")
 		if hover_variant != null:
 			return clampf(float(hover_variant), 0.0, 1.0)
@@ -12997,6 +13040,16 @@ func _get_carrier_deck_y(carrier: Node3D = null) -> float:
 
 func _apply_collective(value: float) -> void:
 	var target := clampf(value, 0.0, 1.0)
+	# Transfer weight onto stable support without applying artificial downforce.
+	# Do not cut lift on the first skid/wheel: that can pivot the aircraft over it.
+	if state == State.LANDING and _get_surface_contact_count() >= _required_surface_contacts() \
+			and _surface_attitude_stable():
+		target = minf(target, _get_collective_trim() * 0.5)
+		# Request the existing gear brakes while settling, not only after landing.
+		# Expiring ownership prevents a disabled AI from braking a player's flight.
+		aircraft.set_meta("helicopter_touchdown_brake_frame", Engine.get_physics_frames())
+	elif is_instance_valid(aircraft) and aircraft.has_meta("helicopter_touchdown_brake_frame"):
+		aircraft.remove_meta("helicopter_touchdown_brake_frame")
 	var rate := collective_rate_up if target >= _collective_cmd else collective_rate_down
 	_collective_cmd = move_toward(_collective_cmd, target, rate * _physics_delta)
 	if control_engine != null and control_engine.has_method("set_target_power"):
@@ -13122,6 +13175,25 @@ func _set_helicopter_input(pitch: float, roll: float, yaw: float) -> void:
 	if helicopter_flight == null:
 		return
 	yaw = _apply_point_nose_yaw_override(yaw)
+	if state == State.TAKEOFF and not _takeoff_started_from_deck and _should_hold_vertical_takeoff():
+		# Lift clear before banking/yawing toward the departure waypoint. This
+		# also neutralizes cached commands from the previous landing approach.
+		pitch = 0.0
+		roll = 0.0
+		yaw = 0.0
+	elif state == State.LANDING and _get_surface_contact_count() > 0:
+		# Once a foot touches, stop chasing the LZ with large lateral inputs.
+		# A small velocity-damping correction is still allowed on a moving deck.
+		var velocity := _get_control_velocity()
+		var basis := aircraft.global_basis.orthonormalized()
+		var limit := maxf(touchdown_contact_cyclic_limit, 0.0)
+		pitch = clampf(velocity.dot(basis.z) * landing_final_velocity_gain, -limit, limit)
+		roll = clampf(-velocity.dot(basis.x) * landing_final_velocity_gain, -limit, limit)
+		yaw = 0.0
+	if state == State.LANDING or state == State.TAKEOFF:
+		_pitch_cmd = pitch
+		_roll_cmd = roll
+		_yaw_cmd = yaw
 	helicopter_flight.set("pitch_input", clampf(pitch, -1.0, 1.0))
 	helicopter_flight.set("roll_input", clampf(roll, -1.0, 1.0))
 	helicopter_flight.set("yaw_input", clampf(yaw, -1.0, 1.0))
@@ -13183,6 +13255,7 @@ func _prime_takeoff_reference() -> void:
 	if not is_instance_valid(aircraft):
 		return
 	_takeoff_start_altitude_m = aircraft.global_position.y
+	_takeoff_start_position = aircraft.global_position
 	_takeoff_started_from_deck = _is_deck_takeoff_context()
 
 
@@ -13202,8 +13275,10 @@ func _refresh_takeoff_deck_context() -> void:
 
 
 func _should_hold_vertical_takeoff() -> bool:
-	if not _takeoff_started_from_deck or not is_instance_valid(aircraft):
+	if not is_instance_valid(aircraft):
 		return false
+	if not _takeoff_started_from_deck:
+		return _get_surface_contact_count() > 0 or (not is_nan(_takeoff_start_altitude_m) and aircraft.global_position.y < _takeoff_start_altitude_m + ground_takeoff_clearance_m)
 	if bool(aircraft.get_meta("helicopter_deck_takeoff_ready", false)):
 		return true
 	if is_nan(_takeoff_start_altitude_m):
@@ -13216,6 +13291,8 @@ func _takeoff_is_clear() -> bool:
 		return false
 	if bool(aircraft.get_meta("helicopter_deck_takeoff_ready", false)):
 		return false
+	if not _takeoff_started_from_deck and _should_hold_vertical_takeoff():
+		return false
 	if use_heightmap_pathfinding and _heightmap_path.is_empty() and _has_destination:
 		return false
 	var altitude_target: float = _desired_altitude_m - 4.0
@@ -13227,6 +13304,8 @@ func _takeoff_is_clear() -> bool:
 
 
 func _get_takeoff_speed_limit() -> float:
+	if not _takeoff_started_from_deck and _should_hold_vertical_takeoff():
+		return 0.0
 	if not _takeoff_started_from_deck or is_nan(_takeoff_start_altitude_m):
 		return cruise_speed_mps * 0.35
 	if _should_hold_vertical_takeoff():
@@ -13255,27 +13334,18 @@ func _try_finish_landing() -> void:
 		var carrier_rel_vertical_speed: float = carrier_rel_velocity.y
 		var deck_y := _get_landing_surface_y()
 		var deck_agl := aircraft.global_position.y - deck_y if not is_nan(deck_y) else INF
-		var touchdown_radius: float = minf(
-			maxf(carrier_landing_touchdown_radius_m, 0.5),
-			maxf(carrier_landing_descent_start_radius_m, 0.5)
-		)
 		var gear_landed := _all_landing_gear_on_carrier_deck()
 		var on_deck := deck_agl >= carrier_landing_touchdown_min_deck_agl_m and deck_agl <= 6.0
-		var close_to_deck := deck_agl >= carrier_landing_touchdown_min_deck_agl_m \
-				and deck_agl <= maxf(carrier_landing_touchdown_max_deck_agl_m, 0.1)
 		var any_gear_count := _get_carrier_surface_gear_count()
 		var deck_manager_settled := _is_flight_deck_confirmed_touchdown()
-		var touchdown_contact := deck_manager_settled \
-				or gear_landed \
-				or (on_deck and any_gear_count >= 1) \
-				or (flat_dist <= touchdown_radius \
-					and carrier_rel_speed < maxf(carrier_landing_touchdown_relative_speed_mps, 0.1) \
-					and close_to_deck)
+		var touchdown_contact := deck_manager_settled or gear_landed \
+				or (on_deck and any_gear_count >= _required_surface_contacts())
 		var gentle_vertical := absf(carrier_rel_vertical_speed) <= maxf(
 			carrier_landing_touchdown_max_vertical_mps,
 			carrier_landing_soft_touchdown_sink_mps
 		)
-		var touchdown_dynamics_ok := gentle_vertical or deck_manager_settled
+		var touchdown_dynamics_ok := (gentle_vertical or deck_manager_settled) and _surface_attitude_stable() \
+				and Vector2(carrier_rel_velocity.x, carrier_rel_velocity.z).length() <= touchdown_max_planar_speed_mps
 		if touchdown_contact and touchdown_dynamics_ok:
 			_carrier_touchdown_settle_timer_s += _physics_delta
 		else:
@@ -13311,26 +13381,19 @@ func _try_finish_landing() -> void:
 		var flat_dist: float = _flat_distance(aircraft.global_position, destination) if _has_destination else INF
 		var agl: float = aircraft.global_position.y - ground_height
 		var close_to_lz: bool = flat_dist <= maxf(terrain_landing_touchdown_radius_m, 0.5)
-		var soft_touchdown: bool = close_to_lz and agl <= 2.0 and aircraft.linear_velocity.length() < 3.0
-		# grounded_touchdown does not require close_to_lz: LANDING starts at 120 m so the
-		# helicopter may touch down anywhere in a wide area. Gear compression + low speed
-		# is sufficient evidence of a real landing regardless of exact LZ offset.
-		var grounded_touchdown: bool = \
-				agl <= maxf(terrain_landing_ground_contact_agl_m, 0.1) \
-				and aircraft.linear_velocity.length() <= maxf(terrain_landing_ground_contact_speed_mps, 0.1) \
-				and _get_grounded_gear_count() >= maxi(terrain_landing_ground_contact_min_wheels, 1)
+		var grounded_touchdown := _get_surface_contact_count() >= _required_surface_contacts()
 		var settled_hover_touchdown := _update_terrain_landing_settled_touchdown(
-			close_to_lz,
+			close_to_lz or grounded_touchdown,
 			agl,
 			aircraft.linear_velocity
 		)
-		is_landed = soft_touchdown or grounded_touchdown or settled_hover_touchdown
+		is_landed = settled_hover_touchdown
 		if not is_landed:
 			_debug_lz_landing_pending(
 				flat_dist,
 				agl,
 				close_to_lz,
-				soft_touchdown,
+				false,
 				grounded_touchdown
 			)
 
@@ -13534,6 +13597,63 @@ func _all_landing_gear_on_carrier_deck() -> bool:
 	return gear_count > 0 and _get_carrier_surface_gear_count() >= gear_count
 
 
+func _get_surface_contact_count() -> int:
+	var count := 0
+	for module: Node in _get_landing_gear_modules():
+		# Actual contact works even when the rotor is still unloading the gear.
+		var contacts: Variant = module.get("gear_has_contact")
+		if contacts is Array:
+			for contact: Variant in contacts:
+				if bool(contact):
+					count += 1
+			continue
+		var compressions: Variant = module.get("gear_compressions")
+		if compressions is Array:
+			for compression: Variant in compressions:
+				if float(compression) >= maxf(terrain_landing_ground_contact_compression_m, 0.001):
+					count += 1
+	return count
+
+
+func _required_surface_contacts() -> int:
+	# Three of four skid points prevents a single side from counting as landed;
+	# all three wheels are required on a tricycle undercarriage.
+	return maxi(1, ceili(float(_get_landing_gear_count()) * 0.75))
+
+
+func _surface_attitude_stable() -> bool:
+	if not is_instance_valid(aircraft):
+		return false
+	return aircraft.global_basis.y.normalized().dot(Vector3.UP) >= cos(deg_to_rad(touchdown_max_tilt_deg)) \
+			and aircraft.angular_velocity.length() <= touchdown_max_angular_speed_radps
+
+
+func _surface_trace_snapshot() -> String:
+	if not is_instance_valid(aircraft):
+		return "SURFACE aircraft=unavailable"
+	var tilt := rad_to_deg(acos(clampf(aircraft.global_basis.y.normalized().dot(Vector3.UP), -1.0, 1.0)))
+	return "SURFACE state=%s/%s contacts=%d/%d tilt=%.1f angular=%s velocity=%s cyclic=(%.3f,%.3f,%.3f) collective=%.3f frozen=%s" % [
+		_state_name(), _mission_name(), _get_surface_contact_count(), _get_landing_gear_count(),
+		tilt, str(aircraft.angular_velocity), str(aircraft.linear_velocity),
+		_pitch_cmd, _roll_cmd, _yaw_cmd, _collective_cmd, aircraft.freeze]
+
+
+func _record_surface_trace(delta: float) -> void:
+	if not crash_log_enabled:
+		return
+	_surface_trace_timer_s -= delta
+	if _surface_trace_timer_s > 0.0:
+		return
+	_surface_trace_timer_s = 0.25
+	var now := Time.get_ticks_msec() / 1000.0
+	if state == State.LANDING or state == State.TAKEOFF:
+		# Quiet bounded history, independent of optional on-screen debug output.
+		_flight_log.append([now, _surface_trace_snapshot()])
+	var cutoff := now - maxf(crash_log_history_s, 1.0)
+	while not _flight_log.is_empty() and _flight_log[0][0] < cutoff:
+		_flight_log.pop_front()
+
+
 func _get_grounded_gear_count() -> int:
 	var grounded_count: int = 0
 	var threshold: float = maxf(terrain_landing_ground_contact_compression_m, 0.0)
@@ -13551,10 +13671,11 @@ func _update_terrain_landing_settled_touchdown(close_to_lz: bool, agl: float, ve
 	if not close_to_lz:
 		_terrain_landing_settled_timer_s = 0.0
 		return false
-	var speed := velocity.length()
 	var settled := agl <= maxf(terrain_landing_settled_agl_m, 0.1) \
-			and speed <= maxf(terrain_landing_settled_speed_mps, 0.0) \
-			and absf(velocity.y) <= maxf(terrain_landing_settled_vertical_mps, 0.0)
+			and _get_surface_contact_count() >= _required_surface_contacts() \
+			and _surface_attitude_stable() \
+			and Vector2(velocity.x, velocity.z).length() <= touchdown_max_planar_speed_mps \
+			and absf(velocity.y) <= touchdown_max_vertical_speed_mps
 	if not settled:
 		_terrain_landing_settled_timer_s = 0.0
 		return false
@@ -13565,7 +13686,7 @@ func _update_terrain_landing_settled_touchdown(close_to_lz: bool, agl: float, ve
 
 	_debug_event("lz_landing_settled", "agl=%.2f speed=%.2f vs=%.2f time=%.2f gear=%d" % [
 		agl,
-		speed,
+		velocity.length(),
 		velocity.y,
 		_terrain_landing_settled_timer_s,
 		_get_grounded_gear_count(),
@@ -14322,6 +14443,7 @@ func _on_aircraft_destroyed_flight_recorder() -> void:
 	var lines: PackedStringArray = PackedStringArray()
 	lines.append("=" .repeat(72))
 	lines.append("CRASH REPORT — %s" % craft_name)
+	lines.append(_surface_trace_snapshot())
 	lines.append("Time since AI start: +%.1fs" % [_elapsed_s()])
 	lines.append("Last known position: %s  AGL: %s" % [pos_str, agl_str])
 	lines.append("State: %s / %s" % [_state_name(), _mission_name()])

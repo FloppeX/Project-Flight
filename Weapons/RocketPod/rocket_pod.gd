@@ -16,7 +16,6 @@ var hardpoint: Hardpoint
 var _fire_timer: float = 0.0
 var _burst_remaining: int = 0
 var _burst_timer: float = 0.0
-var _payload_aircraft: RigidBody3D = null
 var _tuning_launch_callback: Callable = Callable()
 var _tuning_impact_callback: Callable = Callable()
 var _tuning_impact_detail_callback: Callable = Callable()
@@ -32,16 +31,6 @@ func _ready() -> void:
 		rocket_scene = load("res://Projectiles/Rocket/rocket.tscn")
 	_refresh_aircraft_payload_mass()
 	set_process(false)
-
-func _exit_tree() -> void:
-	if is_instance_valid(_payload_aircraft) and _payload_aircraft.has_method("clear_payload_mass"):
-		_payload_aircraft.clear_payload_mass(self)
-
-func _get_parent_rigidbody() -> RigidBody3D:
-	var node: Node = get_parent()
-	while node and not (node is RigidBody3D):
-		node = node.get_parent()
-	return node as RigidBody3D
 
 func _has_unlimited_test_ammo() -> bool:
 	var aircraft: RigidBody3D = _get_parent_rigidbody()
@@ -62,13 +51,6 @@ func _has_persistent_tuning_context() -> bool:
 		return false
 	var enabled: bool = value
 	return enabled
-
-func _refresh_aircraft_payload_mass() -> void:
-	if not is_instance_valid(_payload_aircraft):
-		_payload_aircraft = _get_parent_rigidbody()
-	if _payload_aircraft and _payload_aircraft.has_method("set_payload_mass"):
-		var total_mass_kg: float = maxf(pod_empty_mass_kg, 0.0) + maxf(float(ammo_count), 0.0) * maxf(rocket_mass_kg, 0.0)
-		_payload_aircraft.set_payload_mass(self, total_mass_kg)
 
 func get_predicted_release_transform() -> Transform3D:
 	return global_transform
@@ -215,3 +197,7 @@ func _call_tuning_launch_callback(rocket: Node) -> void:
 		_tuning_launch_callback.call(_tuning_trial_id, rocket)
 	else:
 		_tuning_launch_callback.call(_tuning_trial_id)
+
+
+func get_payload_mass_kg() -> float:
+	return maxf(pod_empty_mass_kg, 0.0) + maxf(float(ammo_count), 0.0) * maxf(rocket_mass_kg, 0.0)

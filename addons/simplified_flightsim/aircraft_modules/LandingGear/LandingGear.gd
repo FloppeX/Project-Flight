@@ -715,6 +715,15 @@ func _update_accel_lean(delta: float) -> void:
 	var accel_alpha: float = clampf(delta / maxf(accel_lean_accel_filter_s, 0.001), 0.0, 1.0)
 	_longitudinal_accel_filtered_mps2 = lerpf(_longitudinal_accel_filtered_mps2, _longitudinal_accel_mps2, accel_alpha)
 
+	# Arrestment already loads the physical suspension. The external-control
+	# lean below also moves the tire colliders, so cable deceleration can extend
+	# the rear gear into the deck and lever the airframe up as it stops.
+	if bool(aircraft.get_meta("arresting_engaged", false)):
+		_lean_offsets.fill(0.0)
+		_grounded_stable_time_s = 0.0
+		_catapult_accel_filtered_mps2 = 0.0
+		return
+
 	# During catapult/external handling, keep nose gear neutral to avoid lift,
 	# but still allow rear compression response under launch acceleration.
 	if aircraft.has_meta("controls_disabled") and bool(aircraft.get_meta("controls_disabled")):
@@ -1073,6 +1082,10 @@ func apply_wheel_friction(collision_shape: CollisionShape3D, gear_index: int, co
 	var carrier_surface := _find_surface_group_node(surface, "carrier")
 	var on_carrier_surface: bool = carrier_surface != null
 	var parking_brake: bool = aircraft.has_meta("parking_brake") and bool(aircraft.get_meta("parking_brake"))
+	# AI helicopter touchdown uses the same wheel/skid braking, with a short
+	# lease so a player takeover or disabled pilot cannot leave the brakes on.
+	var touchdown_brake_frame := int(aircraft.get_meta("helicopter_touchdown_brake_frame", -10))
+	parking_brake = parking_brake or (Engine.get_physics_frames() - touchdown_brake_frame <= 1)
 	var controls_disabled: bool = aircraft.has_meta("controls_disabled") and bool(aircraft.get_meta("controls_disabled"))
 	var arresting_engaged: bool = aircraft.has_meta("arresting_engaged") and bool(aircraft.get_meta("arresting_engaged"))
 	var deck_follow: bool = aircraft.has_meta("carrier_deck_follow") and bool(aircraft.get_meta("carrier_deck_follow"))

@@ -93,8 +93,8 @@ func _check_aircraft(host: Node3D, aircraft_number: int, scene_path: String) -> 
 	var broad_wing_collider := aircraft.get_node_or_null("WingCollider") as CollisionShape3D
 	_expect(damage_model != null, "%s is missing PartDamageModel" % label)
 	_expect(
-		broad_wing_collider != null and broad_wing_collider.disabled,
-		"%s obsolete full-span wing collider is active or missing" % label
+		broad_wing_collider == null or broad_wing_collider.disabled,
+		"%s obsolete full-span wing collider is active" % label
 	)
 	if damage_model != null:
 		_expect(is_equal_approx(float(damage_model.get("single_wing_loss_roll_torque_per_kg")), 36.0), "%s does not use the shared controlled wing-loss roll torque" % label)

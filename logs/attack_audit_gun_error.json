@@ -1,0 +1,4190 @@
+{
+	"advanced_flight_model": true,
+	"aircraft_alive": true,
+	"aircraft_mass_kg": 1555.0,
+	"commit_events": [
+		{
+			"axis": [
+				0.0,
+				0.0,
+				0.0
+			],
+			"axis_capture": {
+				"captured": false,
+				"rate": 0.0,
+				"valid": false
+			},
+			"bank": 4.2503545945633,
+			"count": 1,
+			"pos": [
+				0.726194620132446,
+				591.371826171875,
+				-2184.47973632813
+			],
+			"reason": "committed_direct",
+			"speed": 99.6716461181641,
+			"t": 4.23333333333332
+		}
+	],
+	"commit_gates_s": {
+		"committed_direct": 20.8000000000001,
+		"direct_intercept_range": 4.19999999999999,
+		"positioning": 0.0166666666666667
+	},
+	"commits": 1,
+	"duration_s": 25.0166666666665,
+	"end_reasons_s": {
+		"attack_in_progress": 16.066666666667,
+		"dynamic_pull_up": 4.73333333333332,
+		"pending": 4.21666666666666
+	},
+	"first_commit_s": 4.23333333333332,
+	"first_damage_s": -1.0,
+	"first_release_s": 17.2333333333336,
+	"hashes": {
+		"res://AI/AIPilot.gd": "51eeccc0bb67dd557190173e8bef6fb73a1b4059f84cd00cff89c2516f3adbcc",
+		"res://AI/FlightPathFollower.gd": "a4daa23e2f14007bc9b3f4b27af4697dd2e46962ceffc8ec2d8d5b04939f6dcd",
+		"res://AI/GroundTargetPriority.gd": "51d71014a0517d331d00a5823b91cb9fb4777f34a233bfbbe39982bce4888a31",
+		"res://AirOps/Flight.gd": "c90f2a77fe2ef768c2837d22912d87a66319c8b833f25c53cc3bf626c53047c7",
+		"res://Aircraft/Aircraft_5.tscn": "c200b4c8ee3942060fad6471664bc9f52f26e98071f96e55479a2f2e4ba3de05",
+		"res://Aircraft/SimpleAero.gd": "96614ce20771d39253db08ca1a552254c2edf449f4853bce8ba6a3975fd5aaf4",
+		"res://Aircraft/aircraft.gd": "b47d79077b62ac1e2f83441c630d6560608e1dc01f1dcd8aa378ac8ceff44112",
+		"res://Projectiles/BombNew/bomb_new.gd": "1c1fad2598320eb606a4da7cd46cb17112de4246b3e4fba32631e9894fd29585",
+		"res://Projectiles/Bullet/BulletPool.gd": "a3f67c2d8364736d9ad83ab7eec28306a6c8d26f1ffc356f27e34bb5e0d1bcb2",
+		"res://Projectiles/Bullet/bullet.gd": "9c882104f54f87231f36651affd660ac0d6b27f120accc5be62f314287c29fc5",
+		"res://Projectiles/Bullet/bullet.tscn": "fe82f97a07419625467ee588cc757c9f36ed4852c42b19f02a4ff9b928742401",
+		"res://Projectiles/Explosion/explosion.gd": "2c6346f8d076abac15647d5e849252e8eedab788ac223ff9b6d06d933388507d",
+		"res://Projectiles/HeavyRound/heavy_round.gd": "a9dc843ce110465329e1c9e0659fe3db97c8d7bb4f1e7f543961f78b14248132",
+		"res://Projectiles/HeavyRound/heavy_round.tscn": "eadf4140ec85299adb9cca7ab09e050056ff8451fbbbacf48e136d768f9c5fa8",
+		"res://Projectiles/ProjectileNew/projectile_new.gd": "2095e42841fbe469936d8f5790778c5f4a8e1dcf38530626754ace736f378cf2",
+		"res://Projectiles/Rocket/rocket.gd": "3ca675ff04788fe72e8a87f0b002bbec1162e88aeb66066ce5b2604444a26ab9",
+		"res://Projectiles/SmallExplosiveRound/small_explosive_round.tscn": "cd3d756859dca8a3e14ec20bb71793dcfd21814e10acde8d63e2d36cb814f8a7",
+		"res://Tests/GroundAttackDiagnostic.gd": "d45a7abdcd929235e559b11f96deb7d4f83d019e653b89f14e4411a0ebb2f361",
+		"res://Weapons/Autocannon/autocannon.gd": "ce04edee4488be5020c36a5b1d5f5b6abeb22c225746dbf6fd72e0136706c70c",
+		"res://Weapons/Bomb/bomb_rack.gd": "223402642f2d5869149eb1235b34e40086ca66c6480ee61475fc062de0a4ca23",
+		"res://Weapons/RocketPod/rocket_pod.gd": "1a4ef5d814ff9d438381bcffff4bfd1f49ece8681df9e1b4a8a345f16d0d6e30"
+	},
+	"hashes_verified": true,
+	"initial_pose": {
+		"forward": [
+			0.0,
+			0.0,
+			1.0
+		],
+		"position": [
+			0.0,
+			599.997253417969,
+			-2598.33325195313
+		],
+		"requested_heading_deg": 0.0,
+		"requested_speed_mps": 100.0,
+		"velocity": [
+			0.0,
+			-0.163333341479301,
+			100.0
+		]
+	},
+	"initial_target": "GunEmplacement",
+	"loadout": [
+		{
+			"ammo": 24,
+			"name": "Rocket Pod"
+		},
+		{
+			"ammo": 6,
+			"name": "Bomb"
+		},
+		{
+			"ammo": 1000,
+			"name": "15 mm Machine Gun"
+		}
+	],
+	"min_agl_m": 14.1071186065674,
+	"offset_m": 0.0,
+	"physics_hz": 60,
+	"projectiles": [],
+	"reentry_start": false,
+	"release_times_s": [
+		17.2333333333336,
+		17.3833333333336,
+		17.5333333333336,
+		17.6833333333336,
+		17.8333333333336,
+		17.9833333333336,
+		18.1333333333336,
+		18.2833333333336,
+		18.4333333333336,
+		18.5833333333336,
+		18.7333333333336,
+		18.8833333333335,
+		19.0333333333335,
+		19.1833333333335,
+		19.3333333333335,
+		19.4833333333335,
+		19.6333333333335,
+		19.7833333333335,
+		19.9333333333335,
+		20.0833333333335,
+		20.2333333333335
+	],
+	"releases": 21,
+	"requested_heading_deg": 0.0,
+	"requested_speed_mps": 100.0,
+	"ridge": false,
+	"rocket_ccip_ignore_projectiles": true,
+	"settings": {
+		"_attack_breakoff_egress_y_m": -1e99999,
+		"_attack_breakoff_entry_time_s": -1e99999,
+		"_attack_breakoff_reference_locked": false,
+		"_attack_commit_count": 0,
+		"_attack_corridor_target_instance_id": 0,
+		"_attack_energy_recovery_active": false,
+		"_attack_geometry_snapshot_read_only": false,
+		"_attack_geometry_terrain_cache_active": false,
+		"_attack_last_commit_reason": "not_evaluated",
+		"_attack_last_end_reason": "pending",
+		"_attack_lineup_retry_count": 0,
+		"_attack_locked_setup_distance_m": 0.0,
+		"_attack_moving_target_replan_timer_s": 0.0,
+		"_attack_positioning_route_timeout_s": 90.0,
+		"_attack_recovery_until_s": 0.0,
+		"_attack_route_smoothed_desired_vs_last_frame": -1000000,
+		"_attack_route_smoothed_desired_vs_mps": 0.0,
+		"_attack_route_smoothed_desired_vs_valid": false,
+		"_attack_route_smoothed_target_bank_last_frame": -1000000,
+		"_attack_route_smoothed_target_bank_rad": 0.0,
+		"_attack_route_smoothed_target_bank_valid": false,
+		"_attack_setup_altitude_m": null,
+		"_attack_setup_requires_target_crossing": false,
+		"_attack_terminal_corridor_check_timer_s": 0.0,
+		"_attack_terrain_sample_cache_samples": -1,
+		"_attack_terrain_sample_cache_until_s": -1e99999,
+		"_attack_terrain_sample_cache_value": null,
+		"_attack_turn_track_heading_rad": 0.0,
+		"_attack_turn_track_heading_valid": true,
+		"_attack_turn_track_rate_rad_s": 0.0,
+		"_ground_attack_axis_search_ms": 0.0,
+		"_ground_attack_direct_revalidation_count": 0,
+		"_ground_attack_direct_revalidation_ms": 0.0,
+		"_ground_attack_direct_revalidation_reason": "not_checked",
+		"_ground_attack_short_join_check_ms": 0.0,
+		"_ground_attack_short_join_check_s": 0.0,
+		"_ground_attack_short_join_count": 0,
+		"_ground_attack_weapon_rotation_index": 0,
+		"attack_aim_lead_time_s": 0.25,
+		"attack_assertive_turn_bank_deg": 82.0,
+		"attack_assertive_turn_enabled": true,
+		"attack_assertive_turn_entry_error_deg": 5.0,
+		"attack_assertive_turn_full_bank_error_deg": 55.0,
+		"attack_assertive_turn_min_bank_deg": 12.0,
+		"attack_assertive_turn_overbank_altitude_full_m": 180.0,
+		"attack_assertive_turn_overbank_altitude_start_m": 30.0,
+		"attack_assertive_turn_overbank_descent_release_mps": 4.0,
+		"attack_assertive_turn_overbank_full_error_mps": 20.0,
+		"attack_assertive_turn_overbank_max_deg": 120.0,
+		"attack_assertive_turn_overbank_min_error_deg": 75.0,
+		"attack_assertive_turn_overbank_start_error_mps": 2.0,
+		"attack_bank_cmd_limit_deg": 75.0,
+		"attack_break_off_distance_m": 500.0,
+		"attack_breakoff_completion_radius_m": 700.0,
+		"attack_breakoff_direct_fire_min_recover_agl_m": 170.0,
+		"attack_breakoff_direct_fire_target_speed_mps": 118.0,
+		"attack_breakoff_egress_altitude_gain_m": 220.0,
+		"attack_breakoff_fpa_max_push_input": 0.25,
+		"attack_breakoff_fpa_pitch_gain": 1.4,
+		"attack_breakoff_fpa_pitch_rate_damping": 0.35,
+		"attack_breakoff_low_energy_unload_angle_deg": 10.0,
+		"attack_breakoff_max_climb_angle_deg": 30.0,
+		"attack_breakoff_max_time_s": 18.0,
+		"attack_breakoff_min_climb_rate_mps": 1.0,
+		"attack_breakoff_min_recover_agl_m": 420.0,
+		"attack_breakoff_min_time_s": 3.0,
+		"attack_breakoff_target_speed_mps": 110.0,
+		"attack_commit_replan_cooldown_s": 2.0,
+		"attack_corridor_lock_target_enabled": true,
+		"attack_corridor_projected_path_enabled": true,
+		"attack_corridor_reuse_axis_enabled": true,
+		"attack_debug_summary_interval_s": 1.0,
+		"attack_direct_fire_energy_recovery_roll_scale": 0.55,
+		"attack_direct_fire_energy_recovery_start_margin_mps": 20.0,
+		"attack_direct_fire_energy_recovery_yaw_scale": 0.45,
+		"attack_dive_abort_min_target_dot": -0.35,
+		"attack_dive_envelope_recovery_pitch_input": 0.65,
+		"attack_dive_envelope_soft_margin_deg": 10.0,
+		"attack_dive_max_nose_down_pitch_input": 0.3,
+		"attack_egress_backtrack_m": 500.0,
+		"attack_egress_capture_radius_m": 240.0,
+		"attack_egress_distance_m": 1500.0,
+		"attack_egress_forward_m": 450.0,
+		"attack_egress_side_offset_m": 1200.0,
+		"attack_energy_recovery_banked_pitch_floor": 0.34,
+		"attack_energy_recovery_full_margin_mps": 8.0,
+		"attack_energy_recovery_level_roll_response": 0.9,
+		"attack_energy_recovery_pitch_cap": 0.05,
+		"attack_energy_recovery_roll_scale": 0.25,
+		"attack_energy_recovery_start_margin_mps": 38.0,
+		"attack_energy_recovery_yaw_scale": 0.2,
+		"attack_full_throttle_enabled": true,
+		"attack_geometry_candidates_per_physics_frame": 1,
+		"attack_geometry_global_candidates_per_physics_frame": 1,
+		"attack_geometry_global_terrain_samples_per_physics_frame": 12,
+		"attack_geometry_snapshot_max_discovery_passes": 6,
+		"attack_geometry_terrain_grid_spacing_m": 20.0,
+		"attack_geometry_terrain_samples_per_physics_frame": 12,
+		"attack_inbound_bank_limit_deg": 35.0,
+		"attack_ingress_arc_end_radii_before_setup": 0.75,
+		"attack_ingress_arc_handle_radii": 0.9,
+		"attack_ingress_arc_samples": 3,
+		"attack_ingress_departure_turn_radii": 1.5,
+		"attack_ingress_descent_complete_before_setup_m": 850.0,
+		"attack_ingress_heading_penalty": 240.0,
+		"attack_ingress_lineup_distance_m": 900.0,
+		"attack_ingress_lineup_turn_radii": 1.25,
+		"attack_ingress_max_descent_angle_deg": 14.0,
+		"attack_ingress_max_path_detour_ratio": 1.3,
+		"attack_ingress_max_path_extra_m": 1400.0,
+		"attack_ingress_reach_reserve_radii": 0.65,
+		"attack_ingress_reach_turn_distance_scale": 1.2,
+		"attack_ingress_route_clearance_m": 400.0,
+		"attack_ingress_turn_altitude_reserve_m": 180.0,
+		"attack_lineup_retry_extension_m": 1200.0,
+		"attack_lineup_retry_max_count": 2,
+		"attack_max_dive_angle_deg": 30.0,
+		"attack_max_dive_pullback_gain": 0.1,
+		"attack_positioning_climb_arrest_full_error_mps": 20.0,
+		"attack_positioning_climb_arrest_max_nose_down_pitch_input": 0.75,
+		"attack_positioning_commit_bank_margin_deg": 10.0,
+		"attack_positioning_descent_recovery_pitch_input": 0.35,
+		"attack_positioning_descent_soft_margin_deg": 4.0,
+		"attack_positioning_direct_entry_after_s": 4.0,
+		"attack_positioning_direct_entry_max_cross_track_m": 260.0,
+		"attack_positioning_direct_entry_min_dot": 0.55,
+		"attack_positioning_direct_entry_min_planned_dot": 0.68,
+		"attack_positioning_direct_entry_range_buffer_m": 250.0,
+		"attack_positioning_hard_floor_agl_m": 120.0,
+		"attack_positioning_max_descent_angle_deg": 12.0,
+		"attack_positioning_max_nose_down_pitch_input": 0.2,
+		"attack_positioning_replan_timeout_s": 65.0,
+		"attack_positioning_route_timeout_margin_s": 15.0,
+		"attack_positioning_route_timeout_max_s": 150.0,
+		"attack_positioning_route_timeout_scale": 1.3,
+		"attack_prepare_async_departure_enabled": true,
+		"attack_pull_up_distance_m": 250.0,
+		"attack_recovery_clearance_margin_m": 70.0,
+		"attack_recovery_heading_hold_min_agl_m": 220.0,
+		"attack_recovery_probe_time_s": 4.0,
+		"attack_recovery_reaction_time_s": 1.0,
+		"attack_route_bank_limit_deg": 82.0,
+		"attack_route_capture_radius_scale": 1.0,
+		"attack_route_control_input_response_hz": 7.0,
+		"attack_route_direct_waypoint_steering": false,
+		"attack_route_flyby_enabled": true,
+		"attack_route_guidance_target_time_s": 0.2,
+		"attack_route_initial_capture_radius_fraction": 0.5,
+		"attack_route_initial_capture_radius_max_m": 650.0,
+		"attack_route_lookahead_radius_fraction": 0.35,
+		"attack_route_projection_blend": 0.72,
+		"attack_route_projection_gain": 1.55,
+		"attack_run_altitude_offset_m": 300.0,
+		"attack_run_corridor_clearance_m": 120.0,
+		"attack_run_corridor_samples": 12,
+		"attack_run_distance_m": 800.0,
+		"attack_run_heading_candidates": 24,
+		"attack_run_obstruction_penalty": 10.0,
+		"attack_run_post_target_probe_m": 900.0,
+		"attack_run_preferred_heading_penalty": 180.0,
+		"attack_setup_capture_radius_m": 260.0,
+		"attack_setup_distance_turn_radius_scale": 2.5,
+		"attack_structure_guard_range_m": 650.0,
+		"attack_structure_min_half_height_m": 12.0,
+		"attack_structure_overflight_margin_m": 80.0,
+		"attack_terminal_fpv_bank_gain": 2.8,
+		"attack_terminal_fpv_guidance_blend": 0.85,
+		"attack_terrain_sample_refresh_s": 0.25,
+		"attack_terrain_sample_reuse_distance_m": 60.0,
+		"attack_turn_track_rate_response_hz": 2.5,
+		"bomb_ace_release_hold_s": 0.04,
+		"bomb_ace_release_tolerance_m": 20.0,
+		"bomb_ccip_aim_correction_close_range_m": 450.0,
+		"bomb_ccip_aim_correction_close_scale": 0.9,
+		"bomb_ccip_aim_correction_max_m": 260.0,
+		"bomb_ccip_aim_smoothing": 0.4,
+		"bomb_ccip_fallback_alt_m": 320.0,
+		"bomb_ccip_max_pitch_input": 0.14,
+		"bomb_ccip_max_time_s": 10.0,
+		"bomb_ccip_max_yaw_input": 0.3,
+		"bomb_ccip_pitch_gain": 0.25,
+		"bomb_ccip_pitch_rate_damping": 0.08,
+		"bomb_ccip_precision_bank_limit_deg": 35.0,
+		"bomb_ccip_recompute_interval_s": 0.08,
+		"bomb_ccip_release_tolerance_m": 140.0,
+		"bomb_ccip_time_step_s": 0.04,
+		"bomb_ccip_use_moving_target_plane": true,
+		"bomb_ccip_yaw_gain": 0.55,
+		"bomb_ccip_yaw_rate_damping": 0.08,
+		"bomb_debug_line_thickness_m": 3.0,
+		"bomb_debug_marker_height_m": 350.0,
+		"bomb_debug_markers_enabled": false,
+		"bomb_debug_print_enabled": false,
+		"bomb_debug_print_interval_s": 0.5,
+		"bomb_direct_entry_max_altitude_overshoot_m": 120.0,
+		"bomb_direct_entry_max_cross_track_m": 90.0,
+		"bomb_direct_intercept_commit_range_m": 1800.0,
+		"bomb_direct_intercept_min_fpv_dot": 0.9,
+		"bomb_direct_intercept_min_target_dot": 0.94,
+		"bomb_dive_aim_height_m": 90.0,
+		"bomb_dive_close_aim_height_m": 75.0,
+		"bomb_dive_pitch_los_gain": 3.2,
+		"bomb_dive_pullback_gain": 0.035,
+		"bomb_dive_start_altitude_factor": 3.2,
+		"bomb_dive_start_distance_m": 1150.0,
+		"bomb_dive_start_max_bank_deg": 25.0,
+		"bomb_dive_start_min_target_dot": 0.82,
+		"bomb_experienced_release_hold_s": 0.12,
+		"bomb_experienced_release_tolerance_m": 70.0,
+		"bomb_gameplay_force_release_range_m": 500.0,
+		"bomb_gameplay_release_enabled": true,
+		"bomb_gameplay_release_range_m": 650.0,
+		"bomb_gameplay_release_tolerance_m": 120.0,
+		"bomb_gameplay_release_without_ccip": true,
+		"bomb_min_dive_angle_deg": 3.0,
+		"bomb_positioning_commit_min_lane_m": 900.0,
+		"bomb_preferred_dive_angle_deg": 16.0,
+		"bomb_pull_up_distance_m": 250.0,
+		"bomb_release_after_best_grace_m": 20.0,
+		"bomb_release_after_best_worsen_m": 3.0,
+		"bomb_release_altitude_window_m": 650.0,
+		"bomb_release_best_miss_slack_m": 6.0,
+		"bomb_release_best_solution_tolerance_multiplier": 1.25,
+		"bomb_release_max_bank_deg": 60.0,
+		"bomb_release_min_range_m": 180.0,
+		"bomb_release_spacing_s": 0.35,
+		"bomb_rookie_release_hold_s": 0.18,
+		"bomb_rookie_release_tolerance_m": 120.0,
+		"bomb_run_setup_altitude_offset_m": 360.0,
+		"bomb_run_setup_distance_m": 1350.0,
+		"bomb_run_setup_max_altitude_offset_m": 480.0,
+		"bomb_salvo_per_run": 2,
+		"bomb_same_pass_retarget_enabled": true,
+		"bomb_target_lead_max_s": 8.0,
+		"bomb_target_lead_scale": 1.0,
+		"bomb_veteran_release_hold_s": 0.08,
+		"bomb_veteran_release_tolerance_m": 40.0,
+		"ground_attack_alternate_axis_enabled": false,
+		"ground_attack_compact_ingress_enabled": false,
+		"ground_attack_direct_fire_intercept_enabled": false,
+		"ground_attack_direct_fire_intercept_max_bank_deg": 35.0,
+		"ground_attack_direct_intercept_commit_range_m": 1400.0,
+		"ground_attack_direct_intercept_enabled": true,
+		"ground_attack_direct_intercept_min_target_dot": 0.94,
+		"ground_attack_direct_revalidation_enabled": true,
+		"ground_attack_enabled": true,
+		"ground_attack_forced_weapon_type": "Guns",
+		"ground_attack_reacquire_after_breakoff": true,
+		"ground_attack_retarget_interval_s": 1.0,
+		"ground_attack_retarget_switch_advantage_m": 600.0,
+		"ground_attack_smart_retarget_enabled": true,
+		"gun_attack_coarse_aim_angle_deg": 14.0,
+		"gun_attack_coarse_bank_gain": 4.2,
+		"gun_attack_commit_critical_tti_s": 1.6,
+		"gun_attack_commit_extra_range_m": 120.0,
+		"gun_attack_commit_min_agl_m": 90.0,
+		"gun_attack_fine_aim_angle_deg": 5.0,
+		"gun_attack_fine_bank_gain": 2.0,
+		"gun_attack_max_yaw_input": 0.35,
+		"gun_attack_pitch_los_gain": 4.8,
+		"gun_attack_pitch_rate_damping": 0.24,
+		"gun_attack_pitch_response": 0.62,
+		"gun_attack_roll_response": 0.72,
+		"gun_attack_yaw_gain": 0.45,
+		"gun_attack_yaw_rate_damping": 0.12,
+		"gun_attack_yaw_response": 0.38,
+		"incremental_attack_geometry_enabled": true,
+		"moving_ground_attack_corridor_prediction_enabled": true,
+		"moving_ground_attack_corridor_replan_cross_track_m": 300.0,
+		"moving_ground_attack_corridor_replan_interval_s": 8.0,
+		"moving_ground_attack_min_speed_mps": 1.0,
+		"moving_ground_attack_prediction_max_s": 60.0,
+		"rocket_attack_commit_critical_tti_s": 1.6,
+		"rocket_attack_commit_extra_range_m": 140.0,
+		"rocket_attack_commit_min_agl_m": 90.0,
+		"rocket_ccip_aim_acquisition_margin_m": 350.0,
+		"rocket_ccip_aim_overlay_enabled": true,
+		"rocket_ccip_aim_smoothing": 0.35,
+		"rocket_ccip_best_miss_slack_m": 10.0,
+		"rocket_ccip_best_solution_max_m": 85.0,
+		"rocket_ccip_last_chance_range_margin_m": 300.0,
+		"rocket_ccip_last_chance_tolerance_m": 300.0,
+		"rocket_ccip_max_pitch_input": 0.22,
+		"rocket_ccip_max_yaw_input": 0.35,
+		"rocket_ccip_pitch_gain": 0.55,
+		"rocket_ccip_pitch_rate_damping": 0.14,
+		"rocket_ccip_precision_refresh_enabled": true,
+		"rocket_ccip_recompute_interval_s": 0.15,
+		"rocket_ccip_release_after_best_grace_m": 18.0,
+		"rocket_ccip_release_after_best_worsen_m": 6.0,
+		"rocket_ccip_release_tolerance_m": 120.0,
+		"rocket_ccip_yaw_gain": 0.55,
+		"rocket_ccip_yaw_rate_damping": 0.12,
+		"rocket_dive_aim_height_m": 3.0,
+		"rocket_fire_alignment_deg": 22.0,
+		"rocket_min_dive_angle_deg": 8.0,
+		"rocket_pull_up_distance_m": 250.0,
+		"rocket_release_hold_s": 0.08,
+		"rocket_release_max_bank_deg": 35.0,
+		"rocket_release_max_range_m": 700.0,
+		"rocket_release_min_range_m": 120.0,
+		"rocket_release_spacing_s": 0.35,
+		"rocket_run_altitude_offset_m": 180.0,
+		"rocket_run_setup_distance_m": 900.0,
+		"rocket_shots_per_run": 1,
+		"rocket_target_lead_max_s": 4.0,
+		"rocket_target_lead_scale": 1.0
+	},
+	"states_s": {
+		"ATTACK_BREAK_OFF": 4.73333333333332,
+		"ATTACK_DIVE": 16.066666666667,
+		"ATTACK_POSITIONING": 4.21666666666666
+	},
+	"status": "COMPLETE",
+	"targets": [
+		{
+			"damage": 0.0,
+			"events": 0,
+			"name": "Depot"
+		},
+		{
+			"damage": 0.0,
+			"events": 0,
+			"name": "GunEmplacement"
+		}
+	],
+	"terrain_intervention_s": 4.71666666666666,
+	"trace": [
+		{
+			"aoa_deg": 0.130925707612743,
+			"axis": [
+				0.0,
+				0.0,
+				0.0
+			],
+			"axis_along_m": null,
+			"axis_cross_m": null,
+			"axis_guidance_active": false,
+			"axis_heading_deg": null,
+			"axis_joining": false,
+			"axis_search_ms": 0.0,
+			"bank": 0.0,
+			"bomb_block": "",
+			"bomb_miss": null,
+			"commit": "positioning",
+			"desired_bank": -52.9820436919657,
+			"direct_revalidation_ms": 0.0,
+			"direct_revalidation_reason": "not_checked",
+			"direct_revalidations": 0,
+			"end": "pending",
+			"entry_range_m": 0.0,
+			"entry_waypoint": null,
+			"forward": [
+				0.0,
+				0.0,
+				1.0
+			],
+			"gun_blocked": false,
+			"gun_error": [
+				0.0,
+				0.0
+			],
+			"gun_miss": null,
+			"inputs": [
+				-0.879888241281466,
+				0.061256672475646,
+				0.0
+			],
+			"load_g": 0.588881726632495,
+			"pos": [
+				0.0,
+				599.993469238281,
+				-2596.66772460938
+			],
+			"releases": 0,
+			"rocket_block": "",
+			"rocket_miss": null,
+			"route_index": 0,
+			"route_role": "",
+			"run_weapon": "Guns",
+			"safety": false,
+			"short_join_check_ms": 0.0,
+			"short_join_count": 0,
+			"speed": 99.9381637573242,
+			"state": "ATTACK_POSITIONING",
+			"t": 0.0166666666666667,
+			"target": "GunEmplacement",
+			"target_g": 1.0,
+			"track_rate": 0.0,
+			"velocity": [
+				0.0,
+				-0.22836697101593,
+				99.9379043579102
+			],
+			"vy": -0.22836697101593,
+			"waypoint": [
+				0.0,
+				458.200012207031,
+				0.0
+			]
+		},
+		{
+			"aoa_deg": 1.15675485663226,
+			"axis": [
+				0.0,
+				0.0,
+				0.0
+			],
+			"axis_along_m": null,
+			"axis_cross_m": null,
+			"axis_guidance_active": false,
+			"axis_heading_deg": null,
+			"axis_joining": false,
+			"axis_search_ms": 0.0,
+			"bank": 0.332086496188542,
+			"bomb_block": "",
+			"bomb_miss": null,
+			"commit": "direct_intercept_range",
+			"desired_bank": -0.507757776491519,
+			"direct_revalidation_ms": 0.0,
+			"direct_revalidation_reason": "not_checked",
+			"direct_revalidations": 0,
+			"end": "pending",
+			"entry_range_m": 0.0,
+			"entry_waypoint": null,
+			"forward": [
+				0.000210596263059415,
+				0.00459608808159828,
+				0.99998939037323
+			],
+			"gun_blocked": false,
+			"gun_error": [
+				0.0,
+				0.0
+			],
+			"gun_miss": null,
+			"inputs": [
+				-0.0380256145756947,
+				0.0565226649325238,
+				0.00159353270011428
+			],
+			"load_g": 0.668045390865512,
+			"pos": [
+				0.00189968920312822,
+				599.487731933594,
+				-2547.02319335938
+			],
+			"releases": 0,
+			"rocket_block": "",
+			"rocket_miss": null,
+			"route_index": 0,
+			"route_role": "",
+			"run_weapon": "Guns",
+			"safety": false,
+			"short_join_check_ms": 0.0,
+			"short_join_count": 0,
+			"speed": 98.6905899047852,
+			"state": "ATTACK_POSITIONING",
+			"t": 0.516666666666667,
+			"target": "GunEmplacement",
+			"target_g": 0.787848255285303,
+			"track_rate": 0.0195940119844431,
+			"velocity": [
+				0.0112467538565397,
+				-1.5388058423996,
+				98.6785888671875
+			],
+			"vy": -1.5388058423996,
+			"waypoint": [
+				5.59999895095825,
+				458.200012207031,
+				0.0
+			]
+		},
+		{
+			"aoa_deg": 1.64335835173905,
+			"axis": [
+				0.0,
+				0.0,
+				0.0
+			],
+			"axis_along_m": null,
+			"axis_cross_m": null,
+			"axis_guidance_active": false,
+			"axis_heading_deg": null,
+			"axis_joining": false,
+			"axis_search_ms": 0.0,
+			"bank": 0.920986156804254,
+			"bomb_block": "",
+			"bomb_miss": null,
+			"commit": "direct_intercept_range",
+			"desired_bank": -1.00238453003304,
+			"direct_revalidation_ms": 0.0,
+			"direct_revalidation_reason": "not_checked",
+			"direct_revalidations": 0,
+			"end": "pending",
+			"entry_range_m": 0.0,
+			"entry_waypoint": null,
+			"forward": [
+				0.000551244360394776,
+				0.00970585364848375,
+				0.999952733516693
+			],
+			"gun_blocked": false,
+			"gun_error": [
+				0.0,
+				0.0
+			],
+			"gun_miss": null,
+			"inputs": [
+				-0.0209124110335157,
+				-0.0297896602230913,
+				0.0056660053724063
+			],
+			"load_g": 0.705596785986293,
+			"pos": [
+				0.0145028941333294,
+				598.611206054688,
+				-2497.9970703125
+			],
+			"releases": 0,
+			"rocket_block": "",
+			"rocket_miss": null,
+			"route_index": 0,
+			"route_role": "",
+			"run_weapon": "Guns",
+			"safety": false,
+			"short_join_check_ms": 0.0,
+			"short_join_count": 0,
+			"speed": 97.5028839111328,
+			"state": "ATTACK_POSITIONING",
+			"t": 1.01666666666667,
+			"target": "GunEmplacement",
+			"target_g": 0.801475739965224,
+			"track_rate": 0.0404117122970154,
+			"velocity": [
+				0.0413265414535999,
+				-1.85026609897614,
+				97.4853210449219
+			],
+			"vy": -1.85026609897614,
+			"waypoint": [
+				11.5999937057495,
+				458.200012207031,
+				0.0
+			]
+		},
+		{
+			"aoa_deg": 1.56966642309369,
+			"axis": [
+				0.0,
+				0.0,
+				0.0
+			],
+			"axis_along_m": null,
+			"axis_cross_m": null,
+			"axis_guidance_active": false,
+			"axis_heading_deg": null,
+			"axis_joining": false,
+			"axis_search_ms": 0.0,
+			"bank": 1.42395428033914,
+			"bomb_block": "",
+			"bomb_miss": null,
+			"commit": "direct_intercept_range",
+			"desired_bank": -1.48814340193761,
+			"direct_revalidation_ms": 0.0,
+			"direct_revalidation_reason": "not_checked",
+			"direct_revalidations": 0,
+			"end": "pending",
+			"entry_range_m": 0.0,
+			"entry_waypoint": null,
+			"forward": [
+				0.000777261448092759,
+				0.00651266286149621,
+				0.999978482723236
+			],
+			"gun_blocked": false,
+			"gun_error": [
+				0.0,
+				0.0
+			],
+			"gun_miss": null,
+			"inputs": [
+				-0.0159664758559003,
+				-0.00221442867352818,
+				0.00975785678623642
+			],
+			"load_g": 0.699909949049031,
+			"pos": [
+				0.0440969318151474,
+				597.648620605469,
+				-2449.4970703125
+			],
+			"releases": 0,
+			"rocket_block": "",
+			"rocket_miss": null,
+			"route_index": 0,
+			"route_role": "",
+			"run_weapon": "Guns",
+			"safety": false,
+			"short_join_check_ms": 0.0,
+			"short_join_count": 0,
+			"speed": 96.6655120849609,
+			"state": "ATTACK_POSITIONING",
+			"t": 1.51666666666667,
+			"target": "GunEmplacement",
+			"target_g": 0.80544614318474,
+			"track_rate": 0.0400665139415977,
+			"velocity": [
+				0.0757617801427841,
+				-2.0193657875061,
+				96.6443862915039
+			],
+			"vy": -2.0193657875061,
+			"waypoint": [
+				17.5999946594238,
+				458.200012207031,
+				0.0
+			]
+		},
+		{
+			"aoa_deg": 1.65652890990564,
+			"axis": [
+				0.0,
+				0.0,
+				0.0
+			],
+			"axis_along_m": null,
+			"axis_cross_m": null,
+			"axis_guidance_active": false,
+			"axis_heading_deg": null,
+			"axis_joining": false,
+			"axis_search_ms": 0.0,
+			"bank": 1.87173334627748,
+			"bomb_block": "",
+			"bomb_miss": null,
+			"commit": "direct_intercept_range",
+			"desired_bank": -1.99832042872527,
+			"direct_revalidation_ms": 0.0,
+			"direct_revalidation_reason": "not_checked",
+			"direct_revalidations": 0,
+			"end": "pending",
+			"entry_range_m": 0.0,
+			"entry_waypoint": null,
+			"forward": [
+				0.00121939880773425,
+				0.00616232398897409,
+				0.999980270862579
+			],
+			"gun_blocked": false,
+			"gun_error": [
+				0.0,
+				0.0
+			],
+			"gun_miss": null,
+			"inputs": [
+				-0.0287265752337226,
+				0.00317973981119239,
+				0.0127175648531711
+			],
+			"load_g": 0.706613163465387,
+			"pos": [
+				0.0909897163510323,
+				596.58935546875,
+				-2401.26196289063
+			],
+			"releases": 0,
+			"rocket_block": "",
+			"rocket_miss": null,
+			"route_index": 0,
+			"route_role": "",
+			"run_weapon": "Guns",
+			"safety": false,
+			"short_join_check_ms": 0.0,
+			"short_join_count": 0,
+			"speed": 96.4260711669922,
+			"state": "ATTACK_POSITIONING",
+			"t": 2.01666666666666,
+			"target": "GunEmplacement",
+			"target_g": 0.810732946643047,
+			"track_rate": 0.0499399149660501,
+			"velocity": [
+				0.113796658813953,
+				-2.19482231140137,
+				96.4010238647461
+			],
+			"vy": -2.19482231140137,
+			"waypoint": [
+				23.6000175476074,
+				458.200012207031,
+				0.0
+			]
+		},
+		{
+			"aoa_deg": 1.69192741862128,
+			"axis": [
+				0.0,
+				0.0,
+				0.0
+			],
+			"axis_along_m": null,
+			"axis_cross_m": null,
+			"axis_guidance_active": false,
+			"axis_heading_deg": null,
+			"axis_joining": false,
+			"axis_search_ms": 0.0,
+			"bank": 2.41425005652308,
+			"bomb_block": "",
+			"bomb_miss": null,
+			"commit": "direct_intercept_range",
+			"desired_bank": -2.51009493105608,
+			"direct_revalidation_ms": 0.0,
+			"direct_revalidation_reason": "not_checked",
+			"direct_revalidations": 0,
+			"end": "pending",
+			"entry_range_m": 0.0,
+			"entry_waypoint": null,
+			"forward": [
+				0.00190994760487229,
+				0.00609314488247037,
+				0.999979615211487
+			],
+			"gun_blocked": false,
+			"gun_error": [
+				0.0,
+				0.0
+			],
+			"gun_miss": null,
+			"inputs": [
+				-0.0232176196489542,
+				-0.00675791226130332,
+				0.0162467503376342
+			],
+			"load_g": 0.709344881179777,
+			"pos": [
+				0.161746188998222,
+				595.470642089844,
+				-2353.00317382813
+			],
+			"releases": 0,
+			"rocket_block": "",
+			"rocket_miss": null,
+			"route_index": 0,
+			"route_role": "",
+			"run_weapon": "Guns",
+			"safety": false,
+			"short_join_check_ms": 0.0,
+			"short_join_count": 0,
+			"speed": 96.7425308227539,
+			"state": "ATTACK_POSITIONING",
+			"t": 2.51666666666666,
+			"target": "GunEmplacement",
+			"target_g": 0.811318221106584,
+			"track_rate": 0.075873208778823,
+			"velocity": [
+				0.172441259026527,
+				-2.26911926269531,
+				96.7157592773438
+			],
+			"vy": -2.26911926269531,
+			"waypoint": [
+				29.600040435791,
+				458.200012207031,
+				0.0
+			]
+		},
+		{
+			"aoa_deg": 1.66709620178673,
+			"axis": [
+				0.0,
+				0.0,
+				0.0
+			],
+			"axis_along_m": null,
+			"axis_cross_m": null,
+			"axis_guidance_active": false,
+			"axis_heading_deg": null,
+			"axis_joining": false,
+			"axis_search_ms": 0.0,
+			"bank": 2.94134756779276,
+			"bomb_block": "",
+			"bomb_miss": null,
+			"commit": "direct_intercept_range",
+			"desired_bank": -3.04010674850311,
+			"direct_revalidation_ms": 0.0,
+			"direct_revalidation_reason": "not_checked",
+			"direct_revalidations": 0,
+			"end": "pending",
+			"entry_range_m": 0.0,
+			"entry_waypoint": null,
+			"forward": [
+				0.00272694975137711,
+				0.00513765262439847,
+				0.999983072280884
+			],
+			"gun_blocked": false,
+			"gun_error": [
+				0.0,
+				0.0
+			],
+			"gun_miss": null,
+			"inputs": [
+				-0.0234335880518591,
+				-0.00178416168956722,
+				0.0198502389956476
+			],
+			"load_g": 0.707428645797047,
+			"pos": [
+				0.267019867897034,
+				594.319091796875,
+				-2304.45141601563
+			],
+			"releases": 0,
+			"rocket_block": "",
+			"rocket_miss": null,
+			"route_index": 0,
+			"route_role": "",
+			"run_weapon": "Guns",
+			"safety": false,
+			"short_join_check_ms": 0.0,
+			"short_join_count": 0,
+			"speed": 97.5504989624023,
+			"state": "ATTACK_POSITIONING",
+			"t": 3.01666666666666,
+			"target": "GunEmplacement",
+			"target_g": 0.811403256231496,
+			"track_rate": 0.0946622630732611,
+			"velocity": [
+				0.250496685504913,
+				-2.33990168571472,
+				97.5221099853516
+			],
+			"vy": -2.33990168571472,
+			"waypoint": [
+				35.6000633239746,
+				458.200012207031,
+				0.0
+			]
+		},
+		{
+			"aoa_deg": 1.67004307411408,
+			"axis": [
+				0.0,
+				0.0,
+				0.0
+			],
+			"axis_along_m": null,
+			"axis_cross_m": null,
+			"axis_guidance_active": false,
+			"axis_heading_deg": null,
+			"axis_joining": false,
+			"axis_search_ms": 0.0,
+			"bank": 3.47025810911019,
+			"bomb_block": "",
+			"bomb_miss": null,
+			"commit": "direct_intercept_range",
+			"desired_bank": -3.5805793726626,
+			"direct_revalidation_ms": 0.0,
+			"direct_revalidation_reason": "not_checked",
+			"direct_revalidations": 0,
+			"end": "pending",
+			"entry_range_m": 0.0,
+			"entry_waypoint": null,
+			"forward": [
+				0.00376933719962835,
+				0.00469181733205915,
+				0.999981880187988
+			],
+			"gun_blocked": false,
+			"gun_error": [
+				0.0,
+				0.0
+			],
+			"gun_miss": null,
+			"inputs": [
+				-0.0259650916747541,
+				-0.00178778621387458,
+				0.0233135109879417
+			],
+			"load_g": 0.70765605716636,
+			"pos": [
+				0.415851294994354,
+				593.130310058594,
+				-2255.45971679688
+			],
+			"releases": 0,
+			"rocket_block": "",
+			"rocket_miss": null,
+			"route_index": 0,
+			"route_role": "",
+			"run_weapon": "Guns",
+			"safety": false,
+			"short_join_check_ms": 0.0,
+			"short_join_count": 0,
+			"speed": 98.4378967285156,
+			"state": "ATTACK_POSITIONING",
+			"t": 3.51666666666666,
+			"target": "GunEmplacement",
+			"target_g": 0.811642580048132,
+			"track_rate": 0.11626462140166,
+			"velocity": [
+				0.347270518541336,
+				-2.41098070144653,
+				98.4077529907227
+			],
+			"vy": -2.41098070144653,
+			"waypoint": [
+				41.6000862121582,
+				458.200012207031,
+				0.0
+			]
+		},
+		{
+			"aoa_deg": 1.66192988384974,
+			"axis": [
+				0.0,
+				0.0,
+				0.0
+			],
+			"axis_along_m": null,
+			"axis_cross_m": null,
+			"axis_guidance_active": false,
+			"axis_heading_deg": null,
+			"axis_joining": false,
+			"axis_search_ms": 0.0,
+			"bank": 4.01872926007465,
+			"bomb_block": "",
+			"bomb_miss": null,
+			"commit": "direct_intercept_range",
+			"desired_bank": -4.11492041138172,
+			"direct_revalidation_ms": 0.0,
+			"direct_revalidation_reason": "not_checked",
+			"direct_revalidations": 0,
+			"end": "pending",
+			"entry_range_m": 0.0,
+			"entry_waypoint": null,
+			"forward": [
+				0.00501594832167029,
+				0.00418260414153337,
+				0.99997866153717
+			],
+			"gun_blocked": false,
+			"gun_error": [
+				0.0,
+				0.0
+			],
+			"gun_miss": null,
+			"inputs": [
+				-0.0231879909011079,
+				-0.00322775675281133,
+				0.0269870669467331
+			],
+			"load_g": 0.707029958882295,
+			"pos": [
+				0.618720352649689,
+				591.909851074219,
+				-2206.03149414063
+			],
+			"releases": 0,
+			"rocket_block": "",
+			"rocket_miss": null,
+			"route_index": 0,
+			"route_role": "",
+			"run_weapon": "Guns",
+			"safety": false,
+			"short_join_check_ms": 0.0,
+			"short_join_count": 0,
+			"speed": 99.3031616210938,
+			"state": "ATTACK_POSITIONING",
+			"t": 4.01666666666666,
+			"target": "GunEmplacement",
+			"target_g": 0.811218567690404,
+			"track_rate": 0.140165518609109,
+			"velocity": [
+				0.466389358043671,
+				-2.4696798324585,
+				99.2713470458984
+			],
+			"vy": -2.4696798324585,
+			"waypoint": [
+				47.6001091003418,
+				458.200012207031,
+				0.0
+			]
+		},
+		{
+			"aoa_deg": 0.599874921051559,
+			"axis": [
+				0.0,
+				0.0,
+				0.0
+			],
+			"axis_along_m": null,
+			"axis_cross_m": null,
+			"axis_guidance_active": false,
+			"axis_heading_deg": null,
+			"axis_joining": false,
+			"axis_search_ms": 0.0,
+			"bank": 5.93563841623373,
+			"bomb_block": "",
+			"bomb_miss": null,
+			"commit": "committed_direct",
+			"desired_bank": -8.71263317209226,
+			"direct_revalidation_ms": 0.0,
+			"direct_revalidation_reason": "not_checked",
+			"direct_revalidations": 0,
+			"end": "attack_in_progress",
+			"entry_range_m": 0.0,
+			"entry_waypoint": null,
+			"forward": [
+				0.00619483599439263,
+				-0.0165351517498493,
+				0.999844074249268
+			],
+			"gun_blocked": false,
+			"gun_error": [
+				0.0,
+				0.0
+			],
+			"gun_miss": null,
+			"inputs": [
+				-0.702659057480676,
+				-0.996997604500954,
+				0.159209042922257
+			],
+			"load_g": 0.625070733457355,
+			"pos": [
+				0.887758076190948,
+				590.658447265625,
+				-2156.2109375
+			],
+			"releases": 0,
+			"rocket_block": "",
+			"rocket_miss": null,
+			"route_index": 0,
+			"route_role": "",
+			"run_weapon": "Guns",
+			"safety": false,
+			"short_join_check_ms": 0.0,
+			"short_join_count": 0,
+			"speed": 99.7810821533203,
+			"state": "ATTACK_DIVE",
+			"t": 4.51666666666666,
+			"target": "GunEmplacement",
+			"target_g": 0.811016667872999,
+			"track_rate": 0.0,
+			"velocity": [
+				0.621141731739044,
+				-2.70028686523438,
+				99.7425994873047
+			],
+			"vy": -2.70028686523438,
+			"waypoint": [
+				92.310546875,
+				6.90000009536743,
+				0.0
+			]
+		},
+		{
+			"aoa_deg": -5.34965890249074,
+			"axis": [
+				0.0,
+				0.0,
+				0.0
+			],
+			"axis_along_m": null,
+			"axis_cross_m": null,
+			"axis_guidance_active": false,
+			"axis_heading_deg": null,
+			"axis_joining": false,
+			"axis_search_ms": 0.0,
+			"bank": 10.69273737701,
+			"bomb_block": "",
+			"bomb_miss": null,
+			"commit": "committed_direct",
+			"desired_bank": -6.01573502885012,
+			"direct_revalidation_ms": 0.0,
+			"direct_revalidation_reason": "not_checked",
+			"direct_revalidations": 0,
+			"end": "attack_in_progress",
+			"entry_range_m": 0.0,
+			"entry_waypoint": null,
+			"forward": [
+				-0.00961071066558361,
+				-0.155968844890594,
+				0.987715244293213
+			],
+			"gun_blocked": false,
+			"gun_error": [
+				0.0,
+				0.0
+			],
+			"gun_miss": null,
+			"inputs": [
+				0.892407277983152,
+				-0.499841515408423,
+				0.142265421395702
+			],
+			"load_g": 0.518572970550747,
+			"pos": [
+				1.26168811321259,
+				588.581848144531,
+				-2106.60473632813
+			],
+			"releases": 0,
+			"rocket_block": "",
+			"rocket_miss": null,
+			"route_index": 0,
+			"route_role": "",
+			"run_weapon": "Guns",
+			"safety": false,
+			"short_join_check_ms": 0.0,
+			"short_join_count": 0,
+			"speed": 98.8997955322266,
+			"state": "ATTACK_DIVE",
+			"t": 5.01666666666665,
+			"target": "GunEmplacement",
+			"target_g": 0.811016667872999,
+			"track_rate": 0.0,
+			"velocity": [
+				0.796309351921082,
+				-6.41682052612305,
+				98.6881942749023
+			],
+			"vy": -6.41682052612305,
+			"waypoint": [
+				97.4933242797852,
+				6.90000009536743,
+				0.0
+			]
+		},
+		{
+			"aoa_deg": -7.43234250348479,
+			"axis": [
+				0.0,
+				0.0,
+				0.0
+			],
+			"axis_along_m": null,
+			"axis_cross_m": null,
+			"axis_guidance_active": false,
+			"axis_heading_deg": null,
+			"axis_joining": false,
+			"axis_search_ms": 0.0,
+			"bank": 3.97953370026701,
+			"bomb_block": "",
+			"bomb_miss": null,
+			"commit": "committed_direct",
+			"desired_bank": -5.939622038568,
+			"direct_revalidation_ms": 0.0,
+			"direct_revalidation_reason": "not_checked",
+			"direct_revalidations": 0,
+			"end": "attack_in_progress",
+			"entry_range_m": 0.0,
+			"entry_waypoint": null,
+			"forward": [
+				-0.0204478148370981,
+				-0.24115215241909,
+				0.97027188539505
+			],
+			"gun_blocked": false,
+			"gun_error": [
+				0.0,
+				0.0
+			],
+			"gun_miss": null,
+			"inputs": [
+				-0.307968058815581,
+				-0.12116191382477,
+				0.142255379838459
+			],
+			"load_g": 0.495134409124769,
+			"pos": [
+				1.51027369499207,
+				584.145202636719,
+				-2057.36499023438
+			],
+			"releases": 0,
+			"rocket_block": "",
+			"rocket_miss": null,
+			"route_index": 0,
+			"route_role": "",
+			"run_weapon": "Guns",
+			"safety": false,
+			"short_join_check_ms": 0.0,
+			"short_join_count": 0,
+			"speed": 99.0408706665039,
+			"state": "ATTACK_DIVE",
+			"t": 5.51666666666665,
+			"target": "GunEmplacement",
+			"target_g": 0.811016667872999,
+			"track_rate": 0.0,
+			"velocity": [
+				-0.055307250469923,
+				-11.3553266525269,
+				98.3877410888672
+			],
+			"vy": -11.3553266525269,
+			"waypoint": [
+				102.607864379883,
+				6.90000009536743,
+				0.0
+			]
+		},
+		{
+			"aoa_deg": -6.06866148313133,
+			"axis": [
+				0.0,
+				0.0,
+				0.0
+			],
+			"axis_along_m": null,
+			"axis_cross_m": null,
+			"axis_guidance_active": false,
+			"axis_heading_deg": null,
+			"axis_joining": false,
+			"axis_search_ms": 0.0,
+			"bank": 4.90603967219266,
+			"bomb_block": "",
+			"bomb_miss": null,
+			"commit": "committed_direct",
+			"desired_bank": -7.01997862356465,
+			"direct_revalidation_ms": 0.0,
+			"direct_revalidation_reason": "not_checked",
+			"direct_revalidations": 0,
+			"end": "attack_in_progress",
+			"entry_range_m": 0.0,
+			"entry_waypoint": null,
+			"forward": [
+				-0.011792610399425,
+				-0.267634063959122,
+				0.963448464870453
+			],
+			"gun_blocked": false,
+			"gun_error": [
+				0.0,
+				0.0
+			],
+			"gun_miss": null,
+			"inputs": [
+				-0.480207549561287,
+				-0.00651819085033803,
+				0.166171763748395
+			],
+			"load_g": 0.510481301636786,
+			"pos": [
+				1.21986854076386,
+				577.173278808594,
+				-2008.119140625
+			],
+			"releases": 0,
+			"rocket_block": "",
+			"rocket_miss": null,
+			"route_index": 0,
+			"route_role": "",
+			"run_weapon": "Guns",
+			"safety": false,
+			"short_join_check_ms": 0.0,
+			"short_join_count": 0,
+			"speed": 99.9889831542969,
+			"state": "ATTACK_DIVE",
+			"t": 6.01666666666665,
+			"target": "GunEmplacement",
+			"target_g": 0.811016667872999,
+			"track_rate": 0.0,
+			"velocity": [
+				-0.718756198883057,
+				-16.428050994873,
+				98.6275787353516
+			],
+			"vy": -16.428050994873,
+			"waypoint": [
+				107.68408203125,
+				6.90000009536743,
+				0.0
+			]
+		},
+		{
+			"aoa_deg": -3.4679932382661,
+			"axis": [
+				0.0,
+				0.0,
+				0.0
+			],
+			"axis_along_m": null,
+			"axis_cross_m": null,
+			"axis_guidance_active": false,
+			"axis_heading_deg": null,
+			"axis_joining": false,
+			"axis_search_ms": 0.0,
+			"bank": 9.11903902824359,
+			"bomb_block": "",
+			"bomb_miss": null,
+			"commit": "committed_direct",
+			"desired_bank": -6.40375643406286,
+			"direct_revalidation_ms": 0.0,
+			"direct_revalidation_reason": "not_checked",
+			"direct_revalidations": 0,
+			"end": "attack_in_progress",
+			"entry_range_m": 0.0,
+			"entry_waypoint": null,
+			"forward": [
+				-0.0016392208635807,
+				-0.271447956562042,
+				0.962451696395874
+			],
+			"gun_blocked": false,
+			"gun_error": [
+				0.0,
+				0.0
+			],
+			"gun_miss": null,
+			"inputs": [
+				0.522212961305837,
+				0.0250157770716744,
+				0.15555886194573
+			],
+			"load_g": 0.539749272238163,
+			"pos": [
+				1.08325374126434,
+				567.636474609375,
+				-1958.69909667969
+			],
+			"releases": 0,
+			"rocket_block": "",
+			"rocket_miss": null,
+			"route_index": 0,
+			"route_role": "",
+			"run_weapon": "Guns",
+			"safety": false,
+			"short_join_check_ms": 0.0,
+			"short_join_count": 0,
+			"speed": 101.372222900391,
+			"state": "ATTACK_DIVE",
+			"t": 6.51666666666665,
+			"target": "GunEmplacement",
+			"target_g": 0.811016667872999,
+			"track_rate": 0.0,
+			"velocity": [
+				0.205592855811119,
+				-21.5469245910645,
+				99.0556182861328
+			],
+			"vy": -21.5469245910645,
+			"waypoint": [
+				112.734016418457,
+				6.90000009536743,
+				0.0
+			]
+		},
+		{
+			"aoa_deg": -1.13175179079719,
+			"axis": [
+				0.0,
+				0.0,
+				0.0
+			],
+			"axis_along_m": null,
+			"axis_cross_m": null,
+			"axis_guidance_active": false,
+			"axis_heading_deg": null,
+			"axis_joining": false,
+			"axis_search_ms": 0.0,
+			"bank": 5.57720226433741,
+			"bomb_block": "",
+			"bomb_miss": null,
+			"commit": "committed_direct",
+			"desired_bank": -6.33981219883581,
+			"direct_revalidation_ms": 0.0,
+			"direct_revalidation_reason": "not_checked",
+			"direct_revalidations": 0,
+			"end": "attack_in_progress",
+			"entry_range_m": 0.0,
+			"entry_waypoint": null,
+			"forward": [
+				0.00402568560093641,
+				-0.269456416368485,
+				0.963004171848297
+			],
+			"gun_blocked": false,
+			"gun_error": [
+				0.0,
+				0.0
+			],
+			"gun_miss": null,
+			"inputs": [
+				-0.113328669315606,
+				-0.00543455769062875,
+				0.148307760239356
+			],
+			"load_g": 0.56604137856016,
+			"pos": [
+				1.30820727348328,
+				555.677734375,
+				-1909.0009765625
+			],
+			"releases": 0,
+			"rocket_block": "",
+			"rocket_miss": null,
+			"route_index": 0,
+			"route_role": "",
+			"run_weapon": "Guns",
+			"safety": false,
+			"short_join_check_ms": 0.0,
+			"short_join_count": 0,
+			"speed": 103.103958129883,
+			"state": "ATTACK_DIVE",
+			"t": 7.01666666666665,
+			"target": "GunEmplacement",
+			"target_g": 0.811016667872999,
+			"track_rate": 0.0,
+			"velocity": [
+				0.59438943862915,
+				-25.8227977752686,
+				99.8161163330078
+			],
+			"vy": -25.8227977752686,
+			"waypoint": [
+				117.772552490234,
+				6.90000009536743,
+				0.0
+			]
+		},
+		{
+			"aoa_deg": 0.0979792879933959,
+			"axis": [
+				0.0,
+				0.0,
+				0.0
+			],
+			"axis_along_m": null,
+			"axis_cross_m": null,
+			"axis_guidance_active": false,
+			"axis_heading_deg": null,
+			"axis_joining": false,
+			"axis_search_ms": 0.0,
+			"bank": 5.3848948278214,
+			"bomb_block": "",
+			"bomb_miss": null,
+			"commit": "committed_direct",
+			"desired_bank": -6.29903685303608,
+			"direct_revalidation_ms": 0.0,
+			"direct_revalidation_reason": "not_checked",
+			"direct_revalidations": 0,
+			"end": "attack_in_progress",
+			"entry_range_m": 0.0,
+			"entry_waypoint": null,
+			"forward": [
+				0.0128189995884895,
+				-0.270927488803864,
+				0.962514400482178
+			],
+			"gun_blocked": false,
+			"gun_error": [
+				0.0,
+				0.0
+			],
+			"gun_miss": null,
+			"inputs": [
+				-0.195409083907522,
+				-0.00643386911055004,
+				0.145569471455286
+			],
+			"load_g": 0.586339237658654,
+			"pos": [
+				1.68594539165497,
+				542.009216308594,
+				-1858.79370117188
+			],
+			"releases": 0,
+			"rocket_block": "",
+			"rocket_miss": null,
+			"route_index": 0,
+			"route_role": "",
+			"run_weapon": "Guns",
+			"safety": false,
+			"short_join_check_ms": 0.0,
+			"short_join_count": 0,
+			"speed": 104.989082336426,
+			"state": "ATTACK_DIVE",
+			"t": 7.51666666666665,
+			"target": "GunEmplacement",
+			"target_g": 0.811016667872999,
+			"track_rate": 0.0,
+			"velocity": [
+				1.00701522827148,
+				-28.5871410369873,
+				101.01717376709
+			],
+			"vy": -28.5871410369873,
+			"waypoint": [
+				122.802108764648,
+				6.90000009536743,
+				0.0
+			]
+		},
+		{
+			"aoa_deg": 0.758176159978177,
+			"axis": [
+				0.0,
+				0.0,
+				0.0
+			],
+			"axis_along_m": null,
+			"axis_cross_m": null,
+			"axis_guidance_active": false,
+			"axis_heading_deg": null,
+			"axis_joining": false,
+			"axis_search_ms": 0.0,
+			"bank": 6.92870758375306,
+			"bomb_block": "",
+			"bomb_miss": null,
+			"commit": "committed_direct",
+			"desired_bank": -5.85137632549923,
+			"direct_revalidation_ms": 0.0,
+			"direct_revalidation_reason": "not_checked",
+			"direct_revalidations": 0,
+			"end": "attack_in_progress",
+			"entry_range_m": 0.0,
+			"entry_waypoint": null,
+			"forward": [
+				0.0216443687677383,
+				-0.272437036037445,
+				0.961930155754089
+			],
+			"gun_blocked": false,
+			"gun_error": [
+				0.0,
+				0.0
+			],
+			"gun_miss": null,
+			"inputs": [
+				0.20690681226609,
+				0.00684333492339956,
+				0.134944567679465
+			],
+			"load_g": 0.637286906236258,
+			"pos": [
+				2.39350652694702,
+				527.205017089844,
+				-1807.91931152344
+			],
+			"releases": 0,
+			"rocket_block": "",
+			"rocket_miss": null,
+			"route_index": 0,
+			"route_role": "",
+			"run_weapon": "Guns",
+			"safety": false,
+			"short_join_check_ms": 0.0,
+			"short_join_count": 0,
+			"speed": 106.910247802734,
+			"state": "ATTACK_DIVE",
+			"t": 8.01666666666664,
+			"target": "GunEmplacement",
+			"target_g": 0.811016667872999,
+			"track_rate": 0.0,
+			"velocity": [
+				1.84109330177307,
+				-30.4405097961426,
+				102.468467712402
+			],
+			"vy": -30.4405097961426,
+			"waypoint": [
+				127.819137573242,
+				6.90000009536743,
+				0.0
+			]
+		},
+		{
+			"aoa_deg": 1.12564726024687,
+			"axis": [
+				0.0,
+				0.0,
+				0.0
+			],
+			"axis_along_m": null,
+			"axis_cross_m": null,
+			"axis_guidance_active": false,
+			"axis_heading_deg": null,
+			"axis_joining": false,
+			"axis_search_ms": 0.0,
+			"bank": 5.38841855093621,
+			"bomb_block": "",
+			"bomb_miss": null,
+			"commit": "committed_direct",
+			"desired_bank": -5.50269207296911,
+			"direct_revalidation_ms": 0.0,
+			"direct_revalidation_reason": "not_checked",
+			"direct_revalidations": 0,
+			"end": "attack_in_progress",
+			"entry_range_m": 0.0,
+			"entry_waypoint": null,
+			"forward": [
+				0.0281452238559723,
+				-0.272248446941376,
+				0.961815297603607
+			],
+			"gun_blocked": false,
+			"gun_error": [
+				0.0,
+				0.0
+			],
+			"gun_miss": null,
+			"inputs": [
+				-0.00741099794414676,
+				0.00209161721072266,
+				0.126586979342573
+			],
+			"load_g": 0.665644804649276,
+			"pos": [
+				3.51947593688965,
+				511.651184082031,
+				-1756.27111816406
+			],
+			"releases": 0,
+			"rocket_block": "",
+			"rocket_miss": null,
+			"route_index": 0,
+			"route_role": "",
+			"run_weapon": "Guns",
+			"safety": false,
+			"short_join_check_ms": 0.0,
+			"short_join_count": 0,
+			"speed": 108.827430725098,
+			"state": "ATTACK_DIVE",
+			"t": 8.51666666666667,
+			"target": "GunEmplacement",
+			"target_g": 0.811016667872999,
+			"track_rate": 0.0,
+			"velocity": [
+				2.62497162818909,
+				-31.6504096984863,
+				104.090202331543
+			],
+			"vy": -31.6504096984863,
+			"waypoint": [
+				132.826202392578,
+				6.90000009536743,
+				0.0
+			]
+		},
+		{
+			"aoa_deg": 1.282286052588,
+			"axis": [
+				0.0,
+				0.0,
+				0.0
+			],
+			"axis_along_m": null,
+			"axis_cross_m": null,
+			"axis_guidance_active": false,
+			"axis_heading_deg": null,
+			"axis_joining": false,
+			"axis_search_ms": 0.0,
+			"bank": 4.83605341783313,
+			"bomb_block": "",
+			"bomb_miss": null,
+			"commit": "committed_direct",
+			"desired_bank": -5.21017450375585,
+			"direct_revalidation_ms": 0.0,
+			"direct_revalidation_reason": "not_checked",
+			"direct_revalidations": 0,
+			"end": "attack_in_progress",
+			"entry_range_m": 0.0,
+			"entry_waypoint": null,
+			"forward": [
+				0.0354288816452026,
+				-0.272459417581558,
+				0.96151477098465
+			],
+			"gun_blocked": false,
+			"gun_error": [
+				0.0,
+				0.0
+			],
+			"gun_miss": null,
+			"inputs": [
+				-0.0765363527929274,
+				0.00188043129749275,
+				0.119569377997513
+			],
+			"load_g": 0.677732685730264,
+			"pos": [
+				5.02035284042358,
+				495.596160888672,
+				-1703.79211425781
+			],
+			"releases": 0,
+			"rocket_block": "",
+			"rocket_miss": null,
+			"route_index": 0,
+			"route_role": "",
+			"run_weapon": "Guns",
+			"safety": false,
+			"short_join_check_ms": 0.0,
+			"short_join_count": 0,
+			"speed": 110.703758239746,
+			"state": "ATTACK_DIVE",
+			"t": 9.01666666666669,
+			"target": "GunEmplacement",
+			"target_g": 0.811016667872999,
+			"track_rate": 0.0,
+			"velocity": [
+				3.38461375236511,
+				-32.5050430297852,
+				105.769981384277
+			],
+			"vy": -32.5050430297852,
+			"waypoint": [
+				137.825073242188,
+				6.90000009536743,
+				0.0
+			]
+		},
+		{
+			"aoa_deg": 1.36177816632277,
+			"axis": [
+				0.0,
+				0.0,
+				0.0
+			],
+			"axis_along_m": null,
+			"axis_cross_m": null,
+			"axis_guidance_active": false,
+			"axis_heading_deg": null,
+			"axis_joining": false,
+			"axis_search_ms": 0.0,
+			"bank": 5.22252875592612,
+			"bomb_block": "",
+			"bomb_miss": null,
+			"commit": "committed_direct",
+			"desired_bank": -4.85634329035439,
+			"direct_revalidation_ms": 0.0,
+			"direct_revalidation_reason": "not_checked",
+			"direct_revalidations": 0,
+			"end": "attack_in_progress",
+			"entry_range_m": 0.0,
+			"entry_waypoint": null,
+			"forward": [
+				0.0426456518471241,
+				-0.272550523281097,
+				0.961195886135101
+			],
+			"gun_blocked": false,
+			"gun_error": [
+				0.0,
+				0.0
+			],
+			"gun_miss": null,
+			"inputs": [
+				0.0702555379336424,
+				0.00610201633288337,
+				0.111343605455318
+			],
+			"load_g": 0.683867125375391,
+			"pos": [
+				6.92798566818237,
+				479.1591796875,
+				-1650.47534179688
+			],
+			"releases": 0,
+			"rocket_block": "",
+			"rocket_miss": null,
+			"route_index": 0,
+			"route_role": "",
+			"run_weapon": "Guns",
+			"safety": false,
+			"short_join_check_ms": 0.0,
+			"short_join_count": 0,
+			"speed": 112.530548095703,
+			"state": "ATTACK_DIVE",
+			"t": 9.51666666666672,
+			"target": "GunEmplacement",
+			"target_g": 0.811016667872999,
+			"track_rate": 0.0,
+			"velocity": [
+				4.23761510848999,
+				-33.198802947998,
+				107.438385009766
+			],
+			"vy": -33.198802947998,
+			"waypoint": [
+				142.815444946289,
+				6.90000009536743,
+				0.0
+			]
+		},
+		{
+			"aoa_deg": 1.41343206901348,
+			"axis": [
+				0.0,
+				0.0,
+				0.0
+			],
+			"axis_along_m": null,
+			"axis_cross_m": null,
+			"axis_guidance_active": false,
+			"axis_heading_deg": null,
+			"axis_joining": false,
+			"axis_search_ms": 0.0,
+			"bank": 4.5925938214221,
+			"bomb_block": "",
+			"bomb_miss": null,
+			"commit": "committed_direct",
+			"desired_bank": -4.58165019666926,
+			"direct_revalidation_ms": 0.0,
+			"direct_revalidation_reason": "not_checked",
+			"direct_revalidations": 0,
+			"end": "attack_in_progress",
+			"entry_range_m": 0.0,
+			"entry_waypoint": null,
+			"forward": [
+				0.0487100370228291,
+				-0.27202907204628,
+				0.961055397987366
+			],
+			"gun_blocked": false,
+			"gun_error": [
+				0.0,
+				0.0
+			],
+			"gun_miss": null,
+			"inputs": [
+				0.0083809637259704,
+				0.00521937026036707,
+				0.105074352727227
+			],
+			"load_g": 0.687853278637696,
+			"pos": [
+				9.2571964263916,
+				462.406829833984,
+				-1596.32800292969
+			],
+			"releases": 0,
+			"rocket_block": "",
+			"rocket_miss": null,
+			"route_index": 0,
+			"route_role": "",
+			"run_weapon": "Guns",
+			"safety": false,
+			"short_join_check_ms": 0.0,
+			"short_join_count": 0,
+			"speed": 114.312866210938,
+			"state": "ATTACK_DIVE",
+			"t": 10.0166666666667,
+			"target": "GunEmplacement",
+			"target_g": 0.811016667872999,
+			"track_rate": 0.0,
+			"velocity": [
+				5.05088901519775,
+				-33.7720565795898,
+				109.093391418457
+			],
+			"vy": -33.7720565795898,
+			"waypoint": [
+				147.797897338867,
+				6.90000009536743,
+				0.0
+			]
+		},
+		{
+			"aoa_deg": 1.43079990882532,
+			"axis": [
+				0.0,
+				0.0,
+				0.0
+			],
+			"axis_along_m": null,
+			"axis_cross_m": null,
+			"axis_guidance_active": false,
+			"axis_heading_deg": null,
+			"axis_joining": false,
+			"axis_search_ms": 0.0,
+			"bank": 4.22272562471549,
+			"bomb_block": "",
+			"bomb_miss": null,
+			"commit": "committed_direct",
+			"desired_bank": -4.37881354221088,
+			"direct_revalidation_ms": 0.0,
+			"direct_revalidation_reason": "not_checked",
+			"direct_revalidations": 0,
+			"end": "attack_in_progress",
+			"entry_range_m": 0.0,
+			"entry_waypoint": null,
+			"forward": [
+				0.0547497123479843,
+				-0.271520167589188,
+				0.960874199867249
+			],
+			"gun_blocked": false,
+			"gun_error": [
+				0.0,
+				0.0
+			],
+			"gun_miss": null,
+			"inputs": [
+				-0.0303311884771479,
+				0.00508493246468924,
+				0.100362947633633
+			],
+			"load_g": 0.689193562095844,
+			"pos": [
+				11.9790191650391,
+				445.391906738281,
+				-1541.35974121094
+			],
+			"releases": 0,
+			"rocket_block": "",
+			"rocket_miss": null,
+			"route_index": 0,
+			"route_role": "",
+			"run_weapon": "Guns",
+			"safety": false,
+			"short_join_check_ms": 0.0,
+			"short_join_count": 0,
+			"speed": 116.044174194336,
+			"state": "ATTACK_DIVE",
+			"t": 10.5166666666668,
+			"target": "GunEmplacement",
+			"target_g": 0.811016667872999,
+			"track_rate": 0.0,
+			"velocity": [
+				5.82370090484619,
+				-34.2603225708008,
+				110.718406677246
+			],
+			"vy": -34.2603225708008,
+			"waypoint": [
+				152.773132324219,
+				6.90000009536743,
+				0.0
+			]
+		},
+		{
+			"aoa_deg": 1.43718434068898,
+			"axis": [
+				0.0,
+				0.0,
+				0.0
+			],
+			"axis_along_m": null,
+			"axis_cross_m": null,
+			"axis_guidance_active": false,
+			"axis_heading_deg": null,
+			"axis_joining": false,
+			"axis_search_ms": 0.0,
+			"bank": 4.2982340608932,
+			"bomb_block": "",
+			"bomb_miss": null,
+			"commit": "committed_direct",
+			"desired_bank": -4.19449762727904,
+			"direct_revalidation_ms": 0.0,
+			"direct_revalidation_reason": "not_checked",
+			"direct_revalidations": 0,
+			"end": "attack_in_progress",
+			"entry_range_m": 0.0,
+			"entry_waypoint": null,
+			"forward": [
+				0.0606702454388142,
+				-0.27094766497612,
+				0.960680246353149
+			],
+			"gun_blocked": false,
+			"gun_error": [
+				0.0,
+				0.0
+			],
+			"gun_miss": null,
+			"inputs": [
+				0.0201943449359276,
+				0.00661405343410162,
+				0.0960931423783486
+			],
+			"load_g": 0.689686251371497,
+			"pos": [
+				15.091064453125,
+				428.145660400391,
+				-1485.59069824219
+			],
+			"releases": 0,
+			"rocket_block": "",
+			"rocket_miss": null,
+			"route_index": 0,
+			"route_role": "",
+			"run_weapon": "Guns",
+			"safety": false,
+			"short_join_check_ms": 0.0,
+			"short_join_count": 0,
+			"speed": 117.72265625,
+			"state": "ATTACK_DIVE",
+			"t": 11.0166666666668,
+			"target": "GunEmplacement",
+			"target_g": 0.811016667872999,
+			"track_rate": 0.0,
+			"velocity": [
+				6.6105432510376,
+				-34.701961517334,
+				112.29736328125
+			],
+			"vy": -34.701961517334,
+			"waypoint": [
+				157.7412109375,
+				6.90000009536743,
+				0.0
+			]
+		},
+		{
+			"aoa_deg": 1.44303986552799,
+			"axis": [
+				0.0,
+				0.0,
+				0.0
+			],
+			"axis_along_m": null,
+			"axis_cross_m": null,
+			"axis_guidance_active": false,
+			"axis_heading_deg": null,
+			"axis_joining": false,
+			"axis_search_ms": 0.0,
+			"bank": 4.07133790109084,
+			"bomb_block": "",
+			"bomb_miss": null,
+			"commit": "committed_direct",
+			"desired_bank": -4.06694192467381,
+			"direct_revalidation_ms": 0.0,
+			"direct_revalidation_reason": "not_checked",
+			"direct_revalidations": 0,
+			"end": "attack_in_progress",
+			"entry_range_m": 0.0,
+			"entry_waypoint": null,
+			"forward": [
+				0.06606625020504,
+				-0.270128577947617,
+				0.960554957389832
+			],
+			"gun_blocked": false,
+			"gun_error": [
+				0.0,
+				0.0
+			],
+			"gun_miss": null,
+			"inputs": [
+				0.0036684970867101,
+				0.00676538768538853,
+				0.0931816546467197
+			],
+			"load_g": 0.69013812467097,
+			"pos": [
+				18.5927543640137,
+				410.689544677734,
+				-1429.04284667969
+			],
+			"releases": 0,
+			"rocket_block": "",
+			"rocket_miss": null,
+			"route_index": 0,
+			"route_role": "",
+			"run_weapon": "Guns",
+			"safety": false,
+			"short_join_check_ms": 0.0,
+			"short_join_count": 0,
+			"speed": 119.350944519043,
+			"state": "ATTACK_DIVE",
+			"t": 11.5166666666668,
+			"target": "GunEmplacement",
+			"target_g": 0.811016667872999,
+			"track_rate": 0.0,
+			"velocity": [
+				7.37532997131348,
+				-35.0999717712402,
+				113.834281921387
+			],
+			"vy": -35.0999717712402,
+			"waypoint": [
+				162.702438354492,
+				6.90000009536743,
+				0.0
+			]
+		},
+		{
+			"aoa_deg": 1.44300868759596,
+			"axis": [
+				0.0,
+				0.0,
+				0.0
+			],
+			"axis_along_m": null,
+			"axis_cross_m": null,
+			"axis_guidance_active": false,
+			"axis_heading_deg": null,
+			"axis_joining": false,
+			"axis_search_ms": 0.0,
+			"bank": 3.91385754890846,
+			"bomb_block": "",
+			"bomb_miss": null,
+			"commit": "committed_direct",
+			"desired_bank": -3.9953353476549,
+			"direct_revalidation_ms": 0.0,
+			"direct_revalidation_reason": "not_checked",
+			"direct_revalidations": 0,
+			"end": "attack_in_progress",
+			"entry_range_m": 0.0,
+			"entry_waypoint": null,
+			"forward": [
+				0.0713532418012619,
+				-0.269238412380219,
+				0.960426688194275
+			],
+			"gun_blocked": false,
+			"gun_error": [
+				0.0,
+				0.0
+			],
+			"gun_miss": null,
+			"inputs": [
+				-0.0150428652559813,
+				0.00697860237967727,
+				0.0915168120763337
+			],
+			"load_g": 0.690135718656923,
+			"pos": [
+				22.4696407318115,
+				393.045196533203,
+				-1371.73815917969
+			],
+			"releases": 0,
+			"rocket_block": "",
+			"rocket_miss": null,
+			"route_index": 0,
+			"route_role": "",
+			"run_weapon": "Guns",
+			"safety": false,
+			"short_join_check_ms": 0.0,
+			"short_join_count": 0,
+			"speed": 120.927337646484,
+			"state": "ATTACK_DIVE",
+			"t": 12.0166666666668,
+			"target": "GunEmplacement",
+			"target_g": 0.811016667872999,
+			"track_rate": 0.0,
+			"velocity": [
+				8.11734485626221,
+				-35.4579467773438,
+				115.326774597168
+			],
+			"vy": -35.4579467773438,
+			"waypoint": [
+				167.657211303711,
+				6.90000009536743,
+				0.0
+			]
+		},
+		{
+			"aoa_deg": 1.44172196141518,
+			"axis": [
+				0.0,
+				0.0,
+				0.0
+			],
+			"axis_along_m": null,
+			"axis_cross_m": null,
+			"axis_guidance_active": false,
+			"axis_heading_deg": null,
+			"axis_joining": false,
+			"axis_search_ms": 0.0,
+			"bank": 3.95943269083947,
+			"bomb_block": "",
+			"bomb_miss": null,
+			"commit": "committed_direct",
+			"desired_bank": -3.95642647790775,
+			"direct_revalidation_ms": 0.0,
+			"direct_revalidation_reason": "not_checked",
+			"direct_revalidations": 0,
+			"end": "attack_in_progress",
+			"entry_range_m": 0.0,
+			"entry_waypoint": null,
+			"forward": [
+				0.0765943825244904,
+				-0.26827347278595,
+				0.960292994976044
+			],
+			"gun_blocked": false,
+			"gun_error": [
+				0.0,
+				0.0
+			],
+			"gun_miss": null,
+			"inputs": [
+				0.00102047125560014,
+				0.00782677411855552,
+				0.0905978596367718
+			],
+			"load_g": 0.690036421459692,
+			"pos": [
+				26.7180995941162,
+				375.22998046875,
+				-1313.69946289063
+			],
+			"releases": 0,
+			"rocket_block": "",
+			"rocket_miss": null,
+			"route_index": 0,
+			"route_role": "",
+			"run_weapon": "Guns",
+			"safety": false,
+			"short_join_check_ms": 0.0,
+			"short_join_count": 0,
+			"speed": 122.451248168945,
+			"state": "ATTACK_DIVE",
+			"t": 12.5166666666669,
+			"target": "GunEmplacement",
+			"target_g": 0.811016667872999,
+			"track_rate": 0.0,
+			"velocity": [
+				8.86279392242432,
+				-35.7850379943848,
+				116.769813537598
+			],
+			"vy": -35.7850379943848,
+			"waypoint": [
+				172.605712890625,
+				6.90000009536743,
+				0.0
+			]
+		},
+		{
+			"aoa_deg": 1.4421896892098,
+			"axis": [
+				0.0,
+				0.0,
+				0.0
+			],
+			"axis_along_m": null,
+			"axis_cross_m": null,
+			"axis_guidance_active": false,
+			"axis_heading_deg": null,
+			"axis_joining": false,
+			"axis_search_ms": 0.0,
+			"bank": 3.93489534861633,
+			"bomb_block": "",
+			"bomb_miss": null,
+			"commit": "committed_direct",
+			"desired_bank": -3.95978801097665,
+			"direct_revalidation_ms": 0.0,
+			"direct_revalidation_reason": "not_checked",
+			"direct_revalidations": 0,
+			"end": "attack_in_progress",
+			"entry_range_m": 0.0,
+			"entry_waypoint": null,
+			"forward": [
+				0.0816651061177254,
+				-0.267165541648865,
+				0.960184037685394
+			],
+			"gun_blocked": false,
+			"gun_error": [
+				0.0,
+				0.0
+			],
+			"gun_miss": null,
+			"inputs": [
+				-0.00338495265509104,
+				0.00832785279209725,
+				0.0906685167639507
+			],
+			"load_g": 0.690072516209116,
+			"pos": [
+				31.3390827178955,
+				357.259124755859,
+				-1254.95227050781
+			],
+			"releases": 0,
+			"rocket_block": "",
+			"rocket_miss": null,
+			"route_index": 0,
+			"route_role": "",
+			"run_weapon": "Guns",
+			"safety": false,
+			"short_join_check_ms": 0.0,
+			"short_join_count": 0,
+			"speed": 123.923805236816,
+			"state": "ATTACK_DIVE",
+			"t": 13.0166666666669,
+			"target": "GunEmplacement",
+			"target_g": 0.811016667872999,
+			"track_rate": 0.0,
+			"velocity": [
+				9.60531139373779,
+				-36.0809211730957,
+				118.165199279785
+			],
+			"vy": -36.0809211730957,
+			"waypoint": [
+				177.548202514648,
+				6.90000009536743,
+				0.0
+			]
+		},
+		{
+			"aoa_deg": 1.44243523560787,
+			"axis": [
+				0.0,
+				0.0,
+				0.0
+			],
+			"axis_along_m": null,
+			"axis_cross_m": null,
+			"axis_guidance_active": false,
+			"axis_heading_deg": null,
+			"axis_joining": false,
+			"axis_search_ms": 0.0,
+			"bank": 3.93942420586074,
+			"bomb_block": "",
+			"bomb_miss": null,
+			"commit": "committed_direct",
+			"desired_bank": -4.00645300058372,
+			"direct_revalidation_ms": 0.0,
+			"direct_revalidation_reason": "not_checked",
+			"direct_revalidations": 0,
+			"end": "attack_in_progress",
+			"entry_range_m": 0.0,
+			"entry_waypoint": null,
+			"forward": [
+				0.0867290571331978,
+				-0.265959173440933,
+				0.960074901580811
+			],
+			"gun_blocked": false,
+			"gun_error": [
+				0.0,
+				0.0
+			],
+			"gun_miss": null,
+			"inputs": [
+				-0.0122065108357417,
+				0.00883117335833293,
+				0.0917191824656329
+			],
+			"load_g": 0.690091465127296,
+			"pos": [
+				36.330436706543,
+				339.148559570313,
+				-1195.51965332031
+			],
+			"releases": 0,
+			"rocket_block": "",
+			"rocket_miss": null,
+			"route_index": 0,
+			"route_role": "",
+			"run_weapon": "Guns",
+			"safety": false,
+			"short_join_check_ms": 0.0,
+			"short_join_count": 0,
+			"speed": 125.344711303711,
+			"state": "ATTACK_DIVE",
+			"t": 13.5166666666669,
+			"target": "GunEmplacement",
+			"target_g": 0.811016667872999,
+			"track_rate": 0.0,
+			"velocity": [
+				10.3466453552246,
+				-36.3450393676758,
+				119.512687683105
+			],
+			"vy": -36.3450393676758,
+			"waypoint": [
+				182.484985351563,
+				6.90000009536743,
+				0.0
+			]
+		},
+		{
+			"aoa_deg": 1.44339864477328,
+			"axis": [
+				0.0,
+				0.0,
+				0.0
+			],
+			"axis_along_m": null,
+			"axis_cross_m": null,
+			"axis_guidance_active": false,
+			"axis_heading_deg": null,
+			"axis_joining": false,
+			"axis_search_ms": 0.0,
+			"bank": 4.04310349481048,
+			"bomb_block": "",
+			"bomb_miss": null,
+			"commit": "committed_direct",
+			"desired_bank": -4.08820543421072,
+			"direct_revalidation_ms": 0.0,
+			"direct_revalidation_reason": "not_checked",
+			"direct_revalidations": 0,
+			"end": "attack_in_progress",
+			"entry_range_m": 0.0,
+			"entry_waypoint": null,
+			"forward": [
+				0.0918600410223007,
+				-0.264656841754913,
+				0.959957540035248
+			],
+			"gun_blocked": false,
+			"gun_error": [
+				0.0,
+				0.0
+			],
+			"gun_miss": null,
+			"inputs": [
+				-0.00820261752405286,
+				0.00964893545947722,
+				0.0935681553856493
+			],
+			"load_g": 0.690165811815301,
+			"pos": [
+				41.6952667236328,
+				320.913604736328,
+				-1135.42651367188
+			],
+			"releases": 0,
+			"rocket_block": "",
+			"rocket_miss": null,
+			"route_index": 0,
+			"route_role": "",
+			"run_weapon": "Guns",
+			"safety": false,
+			"short_join_check_ms": 0.0,
+			"short_join_count": 0,
+			"speed": 126.713912963867,
+			"state": "ATTACK_DIVE",
+			"t": 14.0166666666669,
+			"target": "GunEmplacement",
+			"target_g": 0.811016667872999,
+			"track_rate": 0.0,
+			"velocity": [
+				11.1004047393799,
+				-36.5794906616211,
+				120.810333251953
+			],
+			"vy": -36.5794906616211,
+			"waypoint": [
+				187.416290283203,
+				6.90000009536743,
+				0.0
+			]
+		},
+		{
+			"aoa_deg": 1.44653574198733,
+			"axis": [
+				0.0,
+				0.0,
+				0.0
+			],
+			"axis_along_m": null,
+			"axis_cross_m": null,
+			"axis_guidance_active": false,
+			"axis_heading_deg": null,
+			"axis_joining": false,
+			"axis_search_ms": 0.0,
+			"bank": 4.15179409154167,
+			"bomb_block": "",
+			"bomb_miss": null,
+			"commit": "committed_direct",
+			"desired_bank": -4.20876406415988,
+			"direct_revalidation_ms": 0.0,
+			"direct_revalidation_reason": "not_checked",
+			"direct_revalidations": 0,
+			"end": "attack_in_progress",
+			"entry_range_m": 0.0,
+			"entry_waypoint": null,
+			"forward": [
+				0.0970426574349403,
+				-0.263220965862274,
+				0.959842383861542
+			],
+			"gun_blocked": false,
+			"gun_error": [
+				0.0,
+				0.0
+			],
+			"gun_miss": null,
+			"inputs": [
+				-0.0101606625642392,
+				0.0104454751283606,
+				0.096311316787328
+			],
+			"load_g": 0.690407902918636,
+			"pos": [
+				47.4408378601074,
+				302.569213867188,
+				-1074.69689941406
+			],
+			"releases": 0,
+			"rocket_block": "",
+			"rocket_miss": null,
+			"route_index": 0,
+			"route_role": "",
+			"run_weapon": "Guns",
+			"safety": false,
+			"short_join_check_ms": 0.0,
+			"short_join_count": 0,
+			"speed": 128.031890869141,
+			"state": "ATTACK_DIVE",
+			"t": 14.516666666667,
+			"target": "GunEmplacement",
+			"target_g": 0.811016667872999,
+			"track_rate": 0.0,
+			"velocity": [
+				11.8691453933716,
+				-36.783317565918,
+				122.058494567871
+			],
+			"vy": -36.783317565918,
+			"waypoint": [
+				192.342376708984,
+				6.90000009536743,
+				0.0
+			]
+		},
+		{
+			"aoa_deg": 1.4571764611046,
+			"axis": [
+				0.0,
+				0.0,
+				0.0
+			],
+			"axis_along_m": null,
+			"axis_cross_m": null,
+			"axis_guidance_active": false,
+			"axis_heading_deg": null,
+			"axis_joining": false,
+			"axis_search_ms": 0.0,
+			"bank": 4.27101960336221,
+			"bomb_block": "",
+			"bomb_miss": null,
+			"commit": "committed_direct",
+			"desired_bank": -3.86426459283492,
+			"direct_revalidation_ms": 0.0,
+			"direct_revalidation_reason": "not_checked",
+			"direct_revalidations": 0,
+			"end": "attack_in_progress",
+			"entry_range_m": 0.0,
+			"entry_waypoint": null,
+			"forward": [
+				0.102402098476887,
+				-0.261554598808289,
+				0.959741115570068
+			],
+			"gun_blocked": false,
+			"gun_error": [
+				35.9463157653809,
+				31.6503429412842
+			],
+			"gun_miss": 49.2078475952148,
+			"inputs": [
+				0.0763469284697146,
+				0.0434314538921578,
+				0.25002190809415
+			],
+			"load_g": 0.691229051660806,
+			"pos": [
+				53.5752143859863,
+				284.131042480469,
+				-1013.35595703125
+			],
+			"releases": 0,
+			"rocket_block": "",
+			"rocket_miss": null,
+			"route_index": 0,
+			"route_role": "",
+			"run_weapon": "Guns",
+			"safety": false,
+			"short_join_check_ms": 0.0,
+			"short_join_count": 0,
+			"speed": 129.294967651367,
+			"state": "ATTACK_DIVE",
+			"t": 15.016666666667,
+			"target": "GunEmplacement",
+			"target_g": 0.811016667872999,
+			"track_rate": 0.0,
+			"velocity": [
+				12.6566209793091,
+				-36.9535903930664,
+				123.253524780273
+			],
+			"vy": -36.9535903930664,
+			"waypoint": [
+				193.027038574219,
+				14.25048828125,
+				2.5731201171875
+			]
+		},
+		{
+			"aoa_deg": 1.63722283971265,
+			"axis": [
+				0.0,
+				0.0,
+				0.0
+			],
+			"axis_along_m": null,
+			"axis_cross_m": null,
+			"axis_guidance_active": false,
+			"axis_heading_deg": null,
+			"axis_joining": false,
+			"axis_search_ms": 0.0,
+			"bank": 3.76090006876003,
+			"bomb_block": "",
+			"bomb_miss": null,
+			"commit": "committed_direct",
+			"desired_bank": -4.0244381733768,
+			"direct_revalidation_ms": 0.0,
+			"direct_revalidation_reason": "not_checked",
+			"direct_revalidations": 0,
+			"end": "attack_in_progress",
+			"entry_range_m": 0.0,
+			"entry_waypoint": null,
+			"forward": [
+				0.111076585948467,
+				-0.256123244762421,
+				0.9602410197258
+			],
+			"gun_blocked": false,
+			"gun_error": [
+				33.645881652832,
+				17.4275588989258
+			],
+			"gun_miss": 38.5082397460938,
+			"inputs": [
+				-0.04114151154944,
+				0.0287819148337101,
+				0.262373879509187
+			],
+			"load_g": 0.705123305958532,
+			"pos": [
+				60.1275787353516,
+				265.638580322266,
+				-951.441589355469
+			],
+			"releases": 0,
+			"rocket_block": "",
+			"rocket_miss": null,
+			"route_index": 0,
+			"route_role": "",
+			"run_weapon": "Guns",
+			"safety": false,
+			"short_join_check_ms": 0.0,
+			"short_join_count": 0,
+			"speed": 130.44677734375,
+			"state": "ATTACK_DIVE",
+			"t": 15.516666666667,
+			"target": "GunEmplacement",
+			"target_g": 0.811016667872999,
+			"track_rate": 0.0,
+			"velocity": [
+				13.5975017547607,
+				-36.957218170166,
+				124.360900878906
+			],
+			"vy": -36.957218170166,
+			"waypoint": [
+				198.989715576172,
+				14.3663330078125,
+				2.4696044921875
+			]
+		},
+		{
+			"aoa_deg": 1.66556674662598,
+			"axis": [
+				0.0,
+				0.0,
+				0.0
+			],
+			"axis_along_m": null,
+			"axis_cross_m": null,
+			"axis_guidance_active": false,
+			"axis_heading_deg": null,
+			"axis_joining": false,
+			"axis_search_ms": 0.0,
+			"bank": 3.7997084056925,
+			"bomb_block": "",
+			"bomb_miss": null,
+			"commit": "committed_direct",
+			"desired_bank": -3.91772963545721,
+			"direct_revalidation_ms": 0.0,
+			"direct_revalidation_reason": "not_checked",
+			"direct_revalidations": 0,
+			"end": "attack_in_progress",
+			"entry_range_m": 0.0,
+			"entry_waypoint": null,
+			"forward": [
+				0.123081669211388,
+				-0.252091646194458,
+				0.95984411239624
+			],
+			"gun_blocked": false,
+			"gun_error": [
+				28.3535556793213,
+				4.71090602874756
+			],
+			"gun_miss": 28.9094543457031,
+			"inputs": [
+				-0.0201244682420697,
+				0.0126731707902507,
+				0.244600119910306
+			],
+			"load_g": 0.70731061710297,
+			"pos": [
+				67.2548828125,
+				247.201889038086,
+				-888.988098144531
+			],
+			"releases": 0,
+			"rocket_block": "",
+			"rocket_miss": null,
+			"route_index": 0,
+			"route_role": "",
+			"run_weapon": "Guns",
+			"safety": false,
+			"short_join_check_ms": 0.0,
+			"short_join_count": 0,
+			"speed": 131.536331176758,
+			"state": "ATTACK_DIVE",
+			"t": 16.016666666667,
+			"target": "GunEmplacement",
+			"target_g": 0.811016667872999,
+			"track_rate": 0.0,
+			"velocity": [
+				14.9603719711304,
+				-36.780876159668,
+				125.399993896484
+			],
+			"vy": -36.780876159668,
+			"waypoint": [
+				205.245086669922,
+				13.4988708496094,
+				2.0465087890625
+			]
+		},
+		{
+			"aoa_deg": 1.57467189990689,
+			"axis": [
+				0.0,
+				0.0,
+				0.0
+			],
+			"axis_along_m": null,
+			"axis_cross_m": null,
+			"axis_guidance_active": false,
+			"axis_heading_deg": null,
+			"axis_joining": false,
+			"axis_search_ms": 0.0,
+			"bank": 3.7503757843904,
+			"bomb_block": "",
+			"bomb_miss": null,
+			"commit": "committed_direct",
+			"desired_bank": -3.55926766509126,
+			"direct_revalidation_ms": 0.0,
+			"direct_revalidation_reason": "not_checked",
+			"direct_revalidations": 0,
+			"end": "attack_in_progress",
+			"entry_range_m": 0.0,
+			"entry_waypoint": null,
+			"forward": [
+				0.135372817516327,
+				-0.250527262687683,
+				0.958598077297211
+			],
+			"gun_blocked": false,
+			"gun_error": [
+				22.6510143280029,
+				0.228605508804321
+			],
+			"gun_miss": 22.7055625915527,
+			"inputs": [
+				0.0445322041916186,
+				0.0063058077618319,
+				0.216189560460137
+			],
+			"load_g": 0.700296223787027,
+			"pos": [
+				75.1498641967773,
+				228.846786499023,
+				-826.04345703125
+			],
+			"releases": 0,
+			"rocket_block": "",
+			"rocket_miss": null,
+			"route_index": 0,
+			"route_role": "",
+			"run_weapon": "Guns",
+			"safety": false,
+			"short_join_check_ms": 0.0,
+			"short_join_count": 0,
+			"speed": 132.584167480469,
+			"state": "ATTACK_DIVE",
+			"t": 16.516666666667,
+			"target": "GunEmplacement",
+			"target_g": 0.811016667872999,
+			"track_rate": 0.0,
+			"velocity": [
+				16.612585067749,
+				-36.6600379943848,
+				126.327445983887
+			],
+			"vy": -36.6600379943848,
+			"waypoint": [
+				210.900756835938,
+				12.0065765380859,
+				1.53741455078125
+			]
+		},
+		{
+			"aoa_deg": 1.49537626540598,
+			"axis": [
+				0.0,
+				0.0,
+				0.0
+			],
+			"axis_along_m": null,
+			"axis_cross_m": null,
+			"axis_guidance_active": false,
+			"axis_heading_deg": null,
+			"axis_joining": false,
+			"axis_search_ms": 0.0,
+			"bank": 3.09220138892284,
+			"bomb_block": "",
+			"bomb_miss": null,
+			"commit": "committed_direct",
+			"desired_bank": -3.18681892615383,
+			"direct_revalidation_ms": 0.0,
+			"direct_revalidation_reason": "not_checked",
+			"direct_revalidations": 0,
+			"end": "attack_in_progress",
+			"entry_range_m": 0.0,
+			"entry_waypoint": null,
+			"forward": [
+				0.146744579076767,
+				-0.249590814113617,
+				0.95716792345047
+			],
+			"gun_blocked": false,
+			"gun_error": [
+				18.0718879699707,
+				8.5680570602417
+			],
+			"gun_miss": 20.2548561096191,
+			"inputs": [
+				-0.00901066575428013,
+				0.0172447379520389,
+				0.190119584271885
+			],
+			"load_g": 0.694176946526506,
+			"pos": [
+				83.8874053955078,
+				210.52214050293,
+				-762.660278320313
+			],
+			"releases": 0,
+			"rocket_block": "",
+			"rocket_miss": null,
+			"route_index": 0,
+			"route_role": "",
+			"run_weapon": "Guns",
+			"safety": false,
+			"short_join_check_ms": 0.0,
+			"short_join_count": 0,
+			"speed": 133.594177246094,
+			"state": "ATTACK_DIVE",
+			"t": 17.016666666667,
+			"target": "GunEmplacement",
+			"target_g": 0.811016667872999,
+			"track_rate": 0.0,
+			"velocity": [
+				18.2968425750732,
+				-36.650447845459,
+				127.158851623535
+			],
+			"vy": -36.650447845459,
+			"waypoint": [
+				216.240661621094,
+				12.6899719238281,
+				1.63922119140625
+			]
+		},
+		{
+			"aoa_deg": 1.44672060985945,
+			"axis": [
+				0.0,
+				0.0,
+				0.0
+			],
+			"axis_along_m": null,
+			"axis_cross_m": null,
+			"axis_guidance_active": false,
+			"axis_heading_deg": null,
+			"axis_joining": false,
+			"axis_search_ms": 0.0,
+			"bank": 2.77403957807598,
+			"bomb_block": "",
+			"bomb_miss": null,
+			"commit": "committed_direct",
+			"desired_bank": -2.91053049416491,
+			"direct_revalidation_ms": 0.0,
+			"direct_revalidation_reason": "not_checked",
+			"direct_revalidations": 0,
+			"end": "attack_in_progress",
+			"entry_range_m": 0.0,
+			"entry_waypoint": null,
+			"forward": [
+				0.157637298107147,
+				-0.248531401157379,
+				0.955710530281067
+			],
+			"gun_blocked": false,
+			"gun_error": [
+				14.8094139099121,
+				8.26376914978027
+			],
+			"gun_miss": 17.1955661773682,
+			"inputs": [
+				-0.0213242007006024,
+				0.0177292332162362,
+				0.171512819145973
+			],
+			"load_g": 0.690422169249604,
+			"pos": [
+				93.4535827636719,
+				192.194961547852,
+				-698.887939453125
+			],
+			"releases": 2,
+			"rocket_block": "",
+			"rocket_miss": null,
+			"route_index": 0,
+			"route_role": "",
+			"run_weapon": "Guns",
+			"safety": false,
+			"short_join_check_ms": 0.0,
+			"short_join_count": 0,
+			"speed": 134.521347045898,
+			"state": "ATTACK_DIVE",
+			"t": 17.516666666667,
+			"target": "GunEmplacement",
+			"target_g": 0.811016667872999,
+			"track_rate": 0.0,
+			"velocity": [
+				19.9269371032715,
+				-36.6606979370117,
+				127.886299133301
+			],
+			"vy": -36.6606979370117,
+			"waypoint": [
+				221.378997802734,
+				11.6249237060547,
+				1.31561279296875
+			]
+		},
+		{
+			"aoa_deg": 1.34748693173319,
+			"axis": [
+				0.0,
+				0.0,
+				0.0
+			],
+			"axis_along_m": null,
+			"axis_cross_m": null,
+			"axis_guidance_active": false,
+			"axis_heading_deg": null,
+			"axis_joining": false,
+			"axis_search_ms": 0.0,
+			"bank": 2.70747190023033,
+			"bomb_block": "",
+			"bomb_miss": null,
+			"commit": "committed_direct",
+			"desired_bank": -2.72916096131939,
+			"direct_revalidation_ms": 0.0,
+			"direct_revalidation_reason": "not_checked",
+			"direct_revalidations": 0,
+			"end": "attack_in_progress",
+			"entry_range_m": 0.0,
+			"entry_waypoint": null,
+			"forward": [
+				0.16805525124073,
+				-0.249261125922203,
+				0.9537433385849
+			],
+			"gun_blocked": false,
+			"gun_error": [
+				12.4889221191406,
+				8.04094409942627
+			],
+			"gun_miss": 15.0905055999756,
+			"inputs": [
+				0.0015207408398348,
+				0.0184302620675392,
+				0.159669485502009
+			],
+			"load_g": 0.682764264828285,
+			"pos": [
+				103.822471618652,
+				173.843017578125,
+				-634.784729003906
+			],
+			"releases": 6,
+			"rocket_block": "",
+			"rocket_miss": null,
+			"route_index": 0,
+			"route_role": "",
+			"run_weapon": "Guns",
+			"safety": false,
+			"short_join_check_ms": 0.0,
+			"short_join_count": 0,
+			"speed": 135.371810913086,
+			"state": "ATTACK_DIVE",
+			"t": 18.0166666666669,
+			"target": "GunEmplacement",
+			"target_g": 0.811016667872999,
+			"track_rate": 0.0,
+			"velocity": [
+				21.5108852386475,
+				-36.7680244445801,
+				128.494827270508
+			],
+			"vy": -36.7680244445801,
+			"waypoint": [
+				226.306167602539,
+				9.37614440917969,
+				0.7247314453125
+			]
+		},
+		{
+			"aoa_deg": 1.32323211462719,
+			"axis": [
+				0.0,
+				0.0,
+				0.0
+			],
+			"axis_along_m": null,
+			"axis_cross_m": null,
+			"axis_guidance_active": false,
+			"axis_heading_deg": null,
+			"axis_joining": false,
+			"axis_search_ms": 0.0,
+			"bank": 2.54907418418021,
+			"bomb_block": "",
+			"bomb_miss": null,
+			"commit": "committed_direct",
+			"desired_bank": -2.67720636026307,
+			"direct_revalidation_ms": 0.0,
+			"direct_revalidation_reason": "not_checked",
+			"direct_revalidations": 0,
+			"end": "attack_in_progress",
+			"entry_range_m": 0.0,
+			"entry_waypoint": null,
+			"forward": [
+				0.177924662828445,
+				-0.249215424060822,
+				0.951963484287262
+			],
+			"gun_blocked": false,
+			"gun_error": [
+				11.1819725036621,
+				7.94551372528076
+			],
+			"gun_miss": 13.9517240524292,
+			"inputs": [
+				-0.018404651465591,
+				0.0195411493453811,
+				0.157698548573491
+			],
+			"load_g": 0.680892510453545,
+			"pos": [
+				114.971939086914,
+				155.413833618164,
+				-570.383422851563
+			],
+			"releases": 9,
+			"rocket_block": "",
+			"rocket_miss": null,
+			"route_index": 0,
+			"route_role": "",
+			"run_weapon": "Guns",
+			"safety": false,
+			"short_join_check_ms": 0.0,
+			"short_join_count": 0,
+			"speed": 136.221435546875,
+			"state": "ATTACK_DIVE",
+			"t": 18.5166666666669,
+			"target": "GunEmplacement",
+			"target_g": 0.811016667872999,
+			"track_rate": 0.0,
+			"velocity": [
+				23.042818069458,
+				-36.9422149658203,
+				129.075866699219
+			],
+			"vy": -36.9422149658203,
+			"waypoint": [
+				231.080017089844,
+				7.54194641113281,
+				0.2745361328125
+			]
+		},
+		{
+			"aoa_deg": 1.29218953407646,
+			"axis": [
+				0.0,
+				0.0,
+				0.0
+			],
+			"axis_along_m": null,
+			"axis_cross_m": null,
+			"axis_guidance_active": false,
+			"axis_heading_deg": null,
+			"axis_joining": false,
+			"axis_search_ms": 0.0,
+			"bank": 2.61282624114496,
+			"bomb_block": "",
+			"bomb_miss": null,
+			"commit": "committed_direct",
+			"desired_bank": -2.8139582376238,
+			"direct_revalidation_ms": 0.0,
+			"direct_revalidation_reason": "not_checked",
+			"direct_revalidations": 0,
+			"end": "attack_in_progress",
+			"entry_range_m": 0.0,
+			"entry_waypoint": null,
+			"forward": [
+				0.187230572104454,
+				-0.24955689907074,
+				0.950087428092957
+			],
+			"gun_blocked": false,
+			"gun_error": [
+				10.858470916748,
+				8.00601768493652
+			],
+			"gun_miss": 13.7313289642334,
+			"inputs": [
+				-0.0341894455507433,
+				0.0221000275893637,
+				0.169159461918017
+			],
+			"load_g": 0.678496941536447,
+			"pos": [
+				126.867797851563,
+				136.893569946289,
+				-505.706451416016
+			],
+			"releases": 12,
+			"rocket_block": "",
+			"rocket_miss": null,
+			"route_index": 0,
+			"route_role": "",
+			"run_weapon": "Guns",
+			"safety": false,
+			"short_join_check_ms": 0.0,
+			"short_join_count": 0,
+			"speed": 137.036087036133,
+			"state": "ATTACK_DIVE",
+			"t": 19.0166666666669,
+			"target": "GunEmplacement",
+			"target_g": 0.811016667872999,
+			"track_rate": 0.0,
+			"velocity": [
+				24.5038013458252,
+				-37.1394691467285,
+				129.611389160156
+			],
+			"vy": -37.1394691467285,
+			"waypoint": [
+				235.736526489258,
+				5.60337829589844,
+				-0.170074462890625
+			]
+		},
+		{
+			"aoa_deg": 1.30913593811831,
+			"axis": [
+				0.0,
+				0.0,
+				0.0
+			],
+			"axis_along_m": null,
+			"axis_cross_m": null,
+			"axis_guidance_active": false,
+			"axis_heading_deg": null,
+			"axis_joining": false,
+			"axis_search_ms": 0.0,
+			"bank": 2.94172323517406,
+			"bomb_block": "",
+			"bomb_miss": null,
+			"commit": "committed_direct",
+			"desired_bank": -3.16670509687518,
+			"direct_revalidation_ms": 0.0,
+			"direct_revalidation_reason": "not_checked",
+			"direct_revalidations": 0,
+			"end": "attack_in_progress",
+			"entry_range_m": 0.0,
+			"entry_waypoint": null,
+			"forward": [
+				0.197025343775749,
+				-0.249140545725822,
+				0.948214113712311
+			],
+			"gun_blocked": false,
+			"gun_error": [
+				11.0016736984253,
+				10.5975666046143
+			],
+			"gun_miss": 15.625786781311,
+			"inputs": [
+				-0.0388498671283774,
+				0.03165608709494,
+				0.192601833921344
+			],
+			"load_g": 0.679804702620062,
+			"pos": [
+				139.488204956055,
+				118.276351928711,
+				-440.77783203125
+			],
+			"releases": 16,
+			"rocket_block": "",
+			"rocket_miss": null,
+			"route_index": 0,
+			"route_role": "",
+			"run_weapon": "Guns",
+			"safety": false,
+			"short_join_check_ms": 0.0,
+			"short_join_count": 0,
+			"speed": 137.786926269531,
+			"state": "ATTACK_DIVE",
+			"t": 19.5166666666668,
+			"target": "GunEmplacement",
+			"target_g": 0.811016667872999,
+			"track_rate": 0.0,
+			"velocity": [
+				25.9537487030029,
+				-37.3190040588379,
+				130.072799682617
+			],
+			"vy": -37.3190040588379,
+			"waypoint": [
+				240.459136962891,
+				4.67176818847656,
+				-0.354736328125
+			]
+		},
+		{
+			"aoa_deg": 1.39429593622699,
+			"axis": [
+				0.0,
+				0.0,
+				0.0
+			],
+			"axis_along_m": null,
+			"axis_cross_m": null,
+			"axis_guidance_active": false,
+			"axis_heading_deg": null,
+			"axis_joining": false,
+			"axis_search_ms": 0.0,
+			"bank": 3.45573888386631,
+			"bomb_block": "",
+			"bomb_miss": null,
+			"commit": "committed_direct",
+			"desired_bank": -3.76353171472213,
+			"direct_revalidation_ms": 0.0,
+			"direct_revalidation_reason": "not_checked",
+			"direct_revalidations": 0,
+			"end": "attack_in_progress",
+			"entry_range_m": 0.0,
+			"entry_waypoint": null,
+			"forward": [
+				0.207686230540276,
+				-0.247217953205109,
+				0.946440577507019
+			],
+			"gun_blocked": false,
+			"gun_error": [
+				11.4952201843262,
+				12.3166589736938
+			],
+			"gun_miss": 17.2789916992188,
+			"inputs": [
+				-0.0542224035686477,
+				0.0426736518587391,
+				0.230357947132122
+			],
+			"load_g": 0.686376535271536,
+			"pos": [
+				152.849578857422,
+				99.5790023803711,
+				-375.625701904297
+			],
+			"releases": 19,
+			"rocket_block": "",
+			"rocket_miss": null,
+			"route_index": 0,
+			"route_role": "",
+			"run_weapon": "Guns",
+			"safety": false,
+			"short_join_check_ms": 0.0,
+			"short_join_count": 0,
+			"speed": 138.523468017578,
+			"state": "ATTACK_DIVE",
+			"t": 20.0166666666668,
+			"target": "GunEmplacement",
+			"target_g": 0.811016667872999,
+			"track_rate": 0.0,
+			"velocity": [
+				27.4788913726807,
+				-37.4402084350586,
+				130.506286621094
+			],
+			"vy": -37.4402084350586,
+			"waypoint": [
+				245.168548583984,
+				3.92154693603516,
+				-0.47308349609375
+			]
+		},
+		{
+			"aoa_deg": 2.04616295987894,
+			"axis": [
+				0.0,
+				0.0,
+				0.0
+			],
+			"axis_along_m": null,
+			"axis_cross_m": null,
+			"axis_guidance_active": false,
+			"axis_heading_deg": null,
+			"axis_joining": false,
+			"axis_search_ms": 0.0,
+			"bank": 3.93977804961885,
+			"bomb_block": "",
+			"bomb_miss": null,
+			"commit": "committed_direct",
+			"desired_bank": -4.07682910545435,
+			"direct_revalidation_ms": 0.0,
+			"direct_revalidation_reason": "not_checked",
+			"direct_revalidations": 0,
+			"end": "dynamic_pull_up",
+			"entry_range_m": 0.0,
+			"entry_waypoint": null,
+			"forward": [
+				0.22026826441288,
+				-0.233941957354546,
+				0.946970462799072
+			],
+			"gun_blocked": false,
+			"gun_error": [
+				0.0,
+				0.0
+			],
+			"gun_miss": null,
+			"inputs": [
+				0.123356422935426,
+				0.659247601032257,
+				0.0
+			],
+			"load_g": 0.736681385971365,
+			"pos": [
+				167.001617431641,
+				80.8687591552734,
+				-310.289672851563
+			],
+			"releases": 21,
+			"rocket_block": "",
+			"rocket_miss": null,
+			"route_index": 0,
+			"route_role": "",
+			"run_weapon": "Guns",
+			"safety": true,
+			"short_join_check_ms": 0.0,
+			"short_join_count": 0,
+			"speed": 138.967849731445,
+			"state": "ATTACK_BREAK_OFF",
+			"t": 20.5166666666668,
+			"target": "GunEmplacement",
+			"target_g": 0.811016667872999,
+			"track_rate": 0.0,
+			"velocity": [
+				29.0956058502197,
+				-37.2394561767578,
+				130.685623168945
+			],
+			"vy": -37.2394561767578,
+			"waypoint": [
+				484.9619140625,
+				3473.17333984375,
+				1153.34033203125
+			]
+		},
+		{
+			"aoa_deg": 6.91401513346916,
+			"axis": [
+				0.0,
+				0.0,
+				0.0
+			],
+			"axis_along_m": null,
+			"axis_cross_m": null,
+			"axis_guidance_active": false,
+			"axis_heading_deg": null,
+			"axis_joining": false,
+			"axis_search_ms": 0.0,
+			"bank": 2.76608293817109,
+			"bomb_block": "",
+			"bomb_miss": null,
+			"commit": "committed_direct",
+			"desired_bank": -4.07682910545435,
+			"direct_revalidation_ms": 0.0,
+			"direct_revalidation_reason": "not_checked",
+			"direct_revalidations": 0,
+			"end": "dynamic_pull_up",
+			"entry_range_m": 0.0,
+			"entry_waypoint": null,
+			"forward": [
+				0.235454887151718,
+				-0.135247841477394,
+				0.962428689002991
+			],
+			"gun_blocked": false,
+			"gun_error": [
+				0.0,
+				0.0
+			],
+			"gun_miss": null,
+			"inputs": [
+				0.0793294408110595,
+				0.672565369606018,
+				0.0
+			],
+			"load_g": 1.11233557300084,
+			"pos": [
+				181.884918212891,
+				62.709300994873,
+				-245.132263183594
+			],
+			"releases": 21,
+			"rocket_block": "",
+			"rocket_miss": null,
+			"route_index": 0,
+			"route_role": "",
+			"run_weapon": "Guns",
+			"safety": true,
+			"short_join_check_ms": 0.0,
+			"short_join_count": 0,
+			"speed": 137.947769165039,
+			"state": "ATTACK_BREAK_OFF",
+			"t": 21.0166666666668,
+			"target": "GunEmplacement",
+			"target_g": 0.811016667872999,
+			"track_rate": 0.0,
+			"velocity": [
+				30.3407745361328,
+				-34.92626953125,
+				129.958374023438
+			],
+			"vy": -34.92626953125,
+			"waypoint": [
+				499.824401855469,
+				3800.71899414063,
+				1218.51000976563
+			]
+		},
+		{
+			"aoa_deg": 12.3070585362807,
+			"axis": [
+				0.0,
+				0.0,
+				0.0
+			],
+			"axis_along_m": null,
+			"axis_cross_m": null,
+			"axis_guidance_active": false,
+			"axis_heading_deg": null,
+			"axis_joining": false,
+			"axis_search_ms": 0.0,
+			"bank": 1.29791443072988,
+			"bomb_block": "",
+			"bomb_miss": null,
+			"commit": "committed_direct",
+			"desired_bank": -4.07682910545435,
+			"direct_revalidation_ms": 0.0,
+			"direct_revalidation_reason": "not_checked",
+			"direct_revalidations": 0,
+			"end": "dynamic_pull_up",
+			"entry_range_m": 0.0,
+			"entry_waypoint": null,
+			"forward": [
+				0.243855684995651,
+				-0.0103722959756851,
+				0.969756066799164
+			],
+			"gun_blocked": false,
+			"gun_error": [
+				0.0,
+				0.0
+			],
+			"gun_miss": null,
+			"inputs": [
+				0.0339777231062059,
+				0.679740924835205,
+				0.0
+			],
+			"load_g": 1.52851898672262,
+			"pos": [
+				197.292007446289,
+				46.254638671875,
+				-180.349655151367
+			],
+			"releases": 21,
+			"rocket_block": "",
+			"rocket_miss": null,
+			"route_index": 0,
+			"route_role": "",
+			"run_weapon": "Guns",
+			"safety": true,
+			"short_join_check_ms": 0.0,
+			"short_join_count": 0,
+			"speed": 136.38117980957,
+			"state": "ATTACK_BREAK_OFF",
+			"t": 21.5166666666667,
+			"target": "GunEmplacement",
+			"target_g": 0.811016667872999,
+			"track_rate": 0.0,
+			"velocity": [
+				31.2384033203125,
+				-30.4298820495605,
+				129.220779418945
+			],
+			"vy": -30.4298820495605,
+			"waypoint": [
+				515.216430664063,
+				4098.2490234375,
+				1283.3046875
+			]
+		},
+		{
+			"aoa_deg": 17.0222069843633,
+			"axis": [
+				0.0,
+				0.0,
+				0.0
+			],
+			"axis_along_m": null,
+			"axis_cross_m": null,
+			"axis_guidance_active": false,
+			"axis_heading_deg": null,
+			"axis_joining": false,
+			"axis_search_ms": 0.0,
+			"bank": 0.316600763179797,
+			"bomb_block": "",
+			"bomb_miss": null,
+			"commit": "committed_direct",
+			"desired_bank": -4.07682910545435,
+			"direct_revalidation_ms": 0.0,
+			"direct_revalidation_reason": "not_checked",
+			"direct_revalidations": 0,
+			"end": "dynamic_pull_up",
+			"entry_range_m": 0.0,
+			"entry_waypoint": null,
+			"forward": [
+				0.244747504591942,
+				0.118460066616535,
+				0.962323188781738
+			],
+			"gun_blocked": false,
+			"gun_error": [
+				0.0,
+				0.0
+			],
+			"gun_miss": null,
+			"inputs": [
+				0.00610764932732669,
+				0.675541086196899,
+				0.0
+			],
+			"load_g": 1.89238896342354,
+			"pos": [
+				213.064651489258,
+				32.6164131164551,
+				-116.05558013916
+			],
+			"releases": 21,
+			"rocket_block": "",
+			"rocket_miss": null,
+			"route_index": 0,
+			"route_role": "",
+			"run_weapon": "Guns",
+			"safety": true,
+			"short_join_check_ms": 0.0,
+			"short_join_count": 0,
+			"speed": 133.683227539063,
+			"state": "ATTACK_BREAK_OFF",
+			"t": 22.0166666666667,
+			"target": "GunEmplacement",
+			"target_g": 0.811016667872999,
+			"track_rate": 0.0,
+			"velocity": [
+				31.7212104797363,
+				-23.7132358551025,
+				127.681838989258
+			],
+			"vy": -23.7132358551025,
+			"waypoint": [
+				530.980895996094,
+				4345.751953125,
+				1347.62414550781
+			]
+		},
+		{
+			"aoa_deg": 21.059867155112,
+			"axis": [
+				0.0,
+				0.0,
+				0.0
+			],
+			"axis_along_m": null,
+			"axis_cross_m": null,
+			"axis_guidance_active": false,
+			"axis_heading_deg": null,
+			"axis_joining": false,
+			"axis_search_ms": 0.0,
+			"bank": 0.128583522178663,
+			"bomb_block": "",
+			"bomb_miss": null,
+			"commit": "committed_direct",
+			"desired_bank": -4.07682910545435,
+			"direct_revalidation_ms": 0.0,
+			"direct_revalidation_reason": "not_checked",
+			"direct_revalidations": 0,
+			"end": "dynamic_pull_up",
+			"entry_range_m": 0.0,
+			"entry_waypoint": null,
+			"forward": [
+				0.239649564027786,
+				0.244762539863586,
+				0.93949955701828
+			],
+			"gun_blocked": false,
+			"gun_error": [
+				0.0,
+				0.0
+			],
+			"gun_miss": null,
+			"inputs": [
+				-0.00540321403493645,
+				0.660015909671783,
+				0.0
+			],
+			"load_g": 1.89253034042452,
+			"pos": [
+				228.899307250977,
+				22.8064632415771,
+				-52.9691848754883
+			],
+			"releases": 21,
+			"rocket_block": "",
+			"rocket_miss": null,
+			"route_index": 0,
+			"route_role": "",
+			"run_weapon": "Guns",
+			"safety": true,
+			"short_join_check_ms": 0.0,
+			"short_join_count": 0,
+			"speed": 129.48014831543,
+			"state": "ATTACK_BREAK_OFF",
+			"t": 22.5166666666667,
+			"target": "GunEmplacement",
+			"target_g": 0.811016667872999,
+			"track_rate": 0.0,
+			"velocity": [
+				31.5330772399902,
+				-15.5381278991699,
+				124.616767883301
+			],
+			"vy": -15.5381278991699,
+			"waypoint": [
+				546.818603515625,
+				4524.78515625,
+				1410.76135253906
+			]
+		},
+		{
+			"aoa_deg": 25.0496090043383,
+			"axis": [
+				0.0,
+				0.0,
+				0.0
+			],
+			"axis_along_m": null,
+			"axis_cross_m": null,
+			"axis_guidance_active": false,
+			"axis_heading_deg": null,
+			"axis_joining": false,
+			"axis_search_ms": 0.0,
+			"bank": 0.2569878427532,
+			"bomb_block": "",
+			"bomb_miss": null,
+			"commit": "committed_direct",
+			"desired_bank": -4.07682910545435,
+			"direct_revalidation_ms": 0.0,
+			"direct_revalidation_reason": "not_checked",
+			"direct_revalidations": 0,
+			"end": "dynamic_pull_up",
+			"entry_range_m": 0.0,
+			"entry_waypoint": null,
+			"forward": [
+				0.230311468243599,
+				0.362069129943848,
+				0.903251111507416
+			],
+			"gun_blocked": false,
+			"gun_error": [
+				0.0,
+				0.0
+			],
+			"gun_miss": null,
+			"inputs": [
+				-0.00870452034495079,
+				0.634725155830383,
+				0.0
+			],
+			"load_g": 1.60901492284284,
+			"pos": [
+				244.559906005859,
+				16.8861980438232,
+				8.58387660980225
+			],
+			"releases": 21,
+			"rocket_block": "",
+			"rocket_miss": null,
+			"route_index": 0,
+			"route_role": "",
+			"run_weapon": "Guns",
+			"safety": true,
+			"short_join_check_ms": 0.0,
+			"short_join_count": 0,
+			"speed": 125.806190490723,
+			"state": "ATTACK_BREAK_OFF",
+			"t": 23.0166666666666,
+			"target": "GunEmplacement",
+			"target_g": 0.811016667872999,
+			"track_rate": 0.0,
+			"velocity": [
+				31.0604095458984,
+				-8.3867826461792,
+				121.622825622559
+			],
+			"vy": -8.3867826461792,
+			"waypoint": [
+				562.487060546875,
+				4633.50244140625,
+				1472.36413574219
+			]
+		},
+		{
+			"aoa_deg": 25.455848251585,
+			"axis": [
+				0.0,
+				0.0,
+				0.0
+			],
+			"axis_along_m": null,
+			"axis_cross_m": null,
+			"axis_guidance_active": false,
+			"axis_heading_deg": null,
+			"axis_joining": false,
+			"axis_search_ms": 0.0,
+			"bank": 0.668546961495095,
+			"bomb_block": "",
+			"bomb_miss": null,
+			"commit": "committed_direct",
+			"desired_bank": -4.07682910545435,
+			"direct_revalidation_ms": 0.0,
+			"direct_revalidation_reason": "not_checked",
+			"direct_revalidations": 0,
+			"end": "dynamic_pull_up",
+			"entry_range_m": 0.0,
+			"entry_waypoint": null,
+			"forward": [
+				0.225789979100227,
+				0.413583844900131,
+				0.882024526596069
+			],
+			"gun_blocked": false,
+			"gun_error": [
+				0.0,
+				0.0
+			],
+			"gun_miss": null,
+			"inputs": [
+				-0.0244267023906443,
+				0.619306252002716,
+				0.0
+			],
+			"load_g": 1.58014711781341,
+			"pos": [
+				259.880401611328,
+				14.2847175598145,
+				68.386604309082
+			],
+			"releases": 21,
+			"rocket_block": "",
+			"rocket_miss": null,
+			"route_index": 0,
+			"route_role": "",
+			"run_weapon": "Guns",
+			"safety": true,
+			"short_join_check_ms": 0.0,
+			"short_join_count": 0,
+			"speed": 121.422721862793,
+			"state": "ATTACK_BREAK_OFF",
+			"t": 23.5166666666666,
+			"target": "GunEmplacement",
+			"target_g": 0.811016667872999,
+			"track_rate": 0.0,
+			"velocity": [
+				30.2475566864014,
+				-2.17522168159485,
+				117.574783325195
+			],
+			"vy": -2.17522168159485,
+			"waypoint": [
+				577.821228027344,
+				4682.2158203125,
+				1532.23486328125
+			]
+		},
+		{
+			"aoa_deg": 24.5755747994531,
+			"axis": [
+				0.0,
+				0.0,
+				0.0
+			],
+			"axis_along_m": null,
+			"axis_cross_m": null,
+			"axis_guidance_active": false,
+			"axis_heading_deg": null,
+			"axis_joining": false,
+			"axis_search_ms": 0.0,
+			"bank": 1.19724671997853,
+			"bomb_block": "",
+			"bomb_miss": null,
+			"commit": "committed_direct",
+			"desired_bank": -4.07682910545435,
+			"direct_revalidation_ms": 0.0,
+			"direct_revalidation_reason": "not_checked",
+			"direct_revalidations": 0,
+			"end": "dynamic_pull_up",
+			"entry_range_m": 0.0,
+			"entry_waypoint": null,
+			"forward": [
+				0.223223268985748,
+				0.447013080120087,
+				0.866227865219116
+			],
+			"gun_blocked": false,
+			"gun_error": [
+				0.0,
+				0.0
+			],
+			"gun_miss": null,
+			"inputs": [
+				-0.0398188061701795,
+				0.582380798532341,
+				0.0
+			],
+			"load_g": 1.64270031167873,
+			"pos": [
+				274.865142822266,
+				14.7864332199097,
+				126.184989929199
+			],
+			"releases": 21,
+			"rocket_block": "",
+			"rocket_miss": null,
+			"route_index": 0,
+			"route_role": "",
+			"run_weapon": "Guns",
+			"safety": true,
+			"short_join_check_ms": 0.0,
+			"short_join_count": 0,
+			"speed": 117.618659973145,
+			"state": "ATTACK_BREAK_OFF",
+			"t": 24.0166666666666,
+			"target": "GunEmplacement",
+			"target_g": 0.811016667872999,
+			"track_rate": 0.0,
+			"velocity": [
+				29.7250823974609,
+				4.05484294891357,
+				113.728302001953
+			],
+			"vy": 4.05484294891357,
+			"waypoint": [
+				592.814575195313,
+				4675.04638671875,
+				1590.09716796875
+			]
+		},
+		{
+			"aoa_deg": 24.6121034522007,
+			"axis": [
+				0.0,
+				0.0,
+				0.0
+			],
+			"axis_along_m": null,
+			"axis_cross_m": null,
+			"axis_guidance_active": false,
+			"axis_heading_deg": null,
+			"axis_joining": false,
+			"axis_search_ms": 0.0,
+			"bank": 1.40705515519929,
+			"bomb_block": "",
+			"bomb_miss": null,
+			"commit": "committed_direct",
+			"desired_bank": -4.07682910545435,
+			"direct_revalidation_ms": 0.0,
+			"direct_revalidation_reason": "not_checked",
+			"direct_revalidations": 0,
+			"end": "dynamic_pull_up",
+			"entry_range_m": 0.0,
+			"entry_waypoint": null,
+			"forward": [
+				0.217210859060287,
+				0.495892614126205,
+				0.840779364109039
+			],
+			"gun_blocked": false,
+			"gun_error": [
+				0.0,
+				0.0
+			],
+			"gun_miss": null,
+			"inputs": [
+				-0.0447558733513368,
+				0.498367660858108,
+				0.0
+			],
+			"load_g": 1.64010454567963,
+			"pos": [
+				289.568298339844,
+				18.3764400482178,
+				182.023895263672
+			],
+			"releases": 21,
+			"rocket_block": "",
+			"rocket_miss": null,
+			"route_index": 0,
+			"route_role": "",
+			"run_weapon": "Guns",
+			"safety": true,
+			"short_join_check_ms": 0.0,
+			"short_join_count": 0,
+			"speed": 113.889556884766,
+			"state": "ATTACK_BREAK_OFF",
+			"t": 24.5166666666666,
+			"target": "GunEmplacement",
+			"target_g": 0.811016667872999,
+			"track_rate": 0.0,
+			"velocity": [
+				29.0457153320313,
+				10.1591529846191,
+				109.653861999512
+			],
+			"vy": 10.1591529846191,
+			"waypoint": [
+				607.529052734375,
+				4612.25830078125,
+				1646.00390625
+			]
+		},
+		{
+			"aoa_deg": 24.1863464298695,
+			"axis": [
+				0.0,
+				0.0,
+				0.0
+			],
+			"axis_along_m": null,
+			"axis_cross_m": null,
+			"axis_guidance_active": false,
+			"axis_heading_deg": null,
+			"axis_joining": false,
+			"axis_search_ms": 0.0,
+			"bank": 1.37151502785636,
+			"bomb_block": "",
+			"bomb_miss": null,
+			"commit": "committed_direct",
+			"desired_bank": -4.07682910545435,
+			"direct_revalidation_ms": 0.0,
+			"direct_revalidation_reason": "not_checked",
+			"direct_revalidations": 0,
+			"end": "dynamic_pull_up",
+			"entry_range_m": 0.0,
+			"entry_waypoint": null,
+			"forward": [
+				0.211099833250046,
+				0.538537204265594,
+				0.815729439258575
+			],
+			"gun_blocked": false,
+			"gun_error": [
+				0.0,
+				0.0
+			],
+			"gun_miss": null,
+			"inputs": [
+				-0.0424460702706558,
+				0.418454107600851,
+				0.0
+			],
+			"load_g": 1.67035930514432,
+			"pos": [
+				303.853240966797,
+				24.9708118438721,
+				235.742919921875
+			],
+			"releases": 21,
+			"rocket_block": "",
+			"rocket_miss": null,
+			"route_index": 0,
+			"route_role": "",
+			"run_weapon": "Guns",
+			"safety": true,
+			"short_join_check_ms": 0.0,
+			"short_join_count": 0,
+			"speed": 110.128288269043,
+			"state": "ATTACK_BREAK_OFF",
+			"t": 25.0166666666665,
+			"target": "GunEmplacement",
+			"target_g": 0.811016667872999,
+			"track_rate": 0.0,
+			"velocity": [
+				28.0670127868652,
+				16.0887908935547,
+				105.269332885742
+			],
+			"vy": 16.0887908935547,
+			"waypoint": [
+				621.830322265625,
+				4495.33984375,
+				1699.79602050781
+			]
+		}
+	],
+	"wall_duration_s": 9.083454,
+	"weapon": "Guns"
+}

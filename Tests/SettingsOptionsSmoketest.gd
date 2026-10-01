@@ -31,10 +31,26 @@ func _run() -> void:
 		if not audio_sliders.has(slider_key) or not (audio_sliders[slider_key] is HSlider):
 			_fail("audio menu was missing %s volume" % slider_key)
 			return
-	for audio_key in ["captions", "caption_duration"]:
+	for audio_key in ["music", "captions", "caption_duration"]:
 		if not audio_buttons.has(audio_key) or not (audio_buttons[audio_key] is Button):
 			_fail("audio menu was missing %s" % audio_key)
 			return
+	var original_music_enabled := bool(pause_menu.get("_music_enabled"))
+	pause_menu.set("_music_enabled", false)
+	pause_menu.call("_apply_music_setting")
+	pause_menu.call("_refresh_audio_controls")
+	var music_bus_index := AudioServer.get_bus_index("Music")
+	var music_muted := music_bus_index >= 0 and AudioServer.is_bus_mute(music_bus_index) \
+		and (audio_buttons["music"] as Button).text == "MUSIC: OFF"
+	pause_menu.set("_music_enabled", true)
+	pause_menu.call("_apply_music_setting")
+	var music_restored := music_bus_index >= 0 and not AudioServer.is_bus_mute(music_bus_index)
+	pause_menu.set("_music_enabled", original_music_enabled)
+	pause_menu.call("_apply_music_setting")
+	pause_menu.call("_refresh_audio_controls")
+	if not music_muted or not music_restored:
+		_fail("music toggle did not mute and restore the Music bus")
+		return
 
 	var graphics_buttons: Dictionary = pause_menu.get("_graphics_buttons")
 	for graphics_key in ["show_fps", "enemy_visibility"]:

@@ -127,6 +127,8 @@ var _pattern_value_button: Button
 var _insignia_value_button: Button
 var _map_value_button: Button
 var _continue_button: Button
+var _randomize_button: Button
+var _saved_carrier_appearance: Dictionary = {}
 var _menu_rng := RandomNumberGenerator.new()
 var _elapsed := 0.0
 var _main_camera_sequence_elapsed_s := 0.0
@@ -140,10 +142,13 @@ var _menu_stick_navigation_gate := MenuStickNavigationGate.new()
 func _ready() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	_startup_music = get_node_or_null("StartupMusic") as AudioStreamPlayer
+	if _startup_music != null:
+		_startup_music.bus = "Music"
 	_menu_rng.randomize()
 	_load_ship_names()
 	_load_livery_palette()
 	_randomize_setup_choices()
+	_saved_carrier_appearance = SaveGameManager.load_carrier_appearance()
 	_configure_menu_autoloads()
 	_build_world()
 	_build_ui()
@@ -1372,8 +1377,8 @@ func _layout_ui_root() -> void:
 
 func _build_main_menu(parent: Control) -> void:
 	var entries := [
-		["NEW CAMPAIGN", Callable(self, "_show_setup_menu")],
 		["CONTINUE", Callable(self, "_continue_campaign")],
+		["NEW CAMPAIGN", Callable(self, "_show_setup_menu")],
 		["TRAILER SCENARIO", Callable(self, "_start_trailer_scenario")],
 		["SKIRMISH", Callable(self, "_start_test_flight")],
 		["TECHNICAL INDEX", Callable(self, "_show_technical_index")],
@@ -1424,6 +1429,10 @@ func _refresh_operator_button_indicator(button: Button) -> void:
 
 func _build_setup_menu(parent: Control) -> void:
 	parent.add_child(_make_label("NEW CAMPAIGN", Vector2.ZERO, MenuTypography.SCREEN_TITLE_SIZE, Color(1.0, 0.82, 0.34, 1.0)))
+	_randomize_button = _make_small_button("RANDOMIZE", Vector2(246.0, 0.0), 184.0)
+	_randomize_button.tooltip_text = "Randomize carrier name, colours, texture and insignia"
+	_randomize_button.pressed.connect(_randomize_new_carrier)
+	parent.add_child(_randomize_button)
 	parent.add_child(_make_label("CARRIER NAME", Vector2(0.0, 58.0), MenuTypography.FIELD_LABEL_SIZE, Color(1.0, 1.0, 1.0, 0.66)))
 
 	_name_edit = LineEdit.new()
@@ -1487,6 +1496,7 @@ func _show_main_menu() -> void:
 		_technical_index.call("close")
 	_set_menu_branding("LAND CARRIER", "SYS_ID: LC-992-ALPHA // OPERATOR CONSOLE")
 	_message_label.text = ""
+	_apply_preview_livery()
 	var first := _first_button(_main_panel)
 	if first:
 		first.grab_focus()
@@ -1690,17 +1700,25 @@ func _update_preview_ship_name(text: String) -> void:
 func _apply_preview_livery() -> void:
 	if not is_instance_valid(_carrier_root) or _carrier_colors.is_empty():
 		return
-	if is_instance_valid(_name_edit):
-		_carrier_root.set_meta("carrier_display_name", _name_edit.text.strip_edges())
 	var livery := get_node_or_null("/root/Livery")
 	if livery == null:
 		return
 	var primary := _carrier_colors[_wrap_index(_primary_index, _carrier_colors.size())]
 	var secondary := _carrier_colors[_wrap_index(_secondary_index, _carrier_colors.size())]
+	var pattern := _selected_pattern_index()
+	var insignia := _insignia_index
+	var display_name := _name_edit.text.strip_edges() if is_instance_valid(_name_edit) else DEFAULT_CARRIER_NAME
+	if _current_screen != "setup" and not _saved_carrier_appearance.is_empty():
+		primary = _saved_carrier_appearance.primary
+		secondary = _saved_carrier_appearance.secondary
+		pattern = int(_saved_carrier_appearance.pattern)
+		insignia = int(_saved_carrier_appearance.insignia)
+		display_name = str(_saved_carrier_appearance.name)
+	_carrier_root.set_meta("carrier_display_name", display_name)
 	if livery.has_method("set_player_livery"):
-		livery.call("set_player_livery", primary, secondary, _selected_pattern_index())
+		livery.call("set_player_livery", primary, secondary, pattern)
 	if livery.has_method("set_player_insignia"):
-		livery.call("set_player_insignia", _insignia_index)
+		livery.call("set_player_insignia", insignia)
 	if livery.has_method("apply"):
 		var added_carrier_group := false
 		if not _carrier_root.is_in_group("carrier"):
@@ -1769,6 +1787,13 @@ func _load_livery_palette() -> void:
 		_pattern_names.assign(FALLBACK_PATTERN_NAMES)
 		_pattern_indices.assign(FALLBACK_PATTERN_INDICES)
 	_pattern_choice_index = clampi(_pattern_choice_index, 0, _pattern_names.size() - 1)
+
+
+func _randomize_new_carrier() -> void:
+	_randomize_setup_choices()
+	_name_edit.text = _random_default_carrier_name()
+	_refresh_setup_buttons()
+	_apply_preview_livery()
 
 
 func _randomize_setup_choices() -> void:

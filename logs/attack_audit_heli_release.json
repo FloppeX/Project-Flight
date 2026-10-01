@@ -1,0 +1,4689 @@
+{
+	"air_target": false,
+	"alive": true,
+	"attack_selected": true,
+	"damage": 1827.50564932823,
+	"diagnostic_sha256": "4b93881139feb6fdadaa785c887cb9bd2ee6f2c6a0f4cd067170eaea2416a907",
+	"duration_s": 70.0,
+	"elapsed_s": 70.016666666664,
+	"escape_sha256": "39583131203a804c372b6bb1e33b20ec7bcad29e995aa9ab7212114f76a1993d",
+	"evasion_episodes": 0,
+	"first_damage_s": 47.4666666666653,
+	"flight_sha256": "8193fe443307e5f1c1e0874609b88cd7fe9719db060fac37b45dbc41982091f8",
+	"hunt_mode": false,
+	"label": "audit_verified",
+	"min_agl_m": 56.0763473510742,
+	"min_range_m": 530.620849609375,
+	"model": 10,
+	"pathfinding": true,
+	"pilot_sha256": "9764eff16733eed407dd64f6183b7d7105ff6bd91222f3f26b4d8ef674da16e7",
+	"popup_sha256": "8e6b80ef69c40de55668019a2fc5760b42fd24f168ceee5d2dd69d471b2b3a7e",
+	"popup_terrain": false,
+	"rescue": false,
+	"scene_sha256": "a98704a6a268c2afba340f04769189986555eeb99d666f38989da19b98b19b48",
+	"states_s": {
+		"0": 0.0166666666666667,
+		"1": 38.3833333333324,
+		"2": 8.70000000000001,
+		"3": 22.9166666666666
+	},
+	"status": "COMPLETE",
+	"trace": [
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				0.0,
+				0.0,
+				0.0
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 80.0,
+			"nose_elevation": 0.0,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				300.0,
+				80.0,
+				-2200.0
+			],
+			"range": 2220.3603515625,
+			"speed": 35.0,
+			"state": "0",
+			"t": 0.0166666666666667,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.151283541961989,
+				-0.14666472624558,
+				-0.016139134070714
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 79.9662322998047,
+			"nose_elevation": -0.0536632066639862,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				299.987579345703,
+				79.9662322998047,
+				-2182.94995117188
+			],
+			"range": 2203.46606445313,
+			"speed": 33.3028373718262,
+			"state": "1",
+			"t": 0.516666666666667,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.165180734319368,
+				-0.127658931188008,
+				-0.0182061703880222
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 79.6065063476563,
+			"nose_elevation": -0.453629778593994,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				299.876525878906,
+				79.6065063476563,
+				-2166.67211914063
+			],
+			"range": 2187.32568359375,
+			"speed": 31.9103145599365,
+			"state": "1",
+			"t": 1.01666666666667,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.124126459693929,
+				-0.111188785578018,
+				-0.0198141568219213
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 78.5509185791016,
+			"nose_elevation": -1.02579446648676,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				299.623474121094,
+				78.5509185791016,
+				-2151.06079101563
+			],
+			"range": 2171.82788085938,
+			"speed": 30.7549018859863,
+			"state": "1",
+			"t": 1.51666666666667,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.0454440065510518,
+				-0.0960796556824595,
+				-0.0208570009626845
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 76.4784240722656,
+			"nose_elevation": -1.4350596570805,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				299.247344970703,
+				76.4784240722656,
+				-2136.083984375
+			],
+			"range": 2156.94311523438,
+			"speed": 29.8134326934814,
+			"state": "1",
+			"t": 2.01666666666666,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.0385510192066069,
+				-0.0821022392731892,
+				-0.021522466317177
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 73.4776229858398,
+			"nose_elevation": -1.53846907729959,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				298.747436523438,
+				73.4776229858398,
+				-2121.71801757813
+			],
+			"range": 2142.64721679688,
+			"speed": 28.9536533355713,
+			"state": "1",
+			"t": 2.51666666666666,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.0568171779579839,
+				-0.0692288313555229,
+				-0.0216849833894701
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 70.1108703613281,
+			"nose_elevation": -1.35548441667584,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				298.082122802734,
+				70.1108703613281,
+				-2107.9111328125
+			],
+			"range": 2128.8828125,
+			"speed": 27.9575214385986,
+			"state": "1",
+			"t": 3.01666666666666,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.125059855317499,
+				-0.0575520862641591,
+				-0.021454381500613
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 67.0777130126953,
+			"nose_elevation": -1.1001437369608,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				297.205535888672,
+				67.0777130126953,
+				-2094.59155273438
+			],
+			"range": 2115.57202148438,
+			"speed": 26.8599014282227,
+			"state": "1",
+			"t": 3.51666666666666,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.180378750078548,
+				-0.046831731028664,
+				-0.0200960905401396
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 64.6970138549805,
+			"nose_elevation": -1.12767566972487,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				296.114868164063,
+				64.6970138549805,
+				-2081.658203125
+			],
+			"range": 2102.61376953125,
+			"speed": 26.0125865936279,
+			"state": "1",
+			"t": 4.01666666666666,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.216250304022549,
+				-0.0382690317039567,
+				-0.0176546250408915
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 62.8640670776367,
+			"nose_elevation": -1.53451916743421,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				294.845977783203,
+				62.8640670776367,
+				-2068.99047851563
+			],
+			"range": 2089.8935546875,
+			"speed": 25.5056190490723,
+			"state": "1",
+			"t": 4.51666666666666,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.24089404553664,
+				-0.0307247947457653,
+				-0.0144006023852894
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 61.4262313842773,
+			"nose_elevation": -2.17007758811549,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				293.433624267578,
+				61.4262313842773,
+				-2056.45947265625
+			],
+			"range": 2077.28881835938,
+			"speed": 25.3029937744141,
+			"state": "1",
+			"t": 5.01666666666665,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.257125216793093,
+				-0.023925713896292,
+				-0.0107979058574228
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 60.263973236084,
+			"nose_elevation": -2.83070477425565,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				291.903839111328,
+				60.263973236084,
+				-2043.95166015625
+			],
+			"range": 2064.6904296875,
+			"speed": 25.340368270874,
+			"state": "1",
+			"t": 5.51666666666665,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.27368700105711,
+				-0.0176905508009553,
+				-0.00724542624408919
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 59.3051490783691,
+			"nose_elevation": -3.40200938738348,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				290.274566650391,
+				59.3051490783691,
+				-2031.36547851563
+			],
+			"range": 2052.00024414063,
+			"speed": 25.5821380615234,
+			"state": "1",
+			"t": 6.01666666666665,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.288105079838737,
+				-0.0123289124269048,
+				-0.00420770956485817
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 58.5183906555176,
+			"nose_elevation": -3.86650906188793,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				288.556274414063,
+				58.5183906555176,
+				-2018.61169433594
+			],
+			"range": 2039.13171386719,
+			"speed": 25.9933433532715,
+			"state": "1",
+			"t": 6.51666666666665,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.300166841462118,
+				-0.00768676236402187,
+				-0.00178532939418889
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 57.8760871887207,
+			"nose_elevation": -4.24213685707791,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				286.756164550781,
+				57.8760871887207,
+				-2005.6171875
+			],
+			"range": 2026.01318359375,
+			"speed": 26.538366317749,
+			"state": "1",
+			"t": 7.01666666666665,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.309798223277729,
+				-0.0038087573106961,
+				-0.0000365028145836059
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 57.3523216247559,
+			"nose_elevation": -4.54881655048963,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				284.879089355469,
+				57.3523216247559,
+				-1992.32507324219
+			],
+			"range": 2012.58923339844,
+			"speed": 27.1876792907715,
+			"state": "1",
+			"t": 7.51666666666665,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.317080018617411,
+				-0.000688329776668344,
+				0.00109170746303069
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 56.9235725402832,
+			"nose_elevation": -4.79825687953478,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				282.928344726563,
+				56.9235725402832,
+				-1978.69030761719
+			],
+			"range": 1998.81555175781,
+			"speed": 27.9163551330566,
+			"state": "1",
+			"t": 8.01666666666664,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.272599310905214,
+				0.00160793317783464,
+				0.00166691822780646
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 56.5704765319824,
+			"nose_elevation": -4.9804064287559,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				280.906860351563,
+				56.5704765319824,
+				-1964.68225097656
+			],
+			"range": 1984.66247558594,
+			"speed": 28.6810283660889,
+			"state": "1",
+			"t": 8.51666666666667,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.236351579890432,
+				0.0031397832366238,
+				0.00180660787997298
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 56.2947845458984,
+			"nose_elevation": -4.9482586504241,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				278.822326660156,
+				56.2947845458984,
+				-1950.31713867188
+			],
+			"range": 1970.14697265625,
+			"speed": 29.3431625366211,
+			"state": "1",
+			"t": 9.01666666666669,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.220408317783212,
+				0.00386660450528402,
+				0.00160665198860001
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 56.1220359802246,
+			"nose_elevation": -4.62160319000831,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				276.690185546875,
+				56.1220359802246,
+				-1935.66979980469
+			],
+			"range": 1955.34521484375,
+			"speed": 29.8262519836426,
+			"state": "1",
+			"t": 9.51666666666672,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.220767884514991,
+				0.00392660967028564,
+				0.0012888709273921
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 56.0791282653809,
+			"nose_elevation": -4.15393162517425,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				274.527221679688,
+				56.0791282653809,
+				-1920.82946777344
+			],
+			"range": 1940.34814453125,
+			"speed": 30.1376819610596,
+			"state": "1",
+			"t": 10.0166666666667,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.231160103478489,
+				0.00359099631260838,
+				0.000974655073475486
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 56.1820907592773,
+			"nose_elevation": -3.75642886873167,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				272.346984863281,
+				56.1820907592773,
+				-1905.86645507813
+			],
+			"range": 1925.22729492188,
+			"speed": 30.3362770080566,
+			"state": "1",
+			"t": 10.5166666666668,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.244611488497525,
+				0.00309965794466335,
+				0.000707392742145073
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 56.4325332641602,
+			"nose_elevation": -3.55356998026417,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				270.156829833984,
+				56.4325332641602,
+				-1890.81811523438
+			],
+			"range": 1910.02038574219,
+			"speed": 30.49831199646,
+			"state": "1",
+			"t": 11.0166666666668,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.25529933696673,
+				0.00259350387076675,
+				0.000495983795476313
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 56.8194885253906,
+			"nose_elevation": -3.55326053271952,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				267.958129882813,
+				56.8194885253906,
+				-1875.68664550781
+			],
+			"range": 1894.73010253906,
+			"speed": 30.6840877532959,
+			"state": "1",
+			"t": 11.5166666666668,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.260318670528846,
+				0.00213372834817664,
+				0.000335717693018045
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 57.3241958618164,
+			"nose_elevation": -3.68378657543992,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				265.748565673828,
+				57.3241958618164,
+				-1860.45275878906
+			],
+			"range": 1879.33679199219,
+			"speed": 30.9196376800537,
+			"state": "1",
+			"t": 12.0166666666668,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.260073204542616,
+				0.00175731898387651,
+				0.000225334229121562
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 57.9256134033203,
+			"nose_elevation": -3.848497601389,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				263.524566650391,
+				57.9256134033203,
+				-1845.09326171875
+			],
+			"range": 1863.81713867188,
+			"speed": 31.1982269287109,
+			"state": "1",
+			"t": 12.5166666666669,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.256961574061084,
+				0.00145911400687962,
+				0.000153411832772572
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 58.6050567626953,
+			"nose_elevation": -3.97132050384214,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				261.283782958984,
+				58.6050567626953,
+				-1829.59301757813
+			],
+			"range": 1848.15576171875,
+			"speed": 31.4948329925537,
+			"state": "1",
+			"t": 13.0166666666669,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.253545210945105,
+				0.00123091242226804,
+				0.000110583485186321
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 59.3481788635254,
+			"nose_elevation": -4.01968993763242,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				259.025512695313,
+				59.3481788635254,
+				-1813.94995117188
+			],
+			"range": 1832.3505859375,
+			"speed": 31.7824859619141,
+			"state": "1",
+			"t": 13.5166666666669,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.251402459067488,
+				0.00105756660322059,
+				0.0000867655445189875
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 60.1444931030273,
+			"nose_elevation": -4.00225030354935,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				256.750762939453,
+				60.1444931030273,
+				-1798.17321777344
+			],
+			"range": 1816.41076660156,
+			"speed": 32.0428733825684,
+			"state": "1",
+			"t": 14.0166666666669,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.250903803715561,
+				0.000934593962875405,
+				0.0000777819076752537
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 60.9854621887207,
+			"nose_elevation": -3.95002433858573,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				254.461456298828,
+				60.9854621887207,
+				-1782.27807617188
+			],
+			"range": 1800.35168457031,
+			"speed": 32.2695617675781,
+			"state": "1",
+			"t": 14.516666666667,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.251572741184203,
+				0.000845615111362182,
+				0.0000760682215414559
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 61.8627014160156,
+			"nose_elevation": -3.89506667808306,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				252.159469604492,
+				61.8627014160156,
+				-1766.28039550781
+			],
+			"range": 1784.18920898438,
+			"speed": 32.4652824401855,
+			"state": "1",
+			"t": 15.016666666667,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.252619300897277,
+				0.000780271360373772,
+				0.0000775309878319075
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 62.7669868469238,
+			"nose_elevation": -3.85697381209274,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				249.846466064453,
+				62.7669868469238,
+				-1750.193359375
+			],
+			"range": 1767.93664550781,
+			"speed": 32.6368103027344,
+			"state": "1",
+			"t": 15.516666666667,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.253379774249593,
+				0.000728064574531136,
+				0.0000788834571254586
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 63.6881790161133,
+			"nose_elevation": -3.83998040169148,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				247.523651123047,
+				63.6881790161133,
+				-1734.02685546875
+			],
+			"range": 1751.60424804688,
+			"speed": 32.7903442382813,
+			"state": "1",
+			"t": 16.016666666667,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.253535681713659,
+				0.000686841308240049,
+				0.0000802711901076157
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 64.6157608032227,
+			"nose_elevation": -3.83753269051688,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				245.191848754883,
+				64.6157608032227,
+				-1717.78796386719
+			],
+			"range": 1735.19873046875,
+			"speed": 32.929084777832,
+			"state": "1",
+			"t": 16.516666666667,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.25315714193073,
+				0.000650978954432087,
+				0.0000801424759857893
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 65.5395278930664,
+			"nose_elevation": -3.83944644836701,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				242.851852416992,
+				65.5395278930664,
+				-1701.48352050781
+			],
+			"range": 1718.72717285156,
+			"speed": 33.0532569885254,
+			"state": "1",
+			"t": 17.016666666667,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.252351827886366,
+				0.000615267046118536,
+				0.0000785057949820335
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 66.4501724243164,
+			"nose_elevation": -3.8377149529845,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				240.504684448242,
+				66.4501724243164,
+				-1685.12121582031
+			],
+			"range": 1702.19738769531,
+			"speed": 33.1612739562988,
+			"state": "1",
+			"t": 17.516666666667,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.251398949093009,
+				0.000579945975671245,
+				0.000075578875832284
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 67.3394012451172,
+			"nose_elevation": -3.82867674950105,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				238.151275634766,
+				67.3394012451172,
+				-1668.70837402344
+			],
+			"range": 1685.61669921875,
+			"speed": 33.2510070800781,
+			"state": "1",
+			"t": 18.0166666666669,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.250472340861472,
+				0.000544706233170308,
+				0.0000717533263029609
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 68.1999130249023,
+			"nose_elevation": -3.81274364511151,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				235.792877197266,
+				68.1999130249023,
+				-1652.25427246094
+			],
+			"range": 1668.99450683594,
+			"speed": 33.3212699890137,
+			"state": "1",
+			"t": 18.5166666666669,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.249636640527564,
+				0.000509470724279069,
+				0.0000673427266417714
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 69.0253677368164,
+			"nose_elevation": -3.79269644474935,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				233.430786132813,
+				69.0253677368164,
+				-1635.76867675781
+			],
+			"range": 1652.34057617188,
+			"speed": 33.3720893859863,
+			"state": "1",
+			"t": 19.0166666666669,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.248872828184596,
+				0.00047459334914729,
+				0.0000627065855347925
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 69.8102035522461,
+			"nose_elevation": -3.77163194069646,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				231.066268920898,
+				69.8102035522461,
+				-1619.26062011719
+			],
+			"range": 1635.66394042969,
+			"speed": 33.4044418334961,
+			"state": "1",
+			"t": 19.5166666666668,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.248125952808139,
+				0.000440784111233959,
+				0.0000580106420749355
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 70.5494842529297,
+			"nose_elevation": -3.75162633256374,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				228.700439453125,
+				70.5494842529297,
+				-1602.73876953125
+			],
+			"range": 1618.9736328125,
+			"speed": 33.419849395752,
+			"state": "1",
+			"t": 20.0166666666668,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.247342558570237,
+				0.000408539008844536,
+				0.0000534971187397857
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 71.2389602661133,
+			"nose_elevation": -3.73341749049939,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				226.334396362305,
+				71.2389602661133,
+				-1586.21179199219
+			],
+			"range": 1602.27807617188,
+			"speed": 33.4199142456055,
+			"state": "1",
+			"t": 20.5166666666668,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.24348792916924,
+				0.000378055094228365,
+				0.0000492817330156229
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 71.8750152587891,
+			"nose_elevation": -3.71584257708449,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				223.969177246094,
+				71.8750152587891,
+				-1569.68566894531
+			],
+			"range": 1585.58361816406,
+			"speed": 33.404655456543,
+			"state": "1",
+			"t": 21.0166666666668,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.240312426314286,
+				0.000349250668168239,
+				0.0000454308841168481
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 72.4558029174805,
+			"nose_elevation": -3.68879535626972,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				221.606109619141,
+				72.4558029174805,
+				-1553.17028808594
+			],
+			"range": 1568.90002441406,
+			"speed": 33.3674430847168,
+			"state": "1",
+			"t": 21.5166666666667,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.238804350584373,
+				0.000322376516445124,
+				0.0000419631973556825
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 72.9809646606445,
+			"nose_elevation": -3.64789947666565,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				219.246765136719,
+				72.9809646606445,
+				-1536.67761230469
+			],
+			"range": 1552.23937988281,
+			"speed": 33.307300567627,
+			"state": "1",
+			"t": 22.0166666666667,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.238565645032261,
+				0.000297374329781339,
+				0.0000389121522887954
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 73.4505233764648,
+			"nose_elevation": -3.60439157836017,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				216.892578125,
+				73.4505233764648,
+				-1520.21789550781
+			],
+			"range": 1535.6123046875,
+			"speed": 33.2289352416992,
+			"state": "1",
+			"t": 22.5166666666667,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.23904506945204,
+				0.000274745922483537,
+				0.0000362412391859586
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 73.8642272949219,
+			"nose_elevation": -3.5714740608295,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				214.54460144043,
+				73.8642272949219,
+				-1503.79870605469
+			],
+			"range": 1519.02600097656,
+			"speed": 33.1392364501953,
+			"state": "1",
+			"t": 23.0166666666666,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.239725429477921,
+				0.00025427580812078,
+				0.0000338703959499321
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 74.2214736938477,
+			"nose_elevation": -3.55519164107077,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				212.203384399414,
+				74.2214736938477,
+				-1487.423828125
+			],
+			"range": 1502.48461914063,
+			"speed": 33.0449981689453,
+			"state": "1",
+			"t": 23.5166666666666,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.240263597313954,
+				0.000238738299745114,
+				0.0000332283816087253
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 74.5214996337891,
+			"nose_elevation": -3.55381933475369,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				209.869018554688,
+				74.5214996337891,
+				-1471.09448242188
+			],
+			"range": 1485.9892578125,
+			"speed": 32.9511756896973,
+			"state": "1",
+			"t": 24.0166666666666,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.240523045670991,
+				0.000221883873910758,
+				0.0000310025653357982
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 74.7637023925781,
+			"nose_elevation": -3.56148413116807,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				207.54133605957,
+				74.7637023925781,
+				-1454.80969238281
+			],
+			"range": 1469.53894042969,
+			"speed": 32.8604354858398,
+			"state": "1",
+			"t": 24.5166666666666,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.240531713453331,
+				0.000206485975722835,
+				0.0000289838386680211
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 74.9479751586914,
+			"nose_elevation": -3.57184981073691,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				205.220077514648,
+				74.9479751586914,
+				-1438.56811523438
+			],
+			"range": 1453.13232421875,
+			"speed": 32.7734870910645,
+			"state": "1",
+			"t": 25.0166666666665,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.22434430302738,
+				0.000192125472177274,
+				0.0000271212480347788
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 75.0641479492188,
+			"nose_elevation": -3.57921000615169,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				202.905624389648,
+				75.0641479492188,
+				-1422.37219238281
+			],
+			"range": 1436.77185058594,
+			"speed": 32.6486663818359,
+			"state": "1",
+			"t": 25.5166666666665,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.176441477995983,
+				0.000177155830331905,
+				0.0000263292715242359
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 74.9225997924805,
+			"nose_elevation": -3.5342199776408,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				200.608795166016,
+				74.9225997924805,
+				-1406.29772949219
+			],
+			"range": 1420.53405761719,
+			"speed": 32.2761878967285,
+			"state": "1",
+			"t": 26.0166666666665,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.216420556137132,
+				0.000163025143907743,
+				0.0000251302812398533
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 74.4670104980469,
+			"nose_elevation": -3.33801681812422,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				198.339721679688,
+				74.4670104980469,
+				-1390.41625976563
+			],
+			"range": 1404.49133300781,
+			"speed": 31.9729309082031,
+			"state": "1",
+			"t": 26.5166666666664,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.228299144167748,
+				0.000151443854544614,
+				0.0000241267419280265
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 74.0080337524414,
+			"nose_elevation": -3.16278766925633,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				196.087921142578,
+				74.0080337524414,
+				-1374.65417480469
+			],
+			"range": 1388.56921386719,
+			"speed": 31.7568283081055,
+			"state": "1",
+			"t": 27.0166666666664,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.236477927440412,
+				0.000141228289192164,
+				0.0000230768185165421
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 73.5616455078125,
+			"nose_elevation": -3.15883722523837,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				193.850112915039,
+				73.5616455078125,
+				-1358.98828125
+			],
+			"range": 1372.74438476563,
+			"speed": 31.5816802978516,
+			"state": "1",
+			"t": 27.5166666666664,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.240516333212319,
+				0.000132615949735907,
+				0.0000218712583502747
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 73.1208267211914,
+			"nose_elevation": -3.27669783222177,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				191.622680664063,
+				73.1208267211914,
+				-1343.39453125
+			],
+			"range": 1356.99230957031,
+			"speed": 31.4631481170654,
+			"state": "1",
+			"t": 28.0166666666664,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.24045900675737,
+				0.000124865585767788,
+				0.0000205246254736367
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 72.6825866699219,
+			"nose_elevation": -3.42710044811978,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				189.401748657227,
+				72.6825866699219,
+				-1327.84484863281
+			],
+			"range": 1341.28479003906,
+			"speed": 31.3981094360352,
+			"state": "1",
+			"t": 28.5166666666663,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.238030466942364,
+				0.000118148793682118,
+				0.0000191948682515172
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 72.2461166381836,
+			"nose_elevation": -3.5450941062141,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				187.184143066406,
+				72.2461166381836,
+				-1312.31762695313
+			],
+			"range": 1325.59997558594,
+			"speed": 31.3686809539795,
+			"state": "1",
+			"t": 29.0166666666663,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.235154200742506,
+				0.000111953032308161,
+				0.0000179453529868885
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 71.8132553100586,
+			"nose_elevation": -3.60430218218509,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				184.968139648438,
+				71.8132553100586,
+				-1296.80029296875
+			],
+			"range": 1309.92529296875,
+			"speed": 31.3545532226563,
+			"state": "1",
+			"t": 29.5166666666663,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.233145005067259,
+				0.000106755386973055,
+				0.000017239441735633
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 71.3881912231445,
+			"nose_elevation": -3.61025367687642,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				182.753189086914,
+				71.3881912231445,
+				-1281.28930664063
+			],
+			"range": 1294.25695800781,
+			"speed": 31.341064453125,
+			"state": "1",
+			"t": 30.0166666666662,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.232492617673915,
+				0.00010148141050912,
+				0.000016360902395307
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 70.976203918457,
+			"nose_elevation": -3.58531317910045,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				180.539474487305,
+				70.976203918457,
+				-1265.78637695313
+			],
+			"range": 1278.5966796875,
+			"speed": 31.3219928741455,
+			"state": "1",
+			"t": 30.5166666666662,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.233031532112563,
+				0.0000965117939986723,
+				0.0000155802118906069
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 70.5824432373047,
+			"nose_elevation": -3.55386167797559,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				178.327346801758,
+				70.5824432373047,
+				-1250.29370117188
+			],
+			"range": 1262.94689941406,
+			"speed": 31.2982883453369,
+			"state": "1",
+			"t": 31.0166666666662,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.234265727411363,
+				0.0000921111594784177,
+				0.0000149737008049507
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 70.2110061645508,
+			"nose_elevation": -3.5328438531361,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				176.116973876953,
+				70.2110061645508,
+				-1234.81213378906
+			],
+			"range": 1247.30834960938,
+			"speed": 31.2748489379883,
+			"state": "1",
+			"t": 31.5166666666662,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.235667136252076,
+				0.0000888956524598081,
+				0.0000149226089392423
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 69.8647003173828,
+			"nose_elevation": -3.52883417798278,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				173.908065795898,
+				69.8647003173828,
+				-1219.34045410156
+			],
+			"range": 1231.67980957031,
+			"speed": 31.2572841644287,
+			"state": "1",
+			"t": 32.0166666666661,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.23684347305817,
+				0.0000852309342413209,
+				0.0000142851574116941
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 69.5453948974609,
+			"nose_elevation": -3.53998004852779,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				171.700103759766,
+				69.5453948974609,
+				-1203.87438964844
+			],
+			"range": 1216.05688476563,
+			"speed": 31.2494201660156,
+			"state": "1",
+			"t": 32.5166666666661,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.237637039071166,
+				0.000081931000799516,
+				0.0000137452697795284
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 69.2539215087891,
+			"nose_elevation": -3.55982588990462,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				169.492294311523,
+				69.2539215087891,
+				-1188.40905761719
+			],
+			"range": 1200.43481445313,
+			"speed": 31.2525291442871,
+			"state": "1",
+			"t": 33.0166666666661,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.238086518210048,
+				0.0000786240016644122,
+				0.0000131169800502941
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 68.9908905029297,
+			"nose_elevation": -3.58135182214482,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				167.283889770508,
+				68.9908905029297,
+				-1172.93859863281
+			],
+			"range": 1184.80749511719,
+			"speed": 31.2657566070557,
+			"state": "1",
+			"t": 33.516666666666,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.238334519737721,
+				0.0000757602114497619,
+				0.000012633192277111
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 68.7566528320313,
+			"nose_elevation": -3.59961210330671,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				165.074264526367,
+				68.7566528320313,
+				-1157.45910644531
+			],
+			"range": 1169.17114257813,
+			"speed": 31.287052154541,
+			"state": "1",
+			"t": 34.016666666666,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.238534442132976,
+				0.0000729500632938595,
+				0.0000121237511445764
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 68.5514984130859,
+			"nose_elevation": -3.61261606408341,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				162.862945556641,
+				68.5514984130859,
+				-1141.966796875
+			],
+			"range": 1153.52172851563,
+			"speed": 31.3141956329346,
+			"state": "1",
+			"t": 34.516666666666,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.238790318368893,
+				0.000070447958537391,
+				0.0000116974512784049
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 68.375602722168,
+			"nose_elevation": -3.62086714426589,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				160.649597167969,
+				68.375602722168,
+				-1126.46008300781
+			],
+			"range": 1137.85791015625,
+			"speed": 31.3454246520996,
+			"state": "1",
+			"t": 35.016666666666,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.23913893830346,
+				0.0000681046063937404,
+				0.0000112665781183619
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 68.2289962768555,
+			"nose_elevation": -3.62618996496225,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				158.433944702148,
+				68.2289962768555,
+				-1110.93664550781
+			],
+			"range": 1122.17712402344,
+			"speed": 31.3796920776367,
+			"state": "1",
+			"t": 35.5166666666659,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.239558120330336,
+				0.0000657720732567053,
+				0.000010832918614874
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 68.1114044189453,
+			"nose_elevation": -3.63053541855931,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				156.2158203125,
+				68.1114044189453,
+				-1095.39526367188
+			],
+			"range": 1106.47827148438,
+			"speed": 31.4165878295898,
+			"state": "1",
+			"t": 36.0166666666659,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.240002609611118,
+				0.0000636887468296893,
+				0.0000104771693638701
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 68.0222320556641,
+			"nose_elevation": -3.63523207368153,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				153.995071411133,
+				68.0222320556641,
+				-1079.83471679688
+			],
+			"range": 1090.76000976563,
+			"speed": 31.4559421539307,
+			"state": "1",
+			"t": 36.5166666666659,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.24042525019229,
+				0.0000615848659403961,
+				0.0000101019861066305
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 67.9606170654297,
+			"nose_elevation": -3.64071495757461,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				151.771499633789,
+				67.9606170654297,
+				-1064.25402832031
+			],
+			"range": 1075.021484375,
+			"speed": 31.4976444244385,
+			"state": "1",
+			"t": 37.0166666666658,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.240796952685989,
+				0.0000600102771417999,
+				0.00000995061195270123
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 67.925422668457,
+			"nose_elevation": -3.64675395352201,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				149.544921875,
+				67.925422668457,
+				-1048.65222167969
+			],
+			"range": 1059.26159667969,
+			"speed": 31.5414123535156,
+			"state": "1",
+			"t": 37.5166666666658,
+			"volleys": 0
+		},
+		{
+			"aim_dot": -1.0,
+			"controls": [
+				-0.241105862918102,
+				0.0000584400760820901,
+				0.00000972696404167664
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "none",
+			"health": 90.0,
+			"height": 67.9152603149414,
+			"nose_elevation": -3.65276475815272,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				147.315277099609,
+				67.9152603149414,
+				-1033.02819824219
+			],
+			"range": 1043.47924804688,
+			"speed": 31.5868053436279,
+			"state": "1",
+			"t": 38.0166666666658,
+			"volleys": 0
+		},
+		{
+			"aim_dot": 0.999891102313995,
+			"controls": [
+				-0.219126762085926,
+				0.0000568627163550549,
+				0.00140480146079432
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "range",
+			"health": 90.0,
+			"height": 67.9286117553711,
+			"nose_elevation": -3.65779689170358,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				145.082443237305,
+				67.9286117553711,
+				-1017.38128662109
+			],
+			"range": 1027.67395019531,
+			"speed": 31.6316967010498,
+			"state": "2",
+			"t": 38.5166666666658,
+			"volleys": 0
+		},
+		{
+			"aim_dot": 0.999921560287476,
+			"controls": [
+				-0.226517606560825,
+				0.0000383133105826442,
+				0.00114106632840901
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "range",
+			"health": 90.0,
+			"height": 67.967529296875,
+			"nose_elevation": -3.6155293840253,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				142.84797668457,
+				67.967529296875,
+				-1001.72290039063
+			],
+			"range": 1011.85687255859,
+			"speed": 31.6300754547119,
+			"state": "2",
+			"t": 39.0166666666657,
+			"volleys": 0
+		},
+		{
+			"aim_dot": 0.999958038330078,
+			"controls": [
+				-0.238474056125953,
+				-0.0000542925843849084,
+				0.000603014467418467
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "range",
+			"health": 90.0,
+			"height": 68.0366592407227,
+			"nose_elevation": -3.53193798581135,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				140.614837646484,
+				68.0366592407227,
+				-986.072692871094
+			],
+			"range": 996.048156738281,
+			"speed": 31.6089324951172,
+			"state": "2",
+			"t": 39.5166666666657,
+			"volleys": 0
+		},
+		{
+			"aim_dot": 0.999976336956024,
+			"controls": [
+				-0.247919526876154,
+				-0.000188639148696453,
+				0.0000580245073669691
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "range",
+			"health": 90.0,
+			"height": 68.1328811645508,
+			"nose_elevation": -3.50821894652737,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				138.382751464844,
+				68.1328811645508,
+				-970.428161621094
+			],
+			"range": 980.245178222656,
+			"speed": 31.6090526580811,
+			"state": "2",
+			"t": 40.0166666666657,
+			"volleys": 0
+		},
+		{
+			"aim_dot": 0.99997866153717,
+			"controls": [
+				-0.25032186132303,
+				-0.000313319689358992,
+				-0.000315528468587971
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "range",
+			"health": 90.0,
+			"height": 68.2485504150391,
+			"nose_elevation": -3.57188253114023,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				136.149505615234,
+				68.2485504150391,
+				-954.774230957031
+			],
+			"range": 964.432739257813,
+			"speed": 31.6461391448975,
+			"state": "2",
+			"t": 40.5166666666657,
+			"volleys": 0
+		},
+		{
+			"aim_dot": 0.999975144863129,
+			"controls": [
+				-0.247351723175312,
+				-0.000392733668233044,
+				-0.000392042184355239
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "range",
+			"health": 90.0,
+			"height": 68.3757781982422,
+			"nose_elevation": -3.67133254731684,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				133.912826538086,
+				68.3757781982422,
+				-939.093872070313
+			],
+			"range": 948.593688964844,
+			"speed": 31.7110614776611,
+			"state": "2",
+			"t": 41.0166666666656,
+			"volleys": 0
+		},
+		{
+			"aim_dot": 0.999976634979248,
+			"controls": [
+				-0.243618032542825,
+				-0.000400570998954106,
+				-0.000159676410169396
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "range",
+			"health": 90.0,
+			"height": 68.5094909667969,
+			"nose_elevation": -3.74153621558401,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				131.671524047852,
+				68.5094909667969,
+				-923.378784179688
+			],
+			"range": 932.719543457031,
+			"speed": 31.7837314605713,
+			"state": "2",
+			"t": 41.5166666666656,
+			"volleys": 0
+		},
+		{
+			"aim_dot": 0.999985873699188,
+			"controls": [
+				-0.242719826017134,
+				-0.000349179482337415,
+				0.000209803253320295
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "range",
+			"health": 90.0,
+			"height": 68.647705078125,
+			"nose_elevation": -3.75715913376082,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				129.425537109375,
+				68.647705078125,
+				-907.62939453125
+			],
+			"range": 916.810852050781,
+			"speed": 31.8494644165039,
+			"state": "2",
+			"t": 42.0166666666656,
+			"volleys": 0
+		},
+		{
+			"aim_dot": 0.999996244907379,
+			"controls": [
+				-0.24442890356406,
+				-0.000280969442919729,
+				0.000489358900371127
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "range",
+			"health": 90.0,
+			"height": 68.7897186279297,
+			"nose_elevation": -3.73718209179648,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				127.175476074219,
+				68.7897186279297,
+				-891.850402832031
+			],
+			"range": 900.872192382813,
+			"speed": 31.9056797027588,
+			"state": "2",
+			"t": 42.5166666666655,
+			"volleys": 0
+		},
+		{
+			"aim_dot": 0.999999821186066,
+			"controls": [
+				-0.246728871855151,
+				-0.000238340814943514,
+				0.000565984311915458
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "range",
+			"health": 90.0,
+			"height": 68.9342956542969,
+			"nose_elevation": -3.71640041039038,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				124.921714782715,
+				68.9342956542969,
+				-876.044494628906
+			],
+			"range": 884.906433105469,
+			"speed": 31.9584293365479,
+			"state": "2",
+			"t": 43.0166666666655,
+			"volleys": 0
+		},
+		{
+			"aim_dot": 0.999996185302734,
+			"controls": [
+				-0.248393472398732,
+				-0.000236385930167509,
+				0.000490078049154049
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "range",
+			"health": 90.0,
+			"height": 69.0791015625,
+			"nose_elevation": -3.71533393950795,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				122.664207458496,
+				69.0791015625,
+				-860.212097167969
+			],
+			"range": 868.913879394531,
+			"speed": 32.013973236084,
+			"state": "2",
+			"t": 43.5166666666655,
+			"volleys": 0
+		},
+		{
+			"aim_dot": 0.999988555908203,
+			"controls": [
+				-0.248645351561033,
+				-0.00026601846853162,
+				0.000328623638468729
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "range",
+			"health": 90.0,
+			"height": 69.221321105957,
+			"nose_elevation": -3.73186203040385,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				120.402671813965,
+				69.221321105957,
+				-844.350708007813
+			],
+			"range": 852.89208984375,
+			"speed": 32.0741195678711,
+			"state": "2",
+			"t": 44.0166666666655,
+			"volleys": 0
+		},
+		{
+			"aim_dot": 0.999974489212036,
+			"controls": [
+				-0.24820744424398,
+				-0.000307290802878873,
+				0.00017526649021798
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "range",
+			"health": 90.0,
+			"height": 69.3584365844727,
+			"nose_elevation": -3.75149029103659,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				118.136917114258,
+				69.3584365844727,
+				-828.458801269531
+			],
+			"range": 836.839477539063,
+			"speed": 32.1362495422363,
+			"state": "2",
+			"t": 44.5166666666654,
+			"volleys": 0
+		},
+		{
+			"aim_dot": 0.999953329563141,
+			"controls": [
+				-0.247852161564138,
+				-0.00034327465729893,
+				0.0000957182516602592
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "range",
+			"health": 90.0,
+			"height": 69.4886703491211,
+			"nose_elevation": -3.76258672903509,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				115.866981506348,
+				69.4886703491211,
+				-812.536376953125
+			],
+			"range": 820.756103515625,
+			"speed": 32.1968460083008,
+			"state": "2",
+			"t": 45.0166666666654,
+			"volleys": 0
+		},
+		{
+			"aim_dot": 0.999909102916718,
+			"controls": [
+				-0.249978688303707,
+				-0.000366599368479873,
+				0.0000884502502668343
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "volley_cooldown",
+			"health": 90.0,
+			"height": 69.6108703613281,
+			"nose_elevation": -3.76494139268887,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				113.592979431152,
+				69.6108703613281,
+				-796.584411621094
+			],
+			"range": 804.642883300781,
+			"speed": 32.2563819885254,
+			"state": "2",
+			"t": 45.5166666666654,
+			"volleys": 1
+		},
+		{
+			"aim_dot": 0.999845921993256,
+			"controls": [
+				-0.257612947959785,
+				-0.000368208582288021,
+				0.000163104609071408
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "rocket_assess",
+			"health": 90.0,
+			"height": 69.7348022460938,
+			"nose_elevation": -3.77103043526586,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				111.314270019531,
+				69.7348022460938,
+				-780.598510742188
+			],
+			"range": 788.495361328125,
+			"speed": 32.3400115966797,
+			"state": "2",
+			"t": 46.0166666666653,
+			"volleys": 2
+		},
+		{
+			"aim_dot": 0.999779284000397,
+			"controls": [
+				-0.266689191866329,
+				-0.000362547814092455,
+				0.000263802832434523
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "hardpoint_not_ready",
+			"health": 90.0,
+			"height": 69.8925399780273,
+			"nose_elevation": -3.80668211795162,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				109.028038024902,
+				69.8925399780273,
+				-764.558471679688
+			],
+			"range": 772.293212890625,
+			"speed": 32.4773406982422,
+			"state": "2",
+			"t": 46.5166666666653,
+			"volleys": 3
+		},
+		{
+			"aim_dot": 0.999720931053162,
+			"controls": [
+				-0.274834872992997,
+				-0.000353955662378213,
+				0.000349498808004935
+			],
+			"damage": 0.0,
+			"escape_covered": false,
+			"exit_reason": "",
+			"gate": "volley_limit",
+			"health": 90.0,
+			"height": 70.1158981323242,
+			"nose_elevation": -3.88767602290428,
+			"path_points": 0,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				106.729797363281,
+				70.1158981323242,
+				-748.433471679688
+			],
+			"range": 756.005249023438,
+			"speed": 32.6853103637695,
+			"state": "2",
+			"t": 47.0166666666653,
+			"volleys": 4
+		},
+		{
+			"aim_dot": 0.999710559844971,
+			"controls": [
+				-0.275977926296646,
+				0.199647073919258,
+				0.460361345989108
+			],
+			"damage": 74.9779278039932,
+			"escape_covered": false,
+			"exit_reason": "volley_complete",
+			"gate": "volley_limit",
+			"health": 90.0,
+			"height": 70.4318923950195,
+			"nose_elevation": -3.95617803878672,
+			"path_points": 3,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				104.422859191895,
+				70.4318923950195,
+				-732.197387695313
+			],
+			"range": 739.606079101563,
+			"speed": 32.8873596191406,
+			"state": "3",
+			"t": 47.5166666666653,
+			"volleys": 4
+		},
+		{
+			"aim_dot": 0.999710559844971,
+			"controls": [
+				-0.35197899846112,
+				0.25567795690704,
+				0.472484307032386
+			],
+			"damage": 695.122972726822,
+			"escape_covered": false,
+			"exit_reason": "volley_complete",
+			"gate": "volley_limit",
+			"health": 90.0,
+			"height": 70.8406982421875,
+			"nose_elevation": -4.01719419801805,
+			"path_points": 3,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				102.239486694336,
+				70.8406982421875,
+				-715.839965820313
+			],
+			"range": 723.104248046875,
+			"speed": 33.1860084533691,
+			"state": "3",
+			"t": 48.0166666666652,
+			"volleys": 4
+		},
+		{
+			"aim_dot": 0.999710559844971,
+			"controls": [
+				-0.341896522236426,
+				0.288809086558386,
+				0.469538359804521
+			],
+			"damage": 1231.52548372746,
+			"escape_covered": false,
+			"exit_reason": "volley_complete",
+			"gate": "volley_limit",
+			"health": 90.0,
+			"height": 71.2633438110352,
+			"nose_elevation": -4.55586491659138,
+			"path_points": 3,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				100.430328369141,
+				71.2633438110352,
+				-699.229736328125
+			],
+			"range": 706.405334472656,
+			"speed": 33.6600914001465,
+			"state": "3",
+			"t": 48.5166666666652,
+			"volleys": 4
+		},
+		{
+			"aim_dot": 0.999710559844971,
+			"controls": [
+				-0.317168773097436,
+				0.33006695495804,
+				0.46682838217594
+			],
+			"damage": 1827.50564932823,
+			"escape_covered": false,
+			"exit_reason": "volley_complete",
+			"gate": "volley_limit",
+			"health": 90.0,
+			"height": 71.6286926269531,
+			"nose_elevation": -5.26546742570592,
+			"path_points": 3,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				99.2450485229492,
+				71.6286926269531,
+				-682.328369140625
+			],
+			"range": 689.508239746094,
+			"speed": 34.0974235534668,
+			"state": "3",
+			"t": 49.0166666666652,
+			"volleys": 4
+		},
+		{
+			"aim_dot": 0.999710559844971,
+			"controls": [
+				-0.27962462878849,
+				0.366651916652329,
+				0.465344843422426
+			],
+			"damage": 1827.50564932823,
+			"escape_covered": false,
+			"exit_reason": "volley_complete",
+			"gate": "volley_limit",
+			"health": 90.0,
+			"height": 71.8897399902344,
+			"nose_elevation": -5.73978751918952,
+			"path_points": 3,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				98.9360961914063,
+				71.8897399902344,
+				-665.220886230469
+			],
+			"range": 672.537841796875,
+			"speed": 34.3181648254395,
+			"state": "3",
+			"t": 49.5166666666651,
+			"volleys": 4
+		},
+		{
+			"aim_dot": 0.999710559844971,
+			"controls": [
+				-0.236944751538893,
+				0.383506817826447,
+				0.400732588301027
+			],
+			"damage": 1827.50564932823,
+			"escape_covered": false,
+			"exit_reason": "volley_complete",
+			"gate": "volley_limit",
+			"health": 90.0,
+			"height": 72.0234985351563,
+			"nose_elevation": -5.81413349530633,
+			"path_points": 3,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				99.7256088256836,
+				72.0234985351563,
+				-648.111999511719
+			],
+			"range": 655.739562988281,
+			"speed": 34.1714668273926,
+			"state": "3",
+			"t": 50.0166666666651,
+			"volleys": 4
+		},
+		{
+			"aim_dot": 0.999710559844971,
+			"controls": [
+				-0.197763334302911,
+				0.371836687770759,
+				0.346617359248864
+			],
+			"damage": 1827.50564932823,
+			"escape_covered": false,
+			"exit_reason": "volley_complete",
+			"gate": "volley_limit",
+			"health": 90.0,
+			"height": 72.0292053222656,
+			"nose_elevation": -5.52138806176404,
+			"path_points": 3,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				101.752624511719,
+				72.0292053222656,
+				-631.293762207031
+			],
+			"range": 639.441467285156,
+			"speed": 33.594181060791,
+			"state": "3",
+			"t": 50.5166666666651,
+			"volleys": 4
+		},
+		{
+			"aim_dot": 0.999710559844971,
+			"controls": [
+				-0.168568737182172,
+				0.336873286258488,
+				0.314778853354903
+			],
+			"damage": 1827.50564932823,
+			"escape_covered": false,
+			"exit_reason": "volley_complete",
+			"gate": "volley_limit",
+			"health": 90.0,
+			"height": 71.9249114990234,
+			"nose_elevation": -4.98469277490785,
+			"path_points": 3,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				105.038299560547,
+				71.9249114990234,
+				-615.075988769531
+			],
+			"range": 623.980346679688,
+			"speed": 32.6349868774414,
+			"state": "3",
+			"t": 51.0166666666651,
+			"volleys": 4
+		},
+		{
+			"aim_dot": 0.999710559844971,
+			"controls": [
+				-0.152307147850567,
+				0.292073199523398,
+				0.296668123389942
+			],
+			"damage": 1827.50564932823,
+			"escape_covered": false,
+			"exit_reason": "volley_complete",
+			"gate": "volley_limit",
+			"health": 90.0,
+			"height": 71.7445907592773,
+			"nose_elevation": -4.35413013617757,
+			"path_points": 3,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				109.49388885498,
+				71.7445907592773,
+				-599.713317871094
+			],
+			"range": 609.626892089844,
+			"speed": 31.4189319610596,
+			"state": "3",
+			"t": 51.516666666665,
+			"volleys": 4
+		},
+		{
+			"aim_dot": 0.999710559844971,
+			"controls": [
+				-0.148843877430791,
+				0.248607653981324,
+				0.285798817956954
+			],
+			"damage": 1827.50564932823,
+			"escape_covered": false,
+			"exit_reason": "volley_complete",
+			"gate": "volley_limit",
+			"health": 90.0,
+			"height": 71.5329513549805,
+			"nose_elevation": -3.76558096903597,
+			"path_points": 3,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				114.962059020996,
+				71.5329513549805,
+				-585.365478515625
+			],
+			"range": 596.547607421875,
+			"speed": 30.089916229248,
+			"state": "3",
+			"t": 52.016666666665,
+			"volleys": 4
+		},
+		{
+			"aim_dot": 0.999710559844971,
+			"controls": [
+				-0.15631342105663,
+				0.211827914077036,
+				0.277735741032471
+			],
+			"damage": 1827.50564932823,
+			"escape_covered": false,
+			"exit_reason": "volley_complete",
+			"gate": "volley_limit",
+			"health": 90.0,
+			"height": 71.3368682861328,
+			"nose_elevation": -3.3130020295341,
+			"path_points": 3,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				121.264999389648,
+				71.3368682861328,
+				-572.094848632813
+			],
+			"range": 584.805725097656,
+			"speed": 28.7726173400879,
+			"state": "3",
+			"t": 52.516666666665,
+			"volleys": 4
+		},
+		{
+			"aim_dot": 0.999710559844971,
+			"controls": [
+				-0.17224332564133,
+				0.182702604078927,
+				0.269803054732641
+			],
+			"damage": 1827.50564932823,
+			"escape_covered": false,
+			"exit_reason": "volley_complete",
+			"gate": "volley_limit",
+			"health": 90.0,
+			"height": 71.1972808837891,
+			"nose_elevation": -3.03947903877504,
+			"path_points": 3,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				128.240509033203,
+				71.1972808837891,
+				-559.888061523438
+			],
+			"range": 574.386901855469,
+			"speed": 27.5595455169678,
+			"state": "3",
+			"t": 53.0166666666649,
+			"volleys": 4
+		},
+		{
+			"aim_dot": 0.999710559844971,
+			"controls": [
+				-0.194139168327789,
+				0.160539549498741,
+				0.260800060108505
+			],
+			"damage": 1827.50564932823,
+			"escape_covered": false,
+			"exit_reason": "volley_complete",
+			"gate": "volley_limit",
+			"health": 90.0,
+			"height": 71.1438522338867,
+			"nose_elevation": -2.94692878028169,
+			"path_points": 3,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				135.762130737305,
+				71.1438522338867,
+				-548.682312011719
+			],
+			"range": 565.228820800781,
+			"speed": 26.5124053955078,
+			"state": "3",
+			"t": 53.5166666666649,
+			"volleys": 4
+		},
+		{
+			"aim_dot": 0.999710559844971,
+			"controls": [
+				-0.222120583994877,
+				0.145317781298801,
+				0.250806856582297
+			],
+			"damage": 1827.50564932823,
+			"escape_covered": false,
+			"exit_reason": "volley_complete",
+			"gate": "volley_limit",
+			"health": 90.0,
+			"height": 71.1928176879883,
+			"nose_elevation": -3.01359835778024,
+			"path_points": 3,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				143.74592590332,
+				71.1928176879883,
+				-538.39111328125
+			],
+			"range": 557.250305175781,
+			"speed": 25.6673946380615,
+			"state": "3",
+			"t": 54.0166666666649,
+			"volleys": 4
+		},
+		{
+			"aim_dot": 0.999710559844971,
+			"controls": [
+				-0.258519535168119,
+				0.136804546980302,
+				0.241276155743882
+			],
+			"damage": 1827.50564932823,
+			"escape_covered": false,
+			"exit_reason": "volley_complete",
+			"gate": "volley_limit",
+			"health": 90.0,
+			"height": 71.3467559814453,
+			"nose_elevation": -3.21644102832324,
+			"path_points": 3,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				152.149978637695,
+				71.3467559814453,
+				-528.923217773438
+			],
+			"range": 550.3720703125,
+			"speed": 25.0482978820801,
+			"state": "3",
+			"t": 54.5166666666649,
+			"volleys": 4
+		},
+		{
+			"aim_dot": 0.999710559844971,
+			"controls": [
+				-0.292863500399793,
+				0.132795258818974,
+				0.232572503930183
+			],
+			"damage": 1827.50564932823,
+			"escape_covered": false,
+			"exit_reason": "volley_complete",
+			"gate": "volley_limit",
+			"health": 90.0,
+			"height": 71.5939025878906,
+			"nose_elevation": -3.55008736478259,
+			"path_points": 3,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				160.974044799805,
+				71.5939025878906,
+				-520.19482421875
+			],
+			"range": 544.532165527344,
+			"speed": 24.671199798584,
+			"state": "3",
+			"t": 55.0166666666648,
+			"volleys": 4
+		},
+		{
+			"aim_dot": 0.999710559844971,
+			"controls": [
+				-0.321681849722001,
+				0.132897062067871,
+				0.224978557172925
+			],
+			"damage": 1827.50564932823,
+			"escape_covered": false,
+			"exit_reason": "volley_complete",
+			"gate": "volley_limit",
+			"health": 90.0,
+			"height": 71.9104843139648,
+			"nose_elevation": -3.99204251504846,
+			"path_points": 3,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				170.248260498047,
+				71.9104843139648,
+				-512.139770507813
+			],
+			"range": 539.695861816406,
+			"speed": 24.5319995880127,
+			"state": "3",
+			"t": 55.5166666666648,
+			"volleys": 4
+		},
+		{
+			"aim_dot": 0.999710559844971,
+			"controls": [
+				-0.342149561747514,
+				0.136694230751918,
+				0.21861829227405
+			],
+			"damage": 1827.50564932823,
+			"escape_covered": false,
+			"exit_reason": "volley_complete",
+			"gate": "volley_limit",
+			"health": 90.0,
+			"height": 72.2648086547852,
+			"nose_elevation": -4.49306112550995,
+			"path_points": 3,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				180.017486572266,
+				72.2648086547852,
+				-504.714996337891
+			],
+			"range": 535.857727050781,
+			"speed": 24.6086597442627,
+			"state": "3",
+			"t": 56.0166666666648,
+			"volleys": 4
+		},
+		{
+			"aim_dot": 0.999710559844971,
+			"controls": [
+				-0.353034171689581,
+				0.143691899246024,
+				0.213458261820051
+			],
+			"damage": 1827.50564932823,
+			"escape_covered": false,
+			"exit_reason": "volley_complete",
+			"gate": "volley_limit",
+			"health": 90.0,
+			"height": 72.6223754882813,
+			"nose_elevation": -4.98965662409611,
+			"path_points": 3,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				190.326034545898,
+				72.6223754882813,
+				-497.901916503906
+			],
+			"range": 533.038757324219,
+			"speed": 24.8637561798096,
+			"state": "3",
+			"t": 56.5166666666647,
+			"volleys": 4
+		},
+		{
+			"aim_dot": 0.999710559844971,
+			"controls": [
+				-0.354064863355017,
+				0.153273528944146,
+				0.209353855196891
+			],
+			"damage": 1827.50564932823,
+			"escape_covered": false,
+			"exit_reason": "volley_complete",
+			"gate": "volley_limit",
+			"health": 90.0,
+			"height": 72.9513549804688,
+			"nose_elevation": -5.418844747949,
+			"path_points": 3,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				201.204818725586,
+				72.9513549804688,
+				-491.704376220703
+			],
+			"range": 531.278259277344,
+			"speed": 25.2490615844727,
+			"state": "3",
+			"t": 57.0166666666647,
+			"volleys": 4
+		},
+		{
+			"aim_dot": 0.999710559844971,
+			"controls": [
+				-0.34922628274165,
+				0.164668925446984,
+				0.206111048962598
+			],
+			"damage": 1827.50564932823,
+			"escape_covered": false,
+			"exit_reason": "volley_complete",
+			"gate": "volley_limit",
+			"health": 90.0,
+			"height": 73.2273406982422,
+			"nose_elevation": -5.72995620125809,
+			"path_points": 3,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				212.662734985352,
+				73.2273406982422,
+				-486.144348144531
+			],
+			"range": 530.623901367188,
+			"speed": 25.710880279541,
+			"state": "3",
+			"t": 57.5166666666647,
+			"volleys": 4
+		},
+		{
+			"aim_dot": 0.999710559844971,
+			"controls": [
+				-0.341408101675829,
+				0.177060971770343,
+				0.203530560395948
+			],
+			"damage": 1827.50564932823,
+			"escape_covered": false,
+			"exit_reason": "volley_complete",
+			"gate": "volley_limit",
+			"health": 90.0,
+			"height": 73.4354934692383,
+			"nose_elevation": -5.8994610854168,
+			"path_points": 3,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				224.683410644531,
+				73.4354934692383,
+				-481.256713867188
+			],
+			"range": 531.1220703125,
+			"speed": 26.2005271911621,
+			"state": "3",
+			"t": 58.0166666666647,
+			"volleys": 4
+		},
+		{
+			"aim_dot": 0.999710559844971,
+			"controls": [
+				-0.330539215715072,
+				0.189664442764731,
+				0.201408098005606
+			],
+			"damage": 1827.50564932823,
+			"escape_covered": false,
+			"exit_reason": "volley_complete",
+			"gate": "volley_limit",
+			"health": 90.0,
+			"height": 73.5698471069336,
+			"nose_elevation": -5.93697392292784,
+			"path_points": 3,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				237.227569580078,
+				73.5698471069336,
+				-477.083831787109
+			],
+			"range": 532.809448242188,
+			"speed": 26.6787147521973,
+			"state": "3",
+			"t": 58.5166666666646,
+			"volleys": 4
+		},
+		{
+			"aim_dot": 0.999710559844971,
+			"controls": [
+				-0.319545532801078,
+				0.201742371954527,
+				0.199538590562921
+			],
+			"damage": 1827.50564932823,
+			"escape_covered": false,
+			"exit_reason": "volley_complete",
+			"gate": "volley_limit",
+			"health": 90.0,
+			"height": 73.6316452026367,
+			"nose_elevation": -5.86877701110856,
+			"path_points": 3,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				250.23664855957,
+				73.6316452026367,
+				-473.670440673828
+			],
+			"range": 535.707092285156,
+			"speed": 27.1153335571289,
+			"state": "3",
+			"t": 59.0166666666646,
+			"volleys": 4
+		},
+		{
+			"aim_dot": 0.999710559844971,
+			"controls": [
+				-0.309492948615115,
+				0.21275128133816,
+				0.197724969001566
+			],
+			"damage": 1827.50564932823,
+			"escape_covered": false,
+			"exit_reason": "volley_complete",
+			"gate": "volley_limit",
+			"health": 90.0,
+			"height": 73.6269226074219,
+			"nose_elevation": -5.7292182693244,
+			"path_points": 3,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				263.637512207031,
+				73.6269226074219,
+				-471.059509277344
+			],
+			"range": 539.816467285156,
+			"speed": 27.4930648803711,
+			"state": "3",
+			"t": 59.5166666666646,
+			"volleys": 4
+		},
+		{
+			"aim_dot": 0.999710559844971,
+			"controls": [
+				-0.300907966841043,
+				0.222405218133155,
+				0.195777727755812
+			],
+			"damage": 1827.50564932823,
+			"escape_covered": false,
+			"exit_reason": "volley_complete",
+			"gate": "volley_limit",
+			"health": 90.0,
+			"height": 73.5638961791992,
+			"nose_elevation": -5.55470328115434,
+			"path_points": 3,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				277.348541259766,
+				73.5638961791992,
+				-469.289916992188
+			],
+			"range": 545.119506835938,
+			"speed": 27.8065814971924,
+			"state": "3",
+			"t": 60.0166666666645,
+			"volleys": 4
+		},
+		{
+			"aim_dot": 0.999710559844971,
+			"controls": [
+				-0.293944743404849,
+				0.230672937173974,
+				0.193531669853056
+			],
+			"damage": 1827.50564932823,
+			"escape_covered": false,
+			"exit_reason": "volley_complete",
+			"gate": "volley_limit",
+			"health": 90.0,
+			"height": 73.4509811401367,
+			"nose_elevation": -5.37608343347975,
+			"path_points": 3,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				291.285125732422,
+				73.4509811401367,
+				-468.393859863281
+			],
+			"range": 551.579406738281,
+			"speed": 28.0598907470703,
+			"state": "3",
+			"t": 60.5166666666645,
+			"volleys": 4
+		},
+		{
+			"aim_dot": 0.999710559844971,
+			"controls": [
+				-0.288534562258448,
+				0.237719216338242,
+				0.190858120558475
+			],
+			"damage": 1827.50564932823,
+			"escape_covered": false,
+			"exit_reason": "volley_complete",
+			"gate": "volley_limit",
+			"health": 90.0,
+			"height": 73.2955703735352,
+			"nose_elevation": -5.21443198807053,
+			"path_points": 3,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				305.363250732422,
+				73.2955703735352,
+				-468.396514892578
+			],
+			"range": 559.143981933594,
+			"speed": 28.2630462646484,
+			"state": "3",
+			"t": 61.0166666666645,
+			"volleys": 4
+		},
+		{
+			"aim_dot": 0.999710559844971,
+			"controls": [
+				-0.285123288652562,
+				0.243834091880766,
+				0.186986939983498
+			],
+			"damage": 1827.50564932823,
+			"escape_covered": false,
+			"exit_reason": "volley_complete",
+			"gate": "volley_limit",
+			"health": 90.0,
+			"height": 73.1036529541016,
+			"nose_elevation": -5.08090793283939,
+			"path_points": 3,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				319.502624511719,
+				73.1036529541016,
+				-469.315704345703
+			],
+			"range": 567.749206542969,
+			"speed": 28.4292221069336,
+			"state": "3",
+			"t": 61.5166666666645,
+			"volleys": 4
+		},
+		{
+			"aim_dot": 0.999710559844971,
+			"controls": [
+				-0.282909864426442,
+				0.249379107513002,
+				0.182467479543774
+			],
+			"damage": 1827.50564932823,
+			"escape_covered": false,
+			"exit_reason": "volley_complete",
+			"gate": "volley_limit",
+			"health": 90.0,
+			"height": 72.8794784545898,
+			"nose_elevation": -4.98008890687492,
+			"path_points": 3,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				333.6279296875,
+				72.8794784545898,
+				-471.162780761719
+			],
+			"range": 577.323059082031,
+			"speed": 28.5728607177734,
+			"state": "3",
+			"t": 62.0166666666644,
+			"volleys": 4
+		},
+		{
+			"aim_dot": 0.999710559844971,
+			"controls": [
+				-0.251074734285767,
+				0.254484964882187,
+				0.177410564664543
+			],
+			"damage": 1827.50564932823,
+			"escape_covered": false,
+			"exit_reason": "volley_complete",
+			"gate": "volley_limit",
+			"health": 90.0,
+			"height": 72.6259613037109,
+			"nose_elevation": -4.90795026280796,
+			"path_points": 3,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				347.668884277344,
+				72.6259613037109,
+				-473.943084716797
+			],
+			"range": 587.788818359375,
+			"speed": 28.700439453125,
+			"state": "3",
+			"t": 62.5166666666644,
+			"volleys": 4
+		},
+		{
+			"aim_dot": 0.999710559844971,
+			"controls": [
+				-0.209784253413563,
+				0.257052811969301,
+				0.172183695590163
+			],
+			"damage": 1827.50564932823,
+			"escape_covered": false,
+			"exit_reason": "volley_complete",
+			"gate": "volley_limit",
+			"health": 90.0,
+			"height": 72.3525238037109,
+			"nose_elevation": -4.77100551032999,
+			"path_points": 3,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				361.540100097656,
+				72.3525238037109,
+				-477.649810791016
+			],
+			"range": 599.049743652344,
+			"speed": 28.7384052276611,
+			"state": "3",
+			"t": 63.0166666666644,
+			"volleys": 4
+		},
+		{
+			"aim_dot": 0.999710559844971,
+			"controls": [
+				-0.182939744420743,
+				0.255126349431417,
+				0.16723667650487
+			],
+			"damage": 1827.50564932823,
+			"escape_covered": false,
+			"exit_reason": "volley_complete",
+			"gate": "volley_limit",
+			"health": 90.0,
+			"height": 72.0829086303711,
+			"nose_elevation": -4.45124189812867,
+			"path_points": 3,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				375.119934082031,
+				72.0829086303711,
+				-482.250305175781
+			],
+			"range": 610.966674804688,
+			"speed": 28.625358581543,
+			"state": "3",
+			"t": 63.5166666666643,
+			"volleys": 4
+		},
+		{
+			"aim_dot": 0.999710559844971,
+			"controls": [
+				-0.171854425637088,
+				0.248922907320251,
+				0.162722097864331
+			],
+			"damage": 1827.50564932823,
+			"escape_covered": false,
+			"exit_reason": "volley_complete",
+			"gate": "volley_limit",
+			"health": 90.0,
+			"height": 71.8430252075195,
+			"nose_elevation": -4.00627499897549,
+			"path_points": 3,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				388.2822265625,
+				71.8430252075195,
+				-487.691223144531
+			],
+			"range": 623.382568359375,
+			"speed": 28.3655948638916,
+			"state": "3",
+			"t": 64.0166666666643,
+			"volleys": 4
+		},
+		{
+			"aim_dot": 0.999710559844971,
+			"controls": [
+				-0.171421435481029,
+				0.239724117703447,
+				0.158956249335851
+			],
+			"damage": 1827.50564932823,
+			"escape_covered": false,
+			"exit_reason": "volley_complete",
+			"gate": "volley_limit",
+			"health": 90.0,
+			"height": 71.6540985107422,
+			"nose_elevation": -3.57308121077172,
+			"path_points": 3,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				400.921264648438,
+				71.6540985107422,
+				-493.905517578125
+			],
+			"range": 636.14501953125,
+			"speed": 28.0002250671387,
+			"state": "3",
+			"t": 64.5166666666643,
+			"volleys": 4
+		},
+		{
+			"aim_dot": 0.999710559844971,
+			"controls": [
+				-0.17842555591394,
+				0.229347603607738,
+				0.155706030756002
+			],
+			"damage": 1827.50564932823,
+			"escape_covered": false,
+			"exit_reason": "volley_complete",
+			"gate": "volley_limit",
+			"health": 90.0,
+			"height": 71.5310668945313,
+			"nose_elevation": -3.25570636529471,
+			"path_points": 3,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				412.964263916016,
+				71.5310668945313,
+				-500.822662353516
+			],
+			"range": 649.124633789063,
+			"speed": 27.5879344940186,
+			"state": "3",
+			"t": 65.0166666666643,
+			"volleys": 4
+		},
+		{
+			"aim_dot": 0.999710559844971,
+			"controls": [
+				-0.20152175851865,
+				0.219667569198479,
+				0.151911661629622
+			],
+			"damage": 1827.50564932823,
+			"escape_covered": false,
+			"exit_reason": "volley_complete",
+			"gate": "volley_limit",
+			"health": 90.0,
+			"height": 71.4828186035156,
+			"nose_elevation": -3.09476644368319,
+			"path_points": 3,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				424.374572753906,
+				71.4828186035156,
+				-508.377197265625
+			],
+			"range": 662.224426269531,
+			"speed": 27.190803527832,
+			"state": "3",
+			"t": 65.5166666666642,
+			"volleys": 4
+		},
+		{
+			"aim_dot": 0.999710559844971,
+			"controls": [
+				-0.232769951310072,
+				0.212518035517463,
+				0.147126031717332
+			],
+			"damage": 1827.50564932823,
+			"escape_covered": false,
+			"exit_reason": "volley_complete",
+			"gate": "volley_limit",
+			"health": 90.0,
+			"height": 71.5105819702148,
+			"nose_elevation": -3.11543270737894,
+			"path_points": 3,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				435.152526855469,
+				71.5105819702148,
+				-516.521057128906
+			],
+			"range": 675.390075683594,
+			"speed": 26.8908767700195,
+			"state": "3",
+			"t": 66.0166666666642,
+			"volleys": 4
+		},
+		{
+			"aim_dot": 0.999710559844971,
+			"controls": [
+				-0.256239886600798,
+				0.209007733839569,
+				0.141105186669664
+			],
+			"damage": 1827.50564932823,
+			"escape_covered": false,
+			"exit_reason": "volley_complete",
+			"gate": "volley_limit",
+			"health": 90.0,
+			"height": 71.6058654785156,
+			"nose_elevation": -3.32762461108382,
+			"path_points": 3,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				445.331420898438,
+				71.6058654785156,
+				-525.233032226563
+			],
+			"range": 688.614440917969,
+			"speed": 26.7451038360596,
+			"state": "3",
+			"t": 66.5166666666642,
+			"volleys": 4
+		},
+		{
+			"aim_dot": 0.999710559844971,
+			"controls": [
+				-0.266213001399881,
+				0.209123941732078,
+				0.133997785598147
+			],
+			"damage": 1827.50564932823,
+			"escape_covered": false,
+			"exit_reason": "volley_complete",
+			"gate": "volley_limit",
+			"health": 90.0,
+			"height": 71.7532730102539,
+			"nose_elevation": -3.66599149336673,
+			"path_points": 3,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				454.954650878906,
+				71.7532730102539,
+				-534.511901855469
+			],
+			"range": 701.916442871094,
+			"speed": 26.7610607147217,
+			"state": "3",
+			"t": 67.0166666666642,
+			"volleys": 4
+		},
+		{
+			"aim_dot": 0.999710559844971,
+			"controls": [
+				-0.266310425252801,
+				0.212107343032213,
+				0.126292086011063
+			],
+			"damage": 1827.50564932823,
+			"escape_covered": false,
+			"exit_reason": "volley_complete",
+			"gate": "volley_limit",
+			"health": 90.0,
+			"height": 71.9349517822266,
+			"nose_elevation": -4.02277110818821,
+			"path_points": 3,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				464.055694580078,
+				71.9349517822266,
+				-544.362548828125
+			],
+			"range": 715.31689453125,
+			"speed": 26.9085311889648,
+			"state": "3",
+			"t": 67.5166666666641,
+			"volleys": 4
+		},
+		{
+			"aim_dot": 0.999710559844971,
+			"controls": [
+				-0.254279916533895,
+				0.163471745416852,
+				0.0229095762061969
+			],
+			"damage": 1827.50564932823,
+			"escape_covered": false,
+			"exit_reason": "volley_complete",
+			"gate": "volley_limit",
+			"health": 90.0,
+			"height": 72.1361465454102,
+			"nose_elevation": -4.29179465238481,
+			"path_points": 3,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				472.648223876953,
+				72.1361465454102,
+				-554.783264160156
+			],
+			"range": 728.821533203125,
+			"speed": 27.1310596466064,
+			"state": "3",
+			"t": 68.0166666666641,
+			"volleys": 4
+		},
+		{
+			"aim_dot": 0.999710559844971,
+			"controls": [
+				-0.233773440093134,
+				0.153706358537449,
+				0.0197364201367115
+			],
+			"damage": 1827.50564932823,
+			"escape_covered": false,
+			"exit_reason": "volley_complete",
+			"gate": "volley_limit",
+			"health": 90.0,
+			"height": 72.3566513061523,
+			"nose_elevation": -4.3802580474202,
+			"path_points": 3,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				480.748138427734,
+				72.3566513061523,
+				-565.739807128906
+			],
+			"range": 742.415161132813,
+			"speed": 27.3748817443848,
+			"state": "3",
+			"t": 68.5166666666641,
+			"volleys": 4
+		},
+		{
+			"aim_dot": 0.999710559844971,
+			"controls": [
+				-0.224681575549936,
+				0.145591386883257,
+				0.0201917114444674
+			],
+			"damage": 1827.50564932823,
+			"escape_covered": false,
+			"exit_reason": "volley_complete",
+			"gate": "volley_limit",
+			"health": 90.0,
+			"height": 72.6104736328125,
+			"nose_elevation": -4.25968364599564,
+			"path_points": 3,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				488.377471923828,
+				72.6104736328125,
+				-577.16357421875
+			],
+			"range": 756.062438964844,
+			"speed": 27.5765628814697,
+			"state": "3",
+			"t": 69.016666666664,
+			"volleys": 4
+		},
+		{
+			"aim_dot": 0.999710559844971,
+			"controls": [
+				-0.228288032423175,
+				0.137731245709119,
+				0.0227120318716943
+			],
+			"damage": 1827.50564932823,
+			"escape_covered": false,
+			"exit_reason": "volley_complete",
+			"gate": "volley_limit",
+			"health": 90.0,
+			"height": 72.9126586914063,
+			"nose_elevation": -4.01958380863187,
+			"path_points": 3,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				495.549835205078,
+				72.9126586914063,
+				-588.980529785156
+			],
+			"range": 769.71923828125,
+			"speed": 27.7287998199463,
+			"state": "3",
+			"t": 69.516666666664,
+			"volleys": 4
+		},
+		{
+			"aim_dot": 0.999710559844971,
+			"controls": [
+				-0.229232774528943,
+				0.130293650160429,
+				0.025946556879551
+			],
+			"damage": 1827.50564932823,
+			"escape_covered": false,
+			"exit_reason": "volley_complete",
+			"gate": "volley_limit",
+			"health": 90.0,
+			"height": 73.2719192504883,
+			"nose_elevation": -3.79985867262143,
+			"path_points": 3,
+			"popup": {
+				"active": false,
+				"elapsed_s": 0.0,
+				"phase": "APPROACH",
+				"plan": {},
+				"reason": ""
+			},
+			"position": [
+				502.284576416016,
+				73.2719192504883,
+				-601.129455566406
+			],
+			"range": 783.355895996094,
+			"speed": 27.8536720275879,
+			"state": "3",
+			"t": 70.016666666664,
+			"volleys": 4
+		}
+	],
+	"weapons_used": [
+		"rocket"
+	]
+}

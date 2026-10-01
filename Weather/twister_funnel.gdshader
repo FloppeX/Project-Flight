@@ -5,7 +5,7 @@ uniform float elapsed = 0.0;
 uniform float height_m = 1100.0;
 uniform float strength = 0.0;
 uniform float shell = 1.0;
-uniform vec4 dust_color : source_color = vec4(0.65, 0.46, 0.3, 1.0);
+uniform vec4 dust_color : source_color = vec4(0.80, 0.68, 0.46, 1.0);
 varying float height_fraction;
 varying float angle;
 varying vec3 world_pos;
@@ -24,6 +24,6 @@ void fragment() {
 	float billow = sin(angle * 5.0 + h * 32.0 - elapsed * 1.3) * sin(angle * 13.0 - h * 59.0 - elapsed * 0.9) * 0.5 + 0.5;
 	float fade = smoothstep(0.0, 0.018, h) * (1.0 - smoothstep(0.62, 1.0, h));
 	ALBEDO = dust_color.rgb * mix(0.62, 1.25, billow * 0.6 + streak * 0.4);
-	// Dense silhouette, with soft formation/dissipation and a frayed upper edge.
-	ALPHA = strength * fade * (0.72 + billow * 0.16 + streak * 0.08) * smoothstep(6.0, 25.0, distance(world_pos, CAMERA_POSITION_WORLD));
+	// Three overlapping shells form a soft core without hiding the orbiting dust.
+	ALPHA = strength * fade * (0.10 + billow * 0.12 + streak * 0.10) * smoothstep(6.0, 25.0, distance(world_pos, CAMERA_POSITION_WORLD));
 }

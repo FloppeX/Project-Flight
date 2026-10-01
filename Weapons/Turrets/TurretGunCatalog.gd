@@ -17,4 +17,4 @@ static func get_profile(caliber: int) -> Resource:
 static func get_barrel_scene(caliber: int) -> PackedScene:
 	if not CALIBERS.has(caliber):
 		return null
-	return load("res://Models/Turrets/gun barrel %d mm.glb" % caliber) as PackedScene
+	return load("res://Models/Turrets/gun barrel %d mm.blend" % caliber) as PackedScene

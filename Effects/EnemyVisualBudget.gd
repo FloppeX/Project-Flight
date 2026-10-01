@@ -684,7 +684,12 @@ func _apply_aircraft_audio_budget(audio_nodes: Array, allow_audio: bool) -> void
 			# play() until they are back in the SceneTree.
 			if not node.is_inside_tree():
 				continue
-			if node.has_meta("visual_budget_audio_was_playing") and bool(node.get_meta("visual_budget_audio_was_playing")):
+			# Consume this suppression snapshot once. Keeping it after restoration
+			# restarts completed one-shot sounds on every later budget update.
+			var resume_playback := bool(node.get_meta("visual_budget_audio_was_playing", false))
+			if node.has_meta("visual_budget_audio_was_playing"):
+				node.remove_meta("visual_budget_audio_was_playing")
+			if resume_playback:
 				if node is AudioStreamPlayer:
 					var audio_2d: AudioStreamPlayer = node as AudioStreamPlayer
 					if not audio_2d.playing:

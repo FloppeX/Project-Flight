@@ -26,6 +26,7 @@
 [ext_resource type="PackedScene" path="res://LandCarrier/DeckAnimationPilot.tscn" id="22_deck_animation_pilot"]
 [ext_resource type="PackedScene" uid="uid://okhrh7g8al0e" path="res://LandCarrier/ComputerStation.tscn" id="23_computer_station"]
 [ext_resource type="PackedScene" path="res://LandCarrier/CarrierInteriorLighting.tscn" id="24_interior_lighting"]
+[ext_resource type="PackedScene" path="res://LandCarrier/DeckStatusSigns.tscn" id="32_deck_signs"]
 [ext_resource type="PackedScene" path="res://LandCarrier/AirOpsElevatorRailingCollision.tscn" id="25_air_ops_railing"]
 [ext_resource type="PackedScene" path="res://LandCarrier/CarrierTargetCamera.tscn" id="26_target_camera"]
 [ext_resource type="PackedScene" uid="uid://cttyb65rjjlfx" path="res://LandCarrier/MonitorStation.tscn" id="27_monitor_station"]
@@ -317,6 +318,8 @@ transform = Transform3D(-1, 0, 8.74228e-08, 0, 1, 0, -8.74228e-08, 0, -1, -29.54
 
 [node name="CarrierInteriorLighting" parent="." unique_id=429008767 instance=ExtResource("24_interior_lighting")]
 
+[node name="DeckStatusSigns" parent="." instance=ExtResource("32_deck_signs")]
+
 [node name="BridgeHologram" parent="." unique_id=713542789 instance=ExtResource("14_bridge_holo")]
 process_mode = 4
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -29.5554, 13.5188, 0.00964248)
@@ -448,22 +451,27 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -73.64475)
 [node name="TurretPosition 1" type="Node3D" parent="." unique_id=1287768228]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -23.16335, 4.864516, 8.623961)
 script = ExtResource("30_turret_site")
+mount_surface_y_m = -0.0863905
 
 [node name="TurretPosition 2" type="Node3D" parent="." unique_id=1512004606]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -18.877651, 4.864516, 8.623961)
 script = ExtResource("30_turret_site")
+mount_surface_y_m = -0.0863905
 
 [node name="TurretPosition 3" type="Node3D" parent="." unique_id=1908932613]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -23.16335, 12.136743, 2.6136284)
 script = ExtResource("30_turret_site")
+mount_surface_y_m = -0.1184647
 
 [node name="TurretPosition 4" type="Node3D" parent="." unique_id=100936370]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -18.877651, 12.136743, 2.6136284)
 script = ExtResource("30_turret_site")
+mount_surface_y_m = -0.1184647
 
 [node name="TurretPosition 5" type="Node3D" parent="." unique_id=2043483292]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -21.227345, 9.488673, -10.813207)
 script = ExtResource("30_turret_site")
+mount_surface_y_m = -0.0772195
 
 [node name="Windsock" parent="." unique_id=1143397909 instance=ExtResource("101_windsock")]
 transform = Transform3D(-4.371139e-08, 0, 1, 0, 1, 0, -1, 0, -4.371139e-08, -19.004112, 0, -71.7048)

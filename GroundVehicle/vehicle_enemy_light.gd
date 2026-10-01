@@ -7,6 +7,9 @@ const VISUAL_FOCUS_HELPER = preload("res://Effects/VisualFocus.gd")
 const CAMERA_VISIBILITY_LOD = preload("res://Effects/CameraVisibilityLOD.gd")
 const VEHICLE_MESH_LOD = preload("res://Effects/VehicleMeshLOD.gd")
 const FrameProfiler: Script = preload("res://Debug/FrameProfiler.gd")
+const ReverseDrive = preload("res://GroundVehicle/ReverseDrive.gd")
+@export_range(0.1, 0.75, 0.05) var reverse_speed_ratio: float = 0.4
+var _reverse_driving: bool = false
 
 # --- Movement ---
 @export var max_speed: float = 15.0
@@ -881,7 +884,8 @@ func _get_spacing_candidates(delta: float) -> Array[Node3D]:
 	if platoon and is_instance_valid(platoon):
 		return platoon.get_members()
 	_spacing_cache_timer_s = maxf(_spacing_cache_timer_s - delta, 0.0)
-	if _cached_spacing_candidates.is_empty() or _spacing_cache_timer_s <= 0.0:
+	# An empty neighbourhood is a valid cached result too.
+	if _spacing_cache_timer_s <= 0.0:
 		_refresh_spacing_candidates()
 	return _cached_spacing_candidates
 
@@ -915,7 +919,7 @@ func _refresh_drive_command(delta: float) -> void:
 
 	var nav_dest: Vector3 = _get_follow_navigation_destination()
 	var dest: Vector3 = _apply_combat_mobility(nav_dest)
-	dest = _apply_platoon_cohesion(dest)
+	# Follow the route to the formation slot, not a second direct slot target.
 	_update_path_stuck_state(delta, nav_dest)
 
 	var current_forward: Vector3 = global_basis.z
@@ -987,7 +991,11 @@ func _refresh_drive_command(delta: float) -> void:
 		var nudge_weight: float = clampf(nudge.length(), 1.0, 6.0)
 		desired_dir = (desired_dir + nudge.normalized() * nudge_weight).normalized()
 
-	var cross_y: float = current_forward.cross(desired_dir).y
+	_reverse_driving = ReverseDrive.choose_reverse(current_forward.dot(desired_dir), _reverse_driving)
+	if hold_in_combat and target_distance <= combat_stop_distance_m:
+		_reverse_driving = false
+	var drive_direction := -1.0 if _reverse_driving else 1.0
+	var cross_y: float = current_forward.cross(desired_dir * drive_direction).y
 	var dot: float = clampf(current_forward.dot(desired_dir), -1.0, 1.0)
 	var planar_speed: float = Vector2(velocity.x, velocity.z).length()
 
@@ -1009,7 +1017,7 @@ func _refresh_drive_command(delta: float) -> void:
 			throttle = maxf(closing_speed, combat_creep_speed_mps / maxf(max_speed, 0.1))
 	_drive_command_steer = steer_target
 	_drive_command_turn_rate_scale = turn_rate_scale
-	_drive_command_throttle = throttle
+	_drive_command_throttle = throttle * (-reverse_speed_ratio if _reverse_driving else 1.0)
 
 func _apply_cached_drive_motion(delta: float, coarse_motion: bool = false) -> void:
 	velocity.y = _spring_velocity_y
@@ -1019,9 +1027,10 @@ func _apply_cached_drive_motion(delta: float, coarse_motion: bool = false) -> vo
 		velocity.z = move_toward(velocity.z, 0.0, stop_accel)
 		_move_vehicle_body(delta, coarse_motion)
 		return
+	var changing_direction := Vector2(velocity.x, velocity.z).dot(Vector2(global_basis.z.x, global_basis.z.z)) * _drive_command_throttle < 0.0
 	global_rotate(
 		Vector3.UP,
-		_drive_command_steer * turn_speed * delta * _drive_command_turn_rate_scale
+		_drive_command_steer * turn_speed * delta * _drive_command_turn_rate_scale * (0.0 if changing_direction else 1.0)
 	)
 	var forward: Vector3 = global_basis.z
 	forward.y = 0.0
@@ -1032,15 +1041,15 @@ func _apply_cached_drive_motion(delta: float, coarse_motion: bool = false) -> vo
 	var target_speed: float = _drive_command_throttle * minf(max_speed, cruise_speed_limit)
 	var accel_scale: float = 1.0
 	if _drive_command_combat:
-		accel_scale = 4.0 if forward_speed > target_speed else 1.8
-	elif forward_speed > target_speed:
+		accel_scale = 4.0 if absf(forward_speed) > absf(target_speed) else 1.8
+	elif absf(forward_speed) > absf(target_speed):
 		accel_scale = 4.0
-	forward_speed = move_toward(forward_speed, target_speed, acceleration * delta * accel_scale)
+	forward_speed = ReverseDrive.approach_speed(forward_speed, target_speed, acceleration * accel_scale, acceleration * 4.0, delta)
 	velocity.x = forward.x * forward_speed
 	velocity.z = forward.z * forward_speed
 	_move_vehicle_body(delta, coarse_motion)
 	if not coarse_motion:
-		_wheel_support.steer(self, _drive_command_steer * max_steering_angle)
+		_wheel_support.steer(self, _drive_command_steer * max_steering_angle * (-1.0 if _reverse_driving else 1.0))
 
 func _move_vehicle_body(delta: float, coarse_motion: bool) -> void:
 	if coarse_motion:

@@ -42,6 +42,11 @@ func _run() -> void:
 		await RenderingServer.frame_post_draw
 		root.get_texture().get_image().save_png("res://logs/tactical_input_preview.png")
 	console.set_open(false)
+	# Cycling through Carrier starts a background scene load. Let it finish before
+	# engine shutdown, which otherwise reports missing dependencies from that job.
+	var carrier_scene := "res://LandCarrier/LandCarrier2.tscn"
+	if ResourceLoader.load_threaded_get_status(carrier_scene) == ResourceLoader.THREAD_LOAD_IN_PROGRESS:
+		ResourceLoader.load_threaded_get(carrier_scene)
 	if failures.is_empty():
 		print("TACTICAL_INPUT_PASS shoulders=all_tabs mouse=asset_and_mission_box_edges")
 	else:

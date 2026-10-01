@@ -18,6 +18,7 @@ func _run() -> void:
 	current_scene = world
 	for model in ["vehicle_enemy_buggy", "vehicle_enemy_pickup", "vehicle_enemy_battle_bus", "vehicle_friendly_light"]:
 		_check_vehicle(world, "res://GroundVehicle/%s.tscn" % model)
+	_check_vehicle(world, "res://Aircraft/Aircraft_4.tscn")
 	_check_vehicle(world, "res://Aircraft/Aircraft_9.tscn")
 	# Every modular caliber shares the carrier/APC rig, but has a different muzzle.
 	var controller = load("res://LandCarrier/CarrierDefenseTurretAssembly.tscn").instantiate()
@@ -84,7 +85,7 @@ func _check_controller(controller: Node3D, label: String) -> void:
 		var yaw = turret._get_yaw_mount()
 		var parent: Node3D = yaw.get_parent_node_3d()
 		for azimuth in [-150, -80, -30, 0, 30, 80, 150, 180]:
-			for elevation in [-8, 25]:
+			for elevation in [maxf(-8.0, turret.max_pitch_down + 2.0), minf(25.0, turret.max_pitch_up - 2.0)]:
 				var angle := deg_to_rad(float(azimuth))
 				var target := parent.to_global(yaw.position + Vector3(sin(angle) * 200, tan(deg_to_rad(float(elevation))) * 200, cos(angle) * 200))
 				if not turret.is_point_within_yaw_arc(target):
@@ -107,7 +108,11 @@ func _check_controller(controller: Node3D, label: String) -> void:
 			turret.aim_at_point(outside)
 			for i in 360: turret.tick(1.0 / 60.0, outside)
 			var limit_rad := deg_to_rad(float(turret.max_pitch_up if above else turret.max_pitch_down))
-			check(absf(turret._barrel_current_pitch - limit_rad) < 0.001, label + ": exceeded/missed pitch stop")
+			# A nearly vertical target cannot drive a 90-degree mount beyond its stop.
+			if above and turret.max_pitch_up >= 90.0:
+				check(turret._barrel_current_pitch <= limit_rad and turret._barrel_current_pitch > deg_to_rad(89.0), label + ": vertical aiming")
+			else:
+				check(absf(turret._barrel_current_pitch - limit_rad) < 0.001, label + ": exceeded/missed pitch stop")
 	# Request a large turn WITHOUT ticking: shots must not magically snap to it.
 	var before: Transform3D = turret.get_current_muzzle_transform()
 	turret.aim_at_point(before.origin + before.basis.x * 200)

@@ -22,7 +22,6 @@ var last_bomb_dropped: BombProjectile = null
 var _pending_debug_aim_target: Vector3 = Vector3.ZERO
 var _pending_debug_predicted_impact: Vector3 = Vector3.ZERO
 var _has_pending_debug_metadata: bool = false
-var _payload_aircraft: RigidBody3D = null
 var _tuning_drop_callback: Callable = Callable()
 var _tuning_impact_callback: Callable = Callable()
 var _tuning_impact_detail_callback: Callable = Callable()
@@ -41,16 +40,6 @@ func _ready() -> void:
 	if bomb_projectile_scene == null:
 		bomb_projectile_scene = load("res://Projectiles/BombNew/bomb_new.tscn")
 	_refresh_aircraft_payload_mass()
-
-func _exit_tree() -> void:
-	if is_instance_valid(_payload_aircraft) and _payload_aircraft.has_method("clear_payload_mass"):
-		_payload_aircraft.clear_payload_mass(self)
-
-func _get_parent_rigidbody() -> RigidBody3D:
-	var node: Node = get_parent()
-	while node and not (node is RigidBody3D):
-		node = node.get_parent()
-	return node as RigidBody3D
 
 func _has_unlimited_test_ammo() -> bool:
 	var aircraft: RigidBody3D = _get_parent_rigidbody()
@@ -91,12 +80,6 @@ func _clear_tuning_context() -> void:
 	_tuning_impact_detail_callback = Callable()
 	_tuning_trial_id = -1
 	_tuning_target = null
-
-func _refresh_aircraft_payload_mass() -> void:
-	if not is_instance_valid(_payload_aircraft):
-		_payload_aircraft = _get_parent_rigidbody()
-	if _payload_aircraft and _payload_aircraft.has_method("set_payload_mass"):
-		_payload_aircraft.set_payload_mass(self, maxf(float(ammo_count), 0.0) * maxf(bomb_mass_kg, 0.0))
 
 func _get_physics_step_s() -> float:
 	var ticks_per_second: float = float(ProjectSettings.get_setting("physics/common/physics_ticks_per_second", 60.0))
@@ -266,3 +249,7 @@ func _spawn_bomb_next_physics(slot: Node3D, consume_slot: bool = true) -> void:
 		slot.queue_free()
 	if not _has_persistent_tuning_context():
 		_clear_tuning_context()
+
+
+func get_payload_mass_kg() -> float:
+	return maxf(float(ammo_count), 0.0) * maxf(bomb_mass_kg, 0.0)

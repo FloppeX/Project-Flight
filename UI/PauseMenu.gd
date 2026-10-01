@@ -35,6 +35,7 @@ const SETTINGS_SECTION_GAMEPLAY := "gameplay"
 const GRAPHICS_SETTINGS_VERSION := 6
 const GAMEPLAY_SETTINGS_VERSION := 1
 const DEFAULT_MASTER_VOLUME := 1.0
+const DEFAULT_MUSIC_ENABLED := true
 const DEFAULT_RADIO_VOLUME := 1.0
 const DEFAULT_RADIO_CAPTIONS_ENABLED := true
 const DEFAULT_RADIO_CAPTION_DURATION_INDEX := 1
@@ -125,6 +126,7 @@ var _opentrack_smoothing := 2
 var _opentrack_status: Label
 var _opentrack_help: Label
 var _master_volume: float = DEFAULT_MASTER_VOLUME
+var _music_enabled: bool = DEFAULT_MUSIC_ENABLED
 var _radio_volume: float = DEFAULT_RADIO_VOLUME
 var _radio_captions_enabled: bool = DEFAULT_RADIO_CAPTIONS_ENABLED
 var _radio_caption_duration_index: int = DEFAULT_RADIO_CAPTION_DURATION_INDEX
@@ -704,14 +706,18 @@ func _build_audio_screen() -> Control:
 	root.add_child(back)
 
 	_build_audio_slider(root, "master", "MASTER VOLUME", 264.0, _master_volume)
-	_build_audio_slider(root, "radio", "RADIO VOLUME", 366.0, _radio_volume)
+	var music_btn := _make_row_button("", Vector2(SUBMENU_X, 366.0), OPERATOR_RAIL_WIDTH - 64.0)
+	music_btn.pressed.connect(_toggle_music)
+	root.add_child(music_btn)
+	_audio_buttons["music"] = music_btn
+	_build_audio_slider(root, "radio", "RADIO VOLUME", 430.0, _radio_volume)
 
-	var captions_btn := _make_row_button("", Vector2(SUBMENU_X, 468.0), OPERATOR_RAIL_WIDTH - 64.0)
+	var captions_btn := _make_row_button("", Vector2(SUBMENU_X, 532.0), OPERATOR_RAIL_WIDTH - 64.0)
 	captions_btn.pressed.connect(_cycle_radio_captions)
 	root.add_child(captions_btn)
 	_audio_buttons["captions"] = captions_btn
 
-	var duration_btn := _make_row_button("", Vector2(SUBMENU_X, 532.0), OPERATOR_RAIL_WIDTH - 64.0)
+	var duration_btn := _make_row_button("", Vector2(SUBMENU_X, 596.0), OPERATOR_RAIL_WIDTH - 64.0)
 	duration_btn.pressed.connect(_cycle_radio_caption_duration)
 	root.add_child(duration_btn)
 	_audio_buttons["caption_duration"] = duration_btn
@@ -971,6 +977,13 @@ func _on_audio_volume_changed(value: float, key: String) -> void:
 	_save_settings()
 
 
+func _toggle_music() -> void:
+	_music_enabled = not _music_enabled
+	_apply_music_setting()
+	_refresh_audio_controls()
+	_save_settings()
+
+
 func _cycle_radio_captions() -> void:
 	_radio_captions_enabled = not _radio_captions_enabled
 	_apply_radio_settings()
@@ -1123,6 +1136,8 @@ func _refresh_audio_controls() -> void:
 			(_audio_sliders[key] as HSlider).set_value_no_signal(value)
 		if _audio_value_labels.has(key):
 			(_audio_value_labels[key] as Label).text = "%d%%" % roundi(value * 100.0)
+	if _audio_buttons.has("music"):
+		(_audio_buttons["music"] as Button).text = "MUSIC: %s" % ("ON" if _music_enabled else "OFF")
 	if _audio_buttons.has("captions"):
 		(_audio_buttons["captions"] as Button).text = "RADIO CAPTIONS: %s" % ("ON" if _radio_captions_enabled else "OFF")
 	if _audio_buttons.has("caption_duration"):
@@ -1280,7 +1295,18 @@ func _apply_all_settings() -> void:
 
 func _apply_audio_settings() -> void:
 	_apply_bus_volume("Master", _master_volume)
+	_apply_music_setting()
 	_apply_radio_settings()
+
+
+func _apply_music_setting() -> void:
+	var bus_idx := AudioServer.get_bus_index("Music")
+	if bus_idx < 0:
+		bus_idx = AudioServer.get_bus_count()
+		AudioServer.add_bus(bus_idx)
+		AudioServer.set_bus_name(bus_idx, "Music")
+		AudioServer.set_bus_send(bus_idx, "Master")
+	AudioServer.set_bus_mute(bus_idx, not _music_enabled)
 
 
 func _apply_bus_volume(bus_name: String, value: float) -> void:
@@ -1526,6 +1552,7 @@ func _load_settings(path: String = SETTINGS_PATH) -> void:
 	var loaded_gameplay_version := int(cfg.get_value(SETTINGS_SECTION_GAMEPLAY, "settings_version", 0))
 	var should_migrate_gameplay := loaded_gameplay_version < GAMEPLAY_SETTINGS_VERSION
 	_master_volume = clampf(float(cfg.get_value(SETTINGS_SECTION_AUDIO, "master_volume", _master_volume)), 0.0, 1.0)
+	_music_enabled = bool(cfg.get_value(SETTINGS_SECTION_AUDIO, "music_enabled", DEFAULT_MUSIC_ENABLED))
 	_radio_volume = clampf(float(cfg.get_value(SETTINGS_SECTION_AUDIO, "radio_volume", _radio_volume)), 0.0, 1.0)
 	_radio_captions_enabled = bool(cfg.get_value(SETTINGS_SECTION_AUDIO, "radio_captions_enabled", _radio_captions_enabled))
 	_radio_caption_duration_index = clampi(
@@ -1633,6 +1660,7 @@ func _save_settings(path: String = SETTINGS_PATH) -> void:
 	var cfg := ConfigFile.new()
 	cfg.load(path)
 	cfg.set_value(SETTINGS_SECTION_AUDIO, "master_volume", _master_volume)
+	cfg.set_value(SETTINGS_SECTION_AUDIO, "music_enabled", _music_enabled)
 	cfg.set_value(SETTINGS_SECTION_AUDIO, "radio_volume", _radio_volume)
 	cfg.set_value(SETTINGS_SECTION_AUDIO, "radio_captions_enabled", _radio_captions_enabled)
 	cfg.set_value(SETTINGS_SECTION_AUDIO, "radio_caption_duration_index", _radio_caption_duration_index)
@@ -1666,6 +1694,7 @@ func _save_settings(path: String = SETTINGS_PATH) -> void:
 
 func _reset_all_defaults() -> void:
 	_master_volume = DEFAULT_MASTER_VOLUME
+	_music_enabled = DEFAULT_MUSIC_ENABLED
 	_radio_volume = DEFAULT_RADIO_VOLUME
 	_radio_captions_enabled = DEFAULT_RADIO_CAPTIONS_ENABLED
 	_radio_caption_duration_index = DEFAULT_RADIO_CAPTION_DURATION_INDEX

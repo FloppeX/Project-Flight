@@ -84,10 +84,13 @@ var shot_sound_events: int = 0
 var _pending_virtual_round_delays_s: Array[float] = []
 var _barrel_recoil: Node
 
+func _init() -> void:
+	round_mass_kg = 0.1
+
 func _ready():
 	_apply_gun_profile()
 	delete_when_empty = false  # Don't auto-remove when empty
-	ammo_count = 1000  # Large gun ammo pool for sustained air combat
+	ammo_count = maxi(gun_profile.aircraft_ammo_capacity, 0) if gun_profile != null else 200
 	hardpoint = get_parent() as Hardpoint
 	automatic_fire = true
 	weapon_category = "Guns"
@@ -173,6 +176,7 @@ func fire() -> bool:
 		_tuning_shot_callback.call(_tuning_trial_id, bullet)
 	bullet.fire(muzzle_vel, aircraft)
 	physical_rounds_fired += 1
+	_emit_muzzle_flash(spawn_transform)
 	_kick_barrel_recoil()
 	_queue_virtual_rounds(seconds_per_round)
 
@@ -232,8 +236,14 @@ func _fire_virtual_round() -> void:
 	)):
 		return
 	virtual_rounds_fired += 1
+	_emit_muzzle_flash(spawn_transform)
 	_kick_barrel_recoil()
 	_play_cannon_sound()
+
+func _emit_muzzle_flash(muzzle: Transform3D) -> void:
+	preload("res://Weapons/Guns/MuzzleFlash.gd").emit_hardpoint(
+		self, muzzle, gun_profile.caliber_mm if gun_profile != null else 20,
+		_barrel_recoil)
 
 
 func _make_spread_projectile_transform(spawn_transform: Transform3D) -> Transform3D:
@@ -414,3 +424,9 @@ func _pick_random_shot_sound() -> AudioStream:
 		index = (index + 1 + (randi() % (sound_bank.size() - 1))) % sound_bank.size()
 	_last_shot_sound_index = index
 	return sound_bank[index] as AudioStream
+
+
+func get_payload_mass_kg() -> float:
+	if gun_profile != null:
+		return maxf(gun_profile.empty_mass_kg, 0.0) + maxf(ammo_count, 0) * maxf(gun_profile.round_mass_kg, 0.0)
+	return super.get_payload_mass_kg()

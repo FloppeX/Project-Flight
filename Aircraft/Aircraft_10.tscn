@@ -227,6 +227,7 @@ nose_wheel_taxi_steering_enabled = false
 carrier_deck_follow_min_wheels = 3
 
 [node name="ControlEngine" parent="." unique_id=1520295740 instance=ExtResource("16_ctl_engine")]
+RequireThrottleReleaseAfterManualStart = true
 
 [node name="ControlSteering" parent="." unique_id=1257143787 instance=ExtResource("17_ctl_steering")]
 

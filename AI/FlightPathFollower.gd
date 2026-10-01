@@ -196,7 +196,8 @@ static func solve_point_guidance(
 	flight_path_angle_limit_deg: float,
 	minimum_response_time_s: float,
 	vertical_path_response: float,
-	nonwing_vertical_accel_mps2: float
+	nonwing_vertical_accel_mps2: float,
+	maximum_response_time_s: float = INF
 ) -> Dictionary:
 	var to_target: Vector3 = target_point_world - actual_position_world
 	var horizontal_distance_m: float = Vector2(to_target.x, to_target.z).length()
@@ -233,6 +234,10 @@ static func solve_point_guidance(
 	)
 	var response_time_s: float = maxf(horizontal_distance_m, 1.0) \
 		/ desired_horizontal_speed_mps
+	# A distant destination still requires prompt heading capture. Keep distance
+	# for close-point interception and vertical slope, but let the caller bound
+	# how slowly the velocity controller responds on a long leg.
+	response_time_s = minf(response_time_s, maxf(maximum_response_time_s, minimum_response_time_s))
 	return solve_velocity_guidance(
 		actual_velocity_world,
 		body_forward_world,

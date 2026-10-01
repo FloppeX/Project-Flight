@@ -70,6 +70,13 @@ func _run() -> void:
 	graph.call("_build_spatial_index")
 	graph.set("_is_ready", true)
 	_expect_path(graph.call("find_path", a - total, b - total, 0.0), baseline, total)
+	# Same dimensions/seed can hide changed terrain: reject stale graph geometry.
+	var original_heights: PackedFloat32Array = grid.get("_heights").duplicate()
+	var changed_heights := original_heights.duplicate()
+	changed_heights[changed_heights.size() / 2] += 100.0
+	grid.set("_heights", changed_heights)
+	_expect(not bool(graph.call("_load", cache_path)), "cache accepted changed terrain heights")
+	grid.set("_heights", original_heights)
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(cache_path))
 	# Drop stale queued work before executing it, releasing the caller latch.
 	scheduler.set("min_job_start_interval_s", 0.0)

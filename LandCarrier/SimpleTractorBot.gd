@@ -416,7 +416,7 @@ func _rotate_toward_point_yaw_factor(goal: Vector3, delta: float) -> float:
 		return 1.0
 	return clampf(1.0 - (remaining / PI), 0.0, 1.0)
 
-func _would_overlap_peer(candidate_position: Vector3, delta: float = 0.0) -> bool:
+func _would_overlap_peer(candidate_position: Vector3, delta: float = 0.0, allow_separation: bool = false) -> bool:
 	var ignore_wheel: Node3D = null
 	if _withdrawal != Vector3.INF and _withdraw_wheel != null:
 		ignore_wheel = _withdraw_wheel.get_ref() as Node3D
@@ -431,6 +431,8 @@ func _would_overlap_peer(candidate_position: Vector3, delta: float = 0.0) -> boo
 	if not _last_blocked_by_peer:
 		for peer in get_tree().get_nodes_in_group("tractor_bot"):
 			if peer != self and peer is SimpleTractorBot and _peer_sweep_blocked(peer, candidate_position):
+				if allow_separation and _peer_separation_is_outward(peer, candidate_position):
+					continue
 				_last_blocked_by_peer = true
 				break
 	_blocked_time_s = _blocked_time_s + delta if _last_blocked_by_peer else 0.0
@@ -526,6 +528,8 @@ func move_deck_transit(local_goal: Vector3, speed: float, delta: float) -> bool:
 			_withdraw_wheel = null
 			_route.clear()
 		return false
+	if _separate_transit_peers(speed, delta):
+		return false
 	if not _exit_choices.is_empty():
 		_exit_target = _exit_choices[0]
 		for choice in _exit_choices:
@@ -539,6 +543,41 @@ func move_deck_transit(local_goal: Vector3, speed: float, delta: float) -> bool:
 			_route.clear()
 		return false
 	return _navigate_to(_from_carrier_local(local_goal), speed, delta)
+
+func _separate_transit_peers(speed: float, delta: float) -> bool:
+	# Stored aircraft can leave idle robots inside one another's turning space.
+	# Translate outward before turning; ordinary swept collision checks cannot
+	# resolve an overlap that already exists at the start of a movement.
+	var outward := Vector3.ZERO
+	var crowded := false
+	var clearance := 2.0 * Vector2(CHASSIS_HALF_WIDTH, CHASSIS_HALF_LENGTH).length() + 0.1
+	for peer in get_tree().get_nodes_in_group("tractor_bot"):
+		if peer == self or not peer is SimpleTractorBot: continue
+		if absf(peer.global_position.y - global_position.y) > 1.0: continue
+		var offset: Vector3 = global_position - peer.global_position
+		offset.y = 0.0
+		if offset.length() >= clearance: continue
+		crowded = true
+		outward += offset.normalized()
+	if not crowded: return false
+	if outward.length_squared() < 0.0001: return true
+	var candidate := global_position + outward.normalized() * minf(speed, 4.5) * delta
+	if not _would_overlap_peer(candidate, delta, true):
+		global_position = candidate
+		_route.clear()
+	return true
+
+func _peer_separation_is_outward(peer: SimpleTractorBot, candidate: Vector3) -> bool:
+	if not _peer_sweep_blocked(peer, global_position): return false
+	var offset := global_position - peer.global_position
+	var motion := candidate - global_position
+	if motion.length_squared() < 0.00000001: return false
+	# Every separating-axis distance must stay the same or grow. This permits
+	# backing out of an existing overlap, never crossing through a neighbour.
+	for axis in [global_basis.x, global_basis.z, peer.global_basis.x, peer.global_basis.z]:
+		var planar := _project_planar(axis, Vector3.RIGHT)
+		if offset.dot(planar) * motion.dot(planar) < -0.000001: return false
+	return offset.dot(motion) > 0.000001
 
 func _approach_phase_name() -> String:
 	match _approach_phase:

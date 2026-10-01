@@ -40,6 +40,9 @@ func _run() -> void:
 	await process_frame
 
 	var model := aircraft.get_node_or_null("aircraft_15")
+	if model == null or model.scene_file_path != "res://Models/Aircraft_15/aircraft 15.blend":
+		_fail("Aircraft 15 is not using its Blender source")
+		return
 	var tail := aircraft.get_node_or_null("aircraft_15/tail rotor")
 	var engine := aircraft.get_node_or_null("Engine")
 	if model == null or tail == null or engine.get("propeller") != tail:
@@ -67,7 +70,7 @@ func _run() -> void:
 	var wheel_names := ["WheelAndAxleFront", "WheelAndAxle left", "WheelAndAxle right"]
 	for index in range(3):
 		if not is_instance_valid(colliders[index]) or not is_instance_valid(visuals[index]) or visuals[index].name != wheel_names[index]:
-			_fail("wheel %d does not use its imported visual and collider" % index)
+			_fail("wheel %d does not use its imported visual and collider: %s" % [index, visuals])
 			return
 	if aircraft.get_node_or_null("SkidContactFL") != null:
 		_fail("Aircraft 13 skid contact was left on the wheeled aircraft")

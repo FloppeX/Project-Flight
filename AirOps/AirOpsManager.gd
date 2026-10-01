@@ -134,10 +134,14 @@ var _rescue_assignments: Dictionary = {}  # Downed pilot -> assigned helicopter.
 var _rescue_dispatch_timer_s: float = 0.0
 var _pending_rescue_launch_pilot: Node3D = null
 var _pending_rescue_launch_elapsed_s: float = 0.0
+var assembly: Node
 
 # ── Lifecycle ──────────────────────────────────────────────────────────────────
 
 func _ready() -> void:
+	assembly = preload("res://AirOps/FlightAssembly.gd").new()
+	assembly.name = "FlightAssembly"
+	add_child(assembly)
 	_create_flights()
 	print("[AirOpsManager] Ready — flights: %s" % ", ".join(FLIGHT_NAMES))
 	call_deferred("_apply_default_missions")
@@ -155,6 +159,8 @@ func _create_flights() -> void:
 
 
 func reset_runtime_state() -> void:
+	if assembly != null:
+		assembly.plans.clear()
 	for flight in flights:
 		if is_instance_valid(flight):
 			remove_child(flight)
@@ -446,6 +452,33 @@ func order_cap_route(fname: String, route_points: Array[Vector3], altitude_m: fl
 		RadioComms.say_cap_order(fname, altitude_m)
 	_ensure_flight_can_execute(f)
 
+func default_patrol_engagement(fname: String) -> String:
+	var f := get_flight(fname)
+	if f != null and f.mission_source == "player" and f.mission in [Flight.Mission.CAP, Flight.Mission.CAS]:
+		return "ground" if f.mission == Flight.Mission.CAS else f.patrol_engagement
+	if assembly != null and str(assembly.plan(fname).get("loadout", "gun_only")) in ["rocket_strike", "bomb_strike"]:
+		return "ground"
+	if f != null:
+		for aircraft in f.get_members():
+			var pilot: Node = aircraft.get_node_or_null("AIPilot")
+			if pilot != null and pilot.has_method("get_operational_resources"):
+				var resources: Dictionary = pilot.get_operational_resources()
+				if int(resources.get("bombs", 0)) + int(resources.get("rockets", 0)) > 0:
+					return "ground"
+	return "air"
+
+func order_patrol(fname: String, route_points: Array[Vector3], engagement: String = "air", altitude_m: float = 800.0) -> void:
+	var f := get_flight(fname)
+	if f == null or route_points.is_empty():
+		return
+	_clear_role(f)
+	_refresh_carrier()
+	f.mission_reason = "Patrol: %s" % engagement.capitalize()
+	f.set_cap_route(_carrier, route_points, altitude_m, engagement)
+	if _mark_order_acknowledgement_needed(f, "manual_patrol_" + engagement):
+		RadioComms.transmit("Citadel", "%s flight" % fname, "%s flight, patrol the marked route. Engage %s targets." % [fname, "air and ground" if engagement == "both" else engagement])
+	_ensure_flight_can_execute(f)
+
 func order_cas(fname: String, area_center: Vector3 = Vector3.ZERO, area_radius: float = 3000.0, altitude_m: float = -1.0) -> void:
 	var f := get_flight(fname)
 	if not f:
@@ -462,6 +495,81 @@ func order_cas(fname: String, area_center: Vector3 = Vector3.ZERO, area_radius: 
 	if _mark_order_acknowledgement_needed(f, "manual_cas"):
 		RadioComms.say_cas_order(fname)
 	_ensure_flight_can_execute(f)
+
+func get_attackable_platoons() -> Array[Node]:
+	var result: Array[Node] = []
+	var represented: Array[Node] = []
+	for base in EnemyBaseManager.get_all_bases():
+		for platoon in EnemyOpsManager._get_platoons(base):
+			if Flight.is_attack_platoon_valid(platoon):
+				result.append(platoon)
+				if is_instance_valid(platoon._platoon_node):
+					represented.append(platoon._platoon_node)
+	for platoon in get_tree().get_nodes_in_group("ground_vehicle_platoons"):
+		if not represented.has(platoon) and Flight.is_attack_platoon_valid(platoon):
+			result.append(platoon)
+	return result
+
+
+func get_interceptable_flights() -> Array[Node]:
+	var model: Script = preload("res://AirOps/InterceptTarget.gd")
+	var result: Array[Node] = []
+	var represented: Array[Node3D] = []
+	for base in EnemyBaseManager.get_all_bases():
+		for target in base.get_flights():
+			if model.is_valid(target):
+				result.append(target)
+				represented.append_array(model.members(target))
+	for target in get_tree().get_nodes_in_group("enemies"):
+		if model.is_aircraft_valid(target) and not represented.has(target):
+			result.append(target)
+	return result
+
+
+func order_intercept(fname: String, target: Variant) -> bool:
+	var model: Script = preload("res://AirOps/InterceptTarget.gd")
+	var flight := get_flight(fname)
+	if flight == null or not model.is_valid(target):
+		return false
+	# Resolve individual map markers to their owning formation as well as accepting formation markers.
+	if target is Node3D:
+		for formation in get_interceptable_flights():
+			if model.members(formation).has(target):
+				target = formation
+				break
+	_clear_role(flight)
+	_refresh_carrier()
+	flight.mission_reason = "Attack flight: %s" % model.label(target)
+	flight.set_intercept(null, _carrier, default_cap_altitude_m, target)
+	if _mark_order_acknowledgement_needed(flight, "manual_intercept"):
+		RadioComms.transmit("Citadel", "%s flight" % fname,
+			"%s flight, attack the marked enemy flight, then return." % fname)
+	_ensure_flight_can_execute(flight)
+	return true
+
+
+func order_attack(fname: String, area_center: Vector3, area_radius: float = 100.0, platoon: Node = null) -> bool:
+	var flight := get_flight(fname)
+	if flight == null or not area_center.is_finite() or not is_finite(area_radius) or area_radius <= 0.0:
+		return false
+	if platoon != null:
+		if not Flight.is_attack_platoon_valid(platoon):
+			return false
+		area_center = Flight.attack_platoon_position(platoon)
+	_clear_role(flight)
+	_refresh_carrier()
+	flight.mission_reason = "Attack area — %.0f m radius" % area_radius
+	if platoon != null:
+		flight.mission_reason = "Attack moving platoon"
+	flight.set_attack(area_center, _carrier, area_radius, default_cas_altitude_m, platoon)
+	if _mark_order_acknowledgement_needed(flight, "manual_attack"):
+		var message := "%s flight, clear the marked %.0f metre radius area, then return." % [fname, area_radius]
+		if platoon != null:
+			message = "%s flight, attack the marked enemy platoon, then return." % fname
+		RadioComms.transmit("Citadel", "%s flight" % fname, message)
+	_ensure_flight_can_execute(flight)
+	return true
+
 
 func order_rtb(fname: String) -> void:
 	var f := get_flight(fname)
@@ -596,10 +704,11 @@ func capture_save_state(flight_deck: Node) -> Dictionary:
 			"mission_state": flight.capture_mission_save_state(),
 			"aircraft": aircraft_entries,
 		})
-	return {"flights": flight_entries}
+	return {"flights": flight_entries, "assembly": assembly.capture_save_state()}
 
 
 func restore_save_state(state: Dictionary, flight_deck: Node) -> bool:
+	assembly.restore_save_state(state.get("assembly", {}))
 	if flight_deck == null or not flight_deck.has_method("restore_deployed_aircraft_save_state"):
 		return false
 	for flight in flights:
@@ -1271,6 +1380,8 @@ func _scramble_flight(f: Flight, reason: String = "intercept"):
 	## AirOpsManager acts as the callback target so launched pilots get registered.
 	if f == null or not is_instance_valid(f):
 		return false
+	if not assembly.can_launch(f.flight_name):
+		return false
 	var fdm := get_tree().get_first_node_in_group("flight_deck_manager")
 	if not fdm or not fdm.has_method("queue_ai_flight"):
 		push_warning("[AirOpsManager] No FlightDeckManager — cannot scramble %s" % f.flight_name)
@@ -1279,7 +1390,14 @@ func _scramble_flight(f: Flight, reason: String = "intercept"):
 		if debug_print:
 			print("[AirOpsManager] Scramble already in progress for %s, skipping" % _scrambling_flight.flight_name)
 		return
-	var accepted_count := int(fdm.queue_ai_flight(scramble_flight_size, self, _loadout_profile_for_scramble_reason(reason)))
+	var accepted_count := 0
+	if assembly.plans.has(f.flight_name):
+		var composition: Dictionary = assembly.plan(f.flight_name)
+		var selected_ids: Array[String] = []
+		selected_ids.assign(composition.ids)
+		accepted_count = int(fdm.queue_ai_flight(selected_ids.size(), self, "", str(composition.scene), selected_ids))
+	else:
+		accepted_count = int(fdm.queue_ai_flight(scramble_flight_size, self, _loadout_profile_for_scramble_reason(reason)))
 	if accepted_count <= 0:
 		if debug_print:
 			print("[AirOpsManager] Scramble request for %s flight was not accepted" % f.flight_name)
@@ -1298,6 +1416,10 @@ func _scramble_flight(f: Flight, reason: String = "intercept"):
 				"%s, launch and establish patrol over the carrier." % f.flight_name,
 				"%s flight, launch to maintain air cover." % f.flight_name,
 			]))
+	elif reason == "attack":
+		if _mark_order_acknowledgement_needed(f, "scramble_attack"):
+			RadioComms.transmit("Citadel", "%s flight" % f.flight_name,
+				"%s flight, launch for the designated ground attack." % f.flight_name)
 	elif reason == "cas":
 		if _mark_order_acknowledgement_needed(f, "scramble_cas"):
 			RadioComms.transmit("Citadel", "%s flight" % f.flight_name, RadioComms._pick([
@@ -1361,6 +1483,9 @@ func _flight_is_active(f: Flight) -> bool:
 
 func _flight_can_take_tactical_order(f: Flight) -> bool:
 	if not _flight_is_active(f):
+		return false
+	# Both allocators must preserve player intent until explicitly released.
+	if f.mission_source != "automatic" or f.mission == Flight.Mission.ATTACK:
 		return false
 	for aircraft in f.get_members():
 		if _aircraft_can_take_tactical_order(aircraft):
@@ -1506,6 +1631,8 @@ func _pick_cap_candidate(require_overhead: bool = false) -> Flight:
 
 func _pick_empty_flight(exclude: Flight = null) -> Flight:
 	for f in flights:
+		if not assembly.can_launch(f.flight_name):
+			continue
 		if f.mission_source != "automatic":
 			continue
 		if f == exclude:
@@ -1522,7 +1649,7 @@ func _pick_empty_flight(exclude: Flight = null) -> Flight:
 func _loadout_profile_for_scramble_reason(reason: String) -> String:
 	if reason == "intercept":
 		return "intercept"
-	if reason == "cas":
+	if reason in ["cas", "attack"]:
 		return "strike"
 	return "cap"
 
@@ -1841,9 +1968,11 @@ func _ensure_flight_can_execute(f: Flight) -> void:
 		return
 	var reason := "intercept"
 	if f.mission == Flight.Mission.CAP:
-		reason = "cap"
+		reason = "cap" if f.patrol_engagement == "air" else "cas"
 	elif f.mission == Flight.Mission.CAS:
 		reason = "cas"
+	elif f.mission == Flight.Mission.ATTACK:
+		reason = "attack"
 	_scramble_flight(f, reason)
 
 func _refresh_carrier() -> void:
