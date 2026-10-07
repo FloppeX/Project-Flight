@@ -2,6 +2,13 @@ extends SceneTree
 
 class TestEngine extends Node:
 	var current_power := 0.86
+	var is_engine_working := true
+	var damage_disabled := false
+	var throttle_input := 0.86
+
+class TestRotor extends Node:
+	var _fold_t := 0.0
+	func get_rotor_speed_ratio() -> float: return 1.0
 
 var pairs: Array = []
 var failures: Array[String] = []
@@ -27,6 +34,9 @@ func run() -> void:
 			var engine := TestEngine.new()
 			engine.name = "Engine"
 			body.add_child(engine)
+			var rotor := TestRotor.new()
+			rotor.name = "RotorAssembly"
+			body.add_child(rotor)
 			var aero = load("res://Aircraft/HelicopterFlight.gd").new()
 			for i in state.get_node_count():
 				if str(state.get_node_name(i)) == "SimpleAero":

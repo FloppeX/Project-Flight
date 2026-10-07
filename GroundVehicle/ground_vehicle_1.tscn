@@ -1,0 +1,74 @@
+[gd_scene format=3 uid="uid://c2hpmvn4um3pg"]
+
+[ext_resource type="Script" uid="uid://cont4fpva1hw" path="res://GroundVehicle/vehicle_friendly_light.gd" id="1_vehicle"]
+[ext_resource type="PackedScene" uid="uid://c5pxoobnrdxug" path="res://Models/Vehicles/ground_vehicle_2.blend" id="2_body"]
+[ext_resource type="Script" uid="uid://cqw36derm5yh1" path="res://Weapons/Turrets/turret_controller.gd" id="3_controller"]
+[ext_resource type="PackedScene" path="res://Weapons/Turrets/vehicle_lmg_turret.tscn" id="4_mount"]
+[ext_resource type="PackedScene" path="res://Weapons/Guns/Turrets/10mm_machine_gun_turret_weapon.tscn" id="5_gun"]
+[ext_resource type="PackedScene" uid="uid://duc1jx1m3f54d" path="res://Models/Vehicles/Vehicle wheel medium.glb" id="6_wheel"]
+[ext_resource type="Script" uid="uid://b4pdjtgk0x3bt" path="res://GroundVehicle/VehicleRescueDoors.gd" id="7_doors"]
+
+[sub_resource type="BoxShape3D" id="Box_chassis"]
+size = Vector3(3.4935, 2.9683, 7.5942)
+
+[node name="GroundVehicle1KMVExplorer" type="CharacterBody3D" unique_id=96639029]
+script = ExtResource("1_vehicle")
+chassis_ride_height_m = 0.98
+metadata/vehicle_id = "kmv_explorer"
+metadata/vehicle_number = 1
+metadata/display_name = "KMV Explorer"
+
+[node name="CollisionShape3D2" type="CollisionShape3D" parent="." unique_id=122327380]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.5503, 0.9948)
+shape = SubResource("Box_chassis")
+
+[node name="Body" parent="." unique_id=49636140 instance=ExtResource("2_body")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.44265, 0)
+
+[node name="TurretController" type="Node3D" parent="Body" unique_id=1281821454]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.6569792, 2.4155002, 0.6460595)
+script = ExtResource("3_controller")
+weapon_scene = ExtResource("5_gun")
+team = 1
+
+[node name="VehicleLMGTurret" parent="Body/TurretController" unique_id=437716194 instance=ExtResource("4_mount")]
+transform = Transform3D(0.7, 0, 0, 0, 0.7, 0, 0, 0, 0.7, 0, 0, 0)
+
+[node name="RescueDoors" type="Node" parent="." unique_id=879106223]
+script = ExtResource("7_doors")
+
+[node name="wheel_right_1" type="Node3D" parent="." unique_id=1530246551]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.507, 0, 2.5)
+
+[node name="ground_contact_point" type="Node3D" parent="wheel_right_1" unique_id=82185035]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.9752, 0)
+
+[node name="Vehicle wheel medium" parent="wheel_right_1" unique_id=1114953110 instance=ExtResource("6_wheel")]
+transform = Transform3D(-1.3, 0, -1.13649605e-07, 0, 1.3, 0, 1.13649605e-07, 0, -1.3, -0.0103, 0, 0)
+
+[node name="wheel_right_2" type="Node3D" parent="." unique_id=179267017]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.507, 0, -1.265)
+
+[node name="ground_contact_point" type="Node3D" parent="wheel_right_2" unique_id=2084776319]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.9752, 0)
+
+[node name="Vehicle wheel medium" parent="wheel_right_2" unique_id=390732584 instance=ExtResource("6_wheel")]
+transform = Transform3D(-1.3, 0, -1.13649605e-07, 0, 1.3, 0, 1.13649605e-07, 0, -1.3, -0.0103, 0, 0)
+
+[node name="wheel_left_1" type="Node3D" parent="." unique_id=2096818922]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.507, 0, 2.5)
+
+[node name="ground_contact_point" type="Node3D" parent="wheel_left_1" unique_id=751505394]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.9752, 0)
+
+[node name="Vehicle wheel medium" parent="wheel_left_1" unique_id=863571588 instance=ExtResource("6_wheel")]
+transform = Transform3D(1.3, 0, 0, 0, 1.3, 0, 0, 0, 1.3, -0.0103, 0, 0)
+
+[node name="wheel_left_2" type="Node3D" parent="." unique_id=2043173983]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.507, 0, -1.265)
+
+[node name="ground_contact_point" type="Node3D" parent="wheel_left_2" unique_id=1178159630]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.9752, 0)
+
+[node name="Vehicle wheel medium" parent="wheel_left_2" unique_id=1064158689 instance=ExtResource("6_wheel")]
+transform = Transform3D(1.3, 0, 0, 0, 1.3, 0, 0, 0, 1.3, -0.0103, 0, 0)

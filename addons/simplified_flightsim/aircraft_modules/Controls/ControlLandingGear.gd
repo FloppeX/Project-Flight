@@ -153,6 +153,7 @@ func receive_input(_event: InputEvent) -> void:
 	pass
 
 func toggle_gear() -> void:
+	if _damage_locks_gear(): return
 	if LockGearDeployed:
 		send_to_landing_gears("deploy")
 		_set_collider_disabled(false)
@@ -171,7 +172,15 @@ func toggle_gear() -> void:
 	else:
 		deploy_gear()
 
+func _damage_locks_gear() -> bool:
+	for reference in landing_gear_modules:
+		var gear := _resolve_gear_module(reference)
+		if gear != null and (bool(gear.get("damage_jammed")) or bool(gear.get("damage_collapsed"))):
+			return true
+	return false
+
 func deploy_gear() -> void:
+	if _damage_locks_gear(): return
 	send_to_landing_gears("deploy")
 	send_to_tailhooks("deploy")
 	send_to_tailhook_simple(true)
@@ -180,6 +189,7 @@ func deploy_gear() -> void:
 	tailhook_down_state = true
 
 func stow_gear() -> void:
+	if _damage_locks_gear(): return
 	if LockGearDeployed:
 		send_to_landing_gears("deploy")
 		send_to_tailhooks("stow")
@@ -247,20 +257,20 @@ func send_to_tailhook_simple(deploying: bool) -> void:
 func _set_collider_disabled(disabled: bool) -> void:
 	# Directly toggle assigned colliders, independent of module wiring
 	if _nose_cs:
-		_nose_cs.disabled = disabled
+		_nose_cs.disabled = disabled or bool(_nose_cs.get_meta("damage_detached", false))
 		if debug_enabled:
 			print("[GEAR] nose collider ", ("DISABLED" if disabled else "ENABLED"), ": ", _nose_cs)
 	if _left_cs:
-		_left_cs.disabled = disabled
+		_left_cs.disabled = disabled or bool(_left_cs.get_meta("damage_detached", false))
 		if debug_enabled:
 			print("[GEAR] left collider ", ("DISABLED" if disabled else "ENABLED"), ": ", _left_cs)
 	if _right_cs:
-		_right_cs.disabled = disabled
+		_right_cs.disabled = disabled or bool(_right_cs.get_meta("damage_detached", false))
 		if debug_enabled:
 			print("[GEAR] right collider ", ("DISABLED" if disabled else "ENABLED"), ": ", _right_cs)
 	for cs in _extra_cs:
 		if cs and is_instance_valid(cs):
-			cs.disabled = disabled
+			cs.disabled = disabled or bool(cs.get_meta("damage_detached", false))
 			if debug_enabled:
 				print("[GEAR] extra collider ", ("DISABLED" if disabled else "ENABLED"), ": ", cs)
 	if debug_enabled and not _visual_roots.is_empty():

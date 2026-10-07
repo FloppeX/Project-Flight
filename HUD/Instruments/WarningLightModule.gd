@@ -23,6 +23,9 @@ func update_from_aircraft(_delta: float) -> void:
 			"ENGINE":
 				active = not _has_working_engine()
 				color = COLOR_BAD
+				if not active and aircraft != null and float(aircraft.get_meta("engine_health_fraction", 1.0)) < 0.99:
+					active = true
+					color = COLOR_WARN
 			"WEAPONS":
 				active = _weapon_count() <= 0
 				color = COLOR_WARN
@@ -119,6 +122,8 @@ func _gear_warning() -> bool:
 	var gear := _find_first_module_by_type("landing_gear")
 	if gear == null:
 		return false
+	if bool(gear.get("damage_jammed")) or bool(gear.get("damage_collapsed")):
+		return true
 	if ("is_deploying" in gear and bool(gear.get("is_deploying"))) or ("is_stowing" in gear and bool(gear.get("is_stowing"))):
 		return true
 	var low_alt := aircraft != null and is_instance_valid(aircraft) and "local_altitude" in aircraft and float(aircraft.get("local_altitude")) < 100.0

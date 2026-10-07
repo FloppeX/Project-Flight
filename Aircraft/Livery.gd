@@ -344,7 +344,7 @@ func cycle_helicopter_upper_pattern() -> void:
 
 func _reapply_all() -> void:
 	var seen_ids: Dictionary = {}
-	for group_name in ["aircraft", "ai_aircraft", "friendlies", "ground_vehicles", "enemies", "buildings", "carrier"]:
+	for group_name in ["aircraft", "ai_aircraft", "friendlies", "ground_vehicles", "enemies", "buildings", "carrier", "turret_livery"]:
 		var nodes: Array = get_tree().get_nodes_in_group(group_name)
 		for node_variant in nodes:
 			if not (node_variant is Node):
@@ -365,6 +365,8 @@ func _can_apply_to_node(node: Node) -> bool:
 	if node == null or not is_instance_valid(node):
 		return false
 	if node.is_in_group("carrier"):
+		return true
+	if node.is_in_group("turret_livery"):
 		return true
 	if node.has_method("get_team"):
 		return true
@@ -414,6 +416,8 @@ func _reset_team_livery_assignments() -> void:
 func _resolve_team_id(node: Node) -> int:
 	if node == null or not is_instance_valid(node):
 		return PLAYER_TEAM_ID
+	if node.is_in_group("turret_livery") and node.has_method("_get_effective_team"):
+		return int(node.call("_get_effective_team"))
 	if node.has_method("get_team"):
 		return int(node.call("get_team"))
 	var team_variant: Variant = node.get("team")
@@ -1052,7 +1056,8 @@ func _colors_match_for_pattern(a: Color, b: Color) -> bool:
 			and absf(a.b - b.b) <= tolerance \
 			and absf(a.a - b.a) <= tolerance
 
-func _apply_recursive(node: Node) -> void:
+func _apply_recursive(node: Node, in_turret: bool = false) -> void:
+	in_turret = in_turret or node is Turret
 	if node is MeshInstance3D:
 		var mi := node as MeshInstance3D
 		var mesh := mi.mesh
@@ -1098,6 +1103,10 @@ func _apply_recursive(node: Node) -> void:
 				elif _is_uniform_color_1_material_name(mat_name):
 					# Bridge officers share the player's selected fleet primary color.
 					# Keep this solid rather than treating it as a patterned carrier surface.
+					target_color = _active_apply_upper_color
+				elif in_turret and mat_name == "main color":
+					# Turret housings use the team's solid primary paint, including
+					# turrets on aircraft whose pilots have separate suit palettes.
 					target_color = _active_apply_upper_color
 				elif _active_apply_has_pilot_colors and mat_name == "main color":
 					target_color = _active_apply_pilot_main_color
@@ -1157,7 +1166,7 @@ func _apply_recursive(node: Node) -> void:
 						override.cull_mode = BaseMaterial3D.CULL_BACK
 					mi.set_surface_override_material(i, override)
 	for child in node.get_children():
-		_apply_recursive(child)
+		_apply_recursive(child, in_turret)
 
 func _normalized_aircraft_upper_pattern_index() -> int:
 	if AIRCRAFT_UPPER_PATTERN_NAMES.is_empty():

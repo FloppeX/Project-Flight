@@ -174,9 +174,12 @@ func _ready() -> void:
 	host_actor = _resolve_host_actor()
 	if host_actor and is_instance_valid(host_actor) and host_actor.has_method("get_team"):
 		team = int(host_actor.get_team())
+	add_to_group("turret_livery")
 
 	if weapon_scene:
 		mount_weapon(weapon_scene)
+	else:
+		get_node("/root/Livery").call("apply", self)
 
 	_refresh_targeting_detail_cache(0.0)
 	_targeting_visibility_timer_s = randf_range(0.0, maxf(targeting_visibility_check_interval_s, 0.01))
@@ -218,6 +221,9 @@ func mount_weapon(scene: PackedScene) -> void:
 
 	if turret and turret.has_method("configure_weapon_barrel"):
 		turret.call("configure_weapon_barrel", weapon_instance)
+	# Builds and weapon swaps add new imported surfaces after the host's livery
+	# may already have been applied. Resolve the same team used by targeting.
+	get_node("/root/Livery").call("apply", self)
 
 func _physics_process(delta: float) -> void:
 	if not turret:

@@ -45,6 +45,8 @@ const DEFAULT_LOOK_SENSITIVITY_INDEX := 2
 const DEFAULT_INVERT_LOOK_Y := false
 const DEFAULT_CAMERA_MOTION_INDEX := 2
 const DEFAULT_CAMERA_FOV_INDEX := 2
+const DEFAULT_HUD_COLOR_INDEX := 0
+const DEFAULT_HUD_BRIGHTNESS_INDEX := 2
 const DEFAULT_CONTROLLER_MENU_CURSOR_ENABLED := false
 const DEFAULT_FLIGHT_MODEL_INDEX := 1
 const DEFAULT_FIXED_TIME_MINUTES := 12 * 60
@@ -112,6 +114,16 @@ const CAMERA_MOTION_LABELS := ["OFF", "REDUCED", "FULL"]
 const CAMERA_MOTION_VALUES := [0.0, 0.45, 1.0]
 const CAMERA_FOV_LABELS := ["60", "70", "75", "85"]
 const CAMERA_FOV_VALUES := [60.0, 70.0, 75.0, 85.0]
+const HUD_COLOR_LABELS := ["GREEN", "AMBER", "BLUE", "PINK", "WHITE"]
+const HUD_COLORS := [
+	Color(0.0, 0.55, 0.0),
+	Color(0.65, 0.38, 0.015),
+	Color(0.08, 0.38, 0.85),
+	Color(0.75, 0.12, 0.42),
+	Color(0.85, 0.85, 0.85),
+]
+const HUD_BRIGHTNESS_LABELS := ["50%", "75%", "100%", "150%", "200%"]
+const HUD_BRIGHTNESS_VALUES := [0.5, 0.75, 1.0, 1.5, 2.0]
 
 var _screens: Dictionary = {}
 var _current_screen: String = ""
@@ -125,6 +137,7 @@ var _opentrack_enabled := false
 var _opentrack_smoothing := 2
 var _opentrack_status: Label
 var _opentrack_help: Label
+var _hud_color_swatch: GradientTexture2D
 var _master_volume: float = DEFAULT_MASTER_VOLUME
 var _music_enabled: bool = DEFAULT_MUSIC_ENABLED
 var _radio_volume: float = DEFAULT_RADIO_VOLUME
@@ -147,6 +160,8 @@ var _look_sensitivity_index: int = DEFAULT_LOOK_SENSITIVITY_INDEX
 var _invert_look_y: bool = DEFAULT_INVERT_LOOK_Y
 var _camera_motion_index: int = DEFAULT_CAMERA_MOTION_INDEX
 var _camera_fov_index: int = DEFAULT_CAMERA_FOV_INDEX
+var _hud_color_index: int = DEFAULT_HUD_COLOR_INDEX
+var _hud_brightness_index: int = DEFAULT_HUD_BRIGHTNESS_INDEX
 var _controller_menu_cursor_enabled: bool = DEFAULT_CONTROLLER_MENU_CURSOR_ENABLED
 var _flight_model_index: int = DEFAULT_FLIGHT_MODEL_INDEX
 var _fixed_time_enabled := false
@@ -669,188 +684,221 @@ func _on_save_campaign() -> void:
 	_save_feedback_until_ms = Time.get_ticks_msec() + 2500
 
 
-func _build_options_screen() -> Control:
+func _build_settings_page(title: String, subtitle: String, active_category: String) -> Dictionary:
 	var root := Control.new()
 	root.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_build_screen_chrome(root, "SETTINGS", "SYS_ID: LC-992-ALPHA // SYSTEM CONFIGURATION")
-
+	_build_screen_chrome(root, title, subtitle)
 	var back := _make_back_button(Vector2(SUBMENU_X, 190.0))
-	back.pressed.connect(_back_from_options)
+	back.pressed.connect(_back_from_options if active_category == "options" else func(): _show_screen("options"))
 	root.add_child(back)
+	for index in range(3):
+		var category: String = ["audio", "graphics", "gameplay"][index]
+		var nav := _make_row_button(category.to_upper() + " >", Vector2(SUBMENU_X, 264.0 + index * 64.0), OPERATOR_RAIL_WIDTH - 64.0)
+		nav.toggle_mode = true
+		nav.button_pressed = category == active_category
+		nav.pressed.connect(_show_screen.bind(category))
+		root.add_child(nav)
+	var saved_note := _settings_paragraph("Changes are saved automatically.")
+	saved_note.position = Vector2(SUBMENU_X + 18.0, 464.0)
+	saved_note.size = Vector2(OPERATOR_RAIL_WIDTH - 100.0, 70.0)
+	root.add_child(saved_note)
+	var scroll := ScrollContainer.new()
+	scroll.name = "SettingsScroll"
+	scroll.position = Vector2(OPERATOR_RAIL_WIDTH + 56.0, 230.0)
+	scroll.size = Vector2(BASE_UI_SIZE.x - OPERATOR_RAIL_WIDTH - 112.0, 770.0)
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.follow_focus = true
+	root.add_child(scroll)
+	var columns := HBoxContainer.new()
+	columns.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	columns.add_theme_constant_override("separation", 24)
+	scroll.add_child(columns)
+	var result := {"root": root, "scroll": scroll}
+	for key in ["left", "right"]:
+		var column := VBoxContainer.new()
+		column.name = key.capitalize() + "SettingsColumn"
+		column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		column.custom_minimum_size.x = 620.0
+		column.add_theme_constant_override("separation", 24)
+		columns.add_child(column)
+		result[key] = column
+	var footer := _settings_paragraph("Select a setting to change it. Scroll for more options.")
+	footer.position = Vector2(OPERATOR_RAIL_WIDTH + 56.0, 1020.0)
+	footer.size = Vector2(1300.0, 34.0)
+	root.add_child(footer)
+	return result
 
-	var audio_btn := _make_row_button("AUDIO >", Vector2(SUBMENU_X, 264.0), OPERATOR_RAIL_WIDTH - 64.0)
-	audio_btn.pressed.connect(func(): _show_screen("audio"))
-	root.add_child(audio_btn)
 
-	var graphics_btn := _make_row_button("GRAPHICS >", Vector2(SUBMENU_X, 328.0), OPERATOR_RAIL_WIDTH - 64.0)
-	graphics_btn.pressed.connect(func(): _show_screen("graphics"))
-	root.add_child(graphics_btn)
+func _settings_paragraph(text: String) -> Label:
+	var label := Label.new()
+	label.text = text
+	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	label.add_theme_font_override("font", MenuTypography.FONT)
+	label.add_theme_font_size_override("font_size", 22)
+	label.add_theme_color_override("font_color", MenuTheme.TEXT)
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return label
 
-	var gameplay_btn := _make_row_button("GAMEPLAY >", Vector2(SUBMENU_X, 392.0), OPERATOR_RAIL_WIDTH - 64.0)
-	gameplay_btn.pressed.connect(func(): _show_screen("gameplay"))
-	root.add_child(gameplay_btn)
 
-	var reset_btn := _make_row_button("RESET ALL DEFAULTS", Vector2(SUBMENU_X, 520.0), OPERATOR_RAIL_WIDTH - 64.0)
-	reset_btn.pressed.connect(_reset_all_defaults)
-	root.add_child(reset_btn)
-	return root
+func _settings_section(column: VBoxContainer, title: String, description: String = "") -> VBoxContainer:
+	var panel := PanelContainer.new()
+	panel.name = title.to_pascal_case() + "Section"
+	var style := MenuTheme.make_panel_style(MenuTheme.SURFACE_SOLID)
+	style.set_content_margin_all(20.0)
+	panel.add_theme_stylebox_override("panel", style)
+	column.add_child(panel)
+	var content := VBoxContainer.new()
+	content.add_theme_constant_override("separation", 10)
+	panel.add_child(content)
+	var heading := _settings_paragraph(title.to_upper())
+	heading.add_theme_font_size_override("font_size", 28)
+	heading.add_theme_color_override("font_color", MenuTheme.PRIMARY)
+	content.add_child(heading)
+	if not description.is_empty():
+		content.add_child(_settings_paragraph(description))
+	return content
+
+
+func _settings_button(section: VBoxContainer, controls: Dictionary, key: String, handler: Callable) -> Button:
+	var button := _make_row_button("", Vector2.ZERO, 0.0)
+	button.custom_minimum_size = Vector2(0.0, 54.0)
+	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	button.tooltip_text = "Select to change this setting."
+	button.add_theme_font_size_override("font_size", 22)
+	button.add_theme_color_override("font_disabled_color", Color(MenuTheme.TEXT.r, MenuTheme.TEXT.g, MenuTheme.TEXT.b, 0.5))
+	button.add_theme_stylebox_override("normal", MenuTheme.make_operator_button_style(MenuTheme.SURFACE_LOW, MenuTheme.OUTLINE, 1))
+	button.pressed.connect(handler)
+	section.add_child(button)
+	controls[key] = button
+	return button
+
+
+func _build_options_screen() -> Control:
+	var page := _build_settings_page("SETTINGS", "AUDIO, DISPLAY AND GAMEPLAY PREFERENCES", "options")
+	var audio := _settings_section(page.left, "Audio", "Volume, music and radio captions.")
+	_settings_button(audio, {}, "open", _show_screen.bind("audio")).text = "OPEN AUDIO >"
+	var graphics := _settings_section(page.left, "Graphics", "Display mode, image quality and visibility.")
+	_settings_button(graphics, {}, "open", _show_screen.bind("graphics")).text = "OPEN GRAPHICS >"
+	var gameplay := _settings_section(page.right, "Gameplay", "Flight controls, camera, HUD and head tracking.")
+	_settings_button(gameplay, {}, "open", _show_screen.bind("gameplay")).text = "OPEN GAMEPLAY >"
+	var defaults := _settings_section(page.right, "Restore defaults", "Reset all Audio, Graphics and Gameplay preferences.")
+	_settings_button(defaults, {}, "reset", _reset_all_defaults).text = "RESET ALL DEFAULTS"
+	return page.root
 
 
 func _build_audio_screen() -> Control:
-	var root := Control.new()
-	root.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_build_screen_chrome(root, "AUDIO", "SYS_ID: LC-992-ALPHA // MIX AND RADIO")
-
-	var back := _make_back_button(Vector2(SUBMENU_X, 190.0))
-	back.pressed.connect(func(): _show_screen("options"))
-	root.add_child(back)
-
-	_build_audio_slider(root, "master", "MASTER VOLUME", 264.0, _master_volume)
-	var music_btn := _make_row_button("", Vector2(SUBMENU_X, 366.0), OPERATOR_RAIL_WIDTH - 64.0)
-	music_btn.pressed.connect(_toggle_music)
-	root.add_child(music_btn)
-	_audio_buttons["music"] = music_btn
-	_build_audio_slider(root, "radio", "RADIO VOLUME", 430.0, _radio_volume)
-
-	var captions_btn := _make_row_button("", Vector2(SUBMENU_X, 532.0), OPERATOR_RAIL_WIDTH - 64.0)
-	captions_btn.pressed.connect(_cycle_radio_captions)
-	root.add_child(captions_btn)
-	_audio_buttons["captions"] = captions_btn
-
-	var duration_btn := _make_row_button("", Vector2(SUBMENU_X, 596.0), OPERATOR_RAIL_WIDTH - 64.0)
-	duration_btn.pressed.connect(_cycle_radio_caption_duration)
-	root.add_child(duration_btn)
-	_audio_buttons["caption_duration"] = duration_btn
+	var page := _build_settings_page("AUDIO", "VOLUME, MUSIC AND RADIO", "audio")
+	var sound := _settings_section(page.left, "Sound", "Master volume affects all game audio.")
+	_build_audio_slider(sound, "master", "MASTER VOLUME", _master_volume)
+	_settings_button(sound, _audio_buttons, "music", _toggle_music)
+	var radio := _settings_section(page.right, "Radio communications", "Adjust radio speech and its on-screen captions.")
+	_build_audio_slider(radio, "radio", "RADIO VOLUME", _radio_volume)
+	_settings_button(radio, _audio_buttons, "captions", _cycle_radio_captions)
+	_settings_button(radio, _audio_buttons, "caption_duration", _cycle_radio_caption_duration)
 	_refresh_audio_controls()
-	return root
+	return page.root
 
 
-func _build_audio_slider(root: Control, key: String, label_text: String, row_y: float, value: float) -> void:
-	var label := _make_console_label(label_text, Vector2(SUBMENU_X + 18.0, row_y), MenuTypography.FIELD_LABEL_SIZE, MenuTheme.TEXT_MUTED, MenuTypography.TECH_FONT)
+func _build_audio_slider(root: Control, key: String, label_text: String, value: float) -> void:
+	var label := _settings_paragraph(label_text)
 	root.add_child(label)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 16)
+	root.add_child(row)
 	var slider := HSlider.new()
 	slider.min_value = 0.0
 	slider.max_value = 1.0
 	slider.step = 0.01
 	slider.value = value
-	slider.position = Vector2(SUBMENU_X + 18.0, row_y + 34.0)
-	slider.size = Vector2(320.0, 40.0)
+	slider.custom_minimum_size = Vector2(0.0, 44.0)
+	slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	slider.focus_mode = Control.FOCUS_ALL
 	slider.value_changed.connect(_on_audio_volume_changed.bind(key))
 	MenuTheme.apply_slider(slider)
-	root.add_child(slider)
+	row.add_child(slider)
 	_audio_sliders[key] = slider
-	var pct_label := _make_console_label("%d%%" % roundi(value * 100.0), Vector2(SUBMENU_X + 356.0, row_y + 40.0), MenuTypography.FIELD_VALUE_SIZE, MenuTheme.TEXT, MenuTypography.TECH_FONT)
-	root.add_child(pct_label)
+	var pct_label := _settings_paragraph("%d%%" % roundi(value * 100.0))
+	pct_label.custom_minimum_size.x = 72.0
+	pct_label.size_flags_horizontal = Control.SIZE_FILL
+	pct_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	pct_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	row.add_child(pct_label)
 	_audio_value_labels[key] = pct_label
 
 
 func _build_gameplay_screen() -> Control:
-	var root := Control.new()
-	root.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_build_screen_chrome(root, "GAMEPLAY", "SYS_ID: LC-992-ALPHA // CONTROL ASSISTANCE")
-
-	var back := _make_back_button(Vector2(SUBMENU_X, 190.0))
-	back.pressed.connect(func(): _show_screen("options"))
-	root.add_child(back)
-
-	var row_width := OPERATOR_RAIL_WIDTH - 64.0
-	var row_y := 252.0
-	var flight_model_btn := _make_row_button("", Vector2(SUBMENU_X, row_y), row_width)
-	flight_model_btn.pressed.connect(_cycle_flight_model)
-	root.add_child(flight_model_btn)
-	_gameplay_buttons["flight_model"] = flight_model_btn
-
-	row_y += 58.0
-	var rudder_btn := _make_row_button("", Vector2(SUBMENU_X, row_y), row_width)
-	rudder_btn.pressed.connect(_cycle_rudder_assist)
-	root.add_child(rudder_btn)
-	_gameplay_buttons["rudder_assist"] = rudder_btn
-
-	row_y += 58.0
-	var helicopter_rudder_btn := _make_row_button("", Vector2(SUBMENU_X, row_y), row_width)
-	helicopter_rudder_btn.pressed.connect(_cycle_helicopter_rudder_assist)
-	root.add_child(helicopter_rudder_btn)
-	_gameplay_buttons["helicopter_rudder_assist"] = helicopter_rudder_btn
-
-	row_y += 58.0
-	var deadzone_btn := _make_row_button("", Vector2(SUBMENU_X, row_y), row_width)
-	deadzone_btn.pressed.connect(_cycle_stick_deadzone)
-	root.add_child(deadzone_btn)
-	_gameplay_buttons["stick_deadzone"] = deadzone_btn
-
-	row_y += 58.0
-	var menu_cursor_btn := _make_row_button("", Vector2(SUBMENU_X, row_y), row_width)
-	menu_cursor_btn.pressed.connect(_cycle_controller_menu_cursor)
-	root.add_child(menu_cursor_btn)
-	_gameplay_buttons["controller_menu_cursor"] = menu_cursor_btn
-
-	row_y += 58.0
-	var sensitivity_btn := _make_row_button("", Vector2(SUBMENU_X, row_y), row_width)
-	sensitivity_btn.pressed.connect(_cycle_look_sensitivity)
-	root.add_child(sensitivity_btn)
-	_gameplay_buttons["look_sensitivity"] = sensitivity_btn
-
-	row_y += 58.0
-	var invert_y_btn := _make_row_button("", Vector2(SUBMENU_X, row_y), row_width)
-	invert_y_btn.pressed.connect(_cycle_invert_look_y)
-	root.add_child(invert_y_btn)
-	_gameplay_buttons["invert_look_y"] = invert_y_btn
-
-	row_y += 58.0
-	var camera_motion_btn := _make_row_button("", Vector2(SUBMENU_X, row_y), row_width)
-	camera_motion_btn.pressed.connect(_cycle_camera_motion)
-	root.add_child(camera_motion_btn)
-	_gameplay_buttons["camera_motion"] = camera_motion_btn
-
-	row_y += 58.0
-	var camera_fov_btn := _make_row_button("", Vector2(SUBMENU_X, row_y), row_width)
-	camera_fov_btn.pressed.connect(_cycle_camera_fov)
-	root.add_child(camera_fov_btn)
-	_gameplay_buttons["camera_fov"] = camera_fov_btn
-	row_y += 58.0
-	var fixed_time_btn := _make_row_button("", Vector2(SUBMENU_X, row_y), row_width)
-	fixed_time_btn.pressed.connect(func(): set_fixed_time_of_day(not _fixed_time_enabled, _fixed_time_minutes))
-	root.add_child(fixed_time_btn)
-	_gameplay_buttons["fixed_time"] = fixed_time_btn
-	_fixed_time_controls = HBoxContainer.new()
-	_fixed_time_controls.position = Vector2(SUBMENU_X + 18.0, row_y + 58.0)
-	_fixed_time_controls.size = Vector2(row_width - 36.0, 48.0)
-	_fixed_time_controls.add_theme_constant_override("separation", 12)
-	root.add_child(_fixed_time_controls)
-	_fixed_time_controls.add_child(_make_console_label("TIME (24H)", Vector2.ZERO, 20, COLOR_WHITE, MenuTypography.TECH_FONT))
-	_fixed_time_hour = _make_time_spinbox(23, "Hour (0–23)")
-	_fixed_time_minute = _make_time_spinbox(59, "Minute (0–59)")
-	_fixed_time_controls.add_child(_fixed_time_hour)
-	_fixed_time_controls.add_child(_make_console_label(":", Vector2.ZERO, 20, COLOR_WHITE, MenuTypography.TECH_FONT))
-	_fixed_time_controls.add_child(_fixed_time_minute)
-	_fixed_time_hour.value_changed.connect(_on_fixed_time_clock_changed)
-	_fixed_time_minute.value_changed.connect(_on_fixed_time_clock_changed)
-	var tracking_x := OPERATOR_RAIL_WIDTH + 56.0
-	root.add_child(_make_console_label("HEAD TRACKING / COCKPIT", Vector2(tracking_x, 252.0), 24, COLOR_WHITE, MenuTypography.TECH_FONT))
-	var tracking_btn := _make_row_button("", Vector2(tracking_x, 310.0), 650.0)
-	tracking_btn.pressed.connect(func():
+	var page := _build_settings_page("GAMEPLAY", "FLIGHT, CAMERA AND HUD PREFERENCES", "gameplay")
+	var flight := _settings_section(page.left, "Flight and controls", "Choose the flight model and control assistance.")
+	for setting in [
+		["flight_model", _cycle_flight_model],
+		["rudder_assist", _cycle_rudder_assist],
+		["helicopter_rudder_assist", _cycle_helicopter_rudder_assist],
+		["stick_deadzone", _cycle_stick_deadzone],
+		["controller_menu_cursor", _cycle_controller_menu_cursor],
+	]:
+		_settings_button(flight, _gameplay_buttons, setting[0], setting[1])
+	var hud := _settings_section(page.right, "HUD visibility", "Choose the cockpit HUD color and brightness.")
+	var color_btn := _settings_button(hud, _gameplay_buttons, "hud_color", func():
+		set_hud_appearance((_hud_color_index + 1) % HUD_COLORS.size(), _hud_brightness_index))
+	_hud_color_swatch = GradientTexture2D.new()
+	_hud_color_swatch.width = 20
+	_hud_color_swatch.height = 20
+	_hud_color_swatch.gradient = Gradient.new()
+	color_btn.icon = _hud_color_swatch
+	_settings_button(hud, _gameplay_buttons, "hud_brightness", func():
+		set_hud_appearance(_hud_color_index, (_hud_brightness_index + 1) % HUD_BRIGHTNESS_VALUES.size()))
+	var camera := _settings_section(page.right, "Camera")
+	for setting in [
+		["look_sensitivity", _cycle_look_sensitivity],
+		["invert_look_y", _cycle_invert_look_y],
+		["camera_motion", _cycle_camera_motion],
+		["camera_fov", _cycle_camera_fov],
+	]:
+		_settings_button(camera, _gameplay_buttons, setting[0], setting[1])
+	var tracking := _settings_section(page.left, "Head tracking", "Optional OpenTrack input for the cockpit camera.")
+	_settings_button(tracking, _gameplay_buttons, "opentrack", func():
 		_opentrack_enabled = not _opentrack_enabled
 		_apply_opentrack_settings()
 		_refresh_gameplay_button_labels()
 		_save_settings())
-	root.add_child(tracking_btn)
-	_gameplay_buttons["opentrack"] = tracking_btn
-	var smoothing_btn := _make_row_button("", Vector2(tracking_x, 368.0), 650.0)
-	smoothing_btn.pressed.connect(func():
+	_settings_button(tracking, _gameplay_buttons, "opentrack_smoothing", func():
 		_opentrack_smoothing = (_opentrack_smoothing + 1) % 4
 		_apply_opentrack_settings()
 		_refresh_gameplay_button_labels()
 		_save_settings())
-	root.add_child(smoothing_btn)
-	_gameplay_buttons["opentrack_smoothing"] = smoothing_btn
-	_opentrack_status = _make_console_label("", Vector2(tracking_x + 18.0, 442.0), 20, COLOR_WHITE, MenuTypography.TECH_FONT)
-	root.add_child(_opentrack_status)
-	_opentrack_help = _make_console_label("In OpenTrack, set Output to UDP over network.\nSend to 127.0.0.1, port 4242, then Start.\n\nUse OpenTrack's Center shortcut while looking ahead.\nStick look stays active underneath head movement.\n\nSmoothing trades response speed for steadiness.\nUse LIGHT or OFF if OpenTrack already filters motion.", Vector2(tracking_x + 18.0, 500.0), 20, COLOR_WHITE, MenuTypography.TECH_FONT)
-	root.add_child(_opentrack_help)
+	_opentrack_status = _settings_paragraph("")
+	tracking.add_child(_opentrack_status)
+	_opentrack_help = _settings_paragraph("OpenTrack output: UDP over network.\nSend to 127.0.0.1, port 4242, then Start.\n\nUse OpenTrack's Center shortcut while looking ahead. Stick look stays active underneath head movement.\n\nSmoothing trades response speed for steadiness. Use LIGHT or OFF if OpenTrack already filters motion.")
+	tracking.add_child(_opentrack_help)
+	var world := _settings_section(page.right, "Time of day", "Hold the lighting at a chosen time.")
+	_settings_button(world, _gameplay_buttons, "fixed_time", func():
+		set_fixed_time_of_day(not _fixed_time_enabled, _fixed_time_minutes))
+	_fixed_time_controls = HBoxContainer.new()
+	_fixed_time_controls.add_theme_constant_override("separation", 12)
+	world.add_child(_fixed_time_controls)
+	var time_label := _settings_paragraph("TIME (24H)")
+	time_label.autowrap_mode = TextServer.AUTOWRAP_OFF
+	time_label.size_flags_horizontal = Control.SIZE_FILL
+	time_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_fixed_time_controls.add_child(time_label)
+	_fixed_time_hour = _make_time_spinbox(23, "Hour (0–23)")
+	_fixed_time_minute = _make_time_spinbox(59, "Minute (0–59)")
+	_fixed_time_controls.add_child(_fixed_time_hour)
+	var clock_separator := _settings_paragraph(":")
+	clock_separator.autowrap_mode = TextServer.AUTOWRAP_OFF
+	clock_separator.size_flags_horizontal = Control.SIZE_FILL
+	clock_separator.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_fixed_time_controls.add_child(clock_separator)
+	_fixed_time_controls.add_child(_fixed_time_minute)
+	_fixed_time_hour.value_changed.connect(_on_fixed_time_clock_changed)
+	_fixed_time_minute.value_changed.connect(_on_fixed_time_clock_changed)
+	for spin in [_fixed_time_hour, _fixed_time_minute]:
+		spin.get_line_edit().focus_entered.connect(func():
+			# Follow the full clock row, including the spin buttons and label.
+			(page.scroll as ScrollContainer).ensure_control_visible.call_deferred(_fixed_time_controls))
 	_refresh_gameplay_button_labels()
-	return root
-
+	return page.root
 
 func _make_time_spinbox(maximum: int, hint: String) -> SpinBox:
 	var spin := SpinBox.new()
@@ -894,77 +942,30 @@ func _apply_fixed_time_setting() -> void:
 
 
 func _build_graphics_screen() -> Control:
-	var root := Control.new()
-	root.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_build_screen_chrome(root, "GRAPHICS", "SYS_ID: LC-992-ALPHA // DISPLAY AND RENDERING")
-
-	var back := _make_back_button(Vector2(SUBMENU_X, 190.0))
-	back.pressed.connect(func(): _show_screen("options"))
-	root.add_child(back)
-
-	var row_width := OPERATOR_RAIL_WIDTH - 64.0
-	var row_y := 252.0
-	var vsync_btn := _make_row_button("", Vector2(SUBMENU_X, row_y), row_width)
-	vsync_btn.pressed.connect(_cycle_vsync)
-	root.add_child(vsync_btn)
-	_graphics_buttons["vsync"] = vsync_btn
-
-	row_y += 58.0
-	var display_mode_btn := _make_row_button("", Vector2(SUBMENU_X, row_y), row_width)
-	display_mode_btn.pressed.connect(_cycle_display_mode)
-	root.add_child(display_mode_btn)
-	_graphics_buttons["display_mode"] = display_mode_btn
-
-	row_y += 58.0
-	var resolution_btn := _make_row_button("", Vector2(SUBMENU_X, row_y), row_width)
-	resolution_btn.pressed.connect(_cycle_resolution)
-	root.add_child(resolution_btn)
-	_graphics_buttons["resolution"] = resolution_btn
-
-	row_y += 58.0
-	var frame_limit_btn := _make_row_button("", Vector2(SUBMENU_X, row_y), row_width)
-	frame_limit_btn.pressed.connect(_cycle_frame_limit)
-	root.add_child(frame_limit_btn)
-	_graphics_buttons["frame_limit"] = frame_limit_btn
-
-	row_y += 58.0
-	var aa_btn := _make_row_button("", Vector2(SUBMENU_X, row_y), row_width)
-	aa_btn.pressed.connect(_cycle_anti_aliasing)
-	root.add_child(aa_btn)
-	_graphics_buttons["anti_aliasing"] = aa_btn
-
-	row_y += 58.0
-	var render_scale_btn := _make_row_button("", Vector2(SUBMENU_X, row_y), row_width)
-	render_scale_btn.pressed.connect(_cycle_render_scale)
-	root.add_child(render_scale_btn)
-	_graphics_buttons["render_scale"] = render_scale_btn
-
-	row_y += 58.0
-	var upscaler_btn := _make_row_button("", Vector2(SUBMENU_X, row_y), row_width)
-	upscaler_btn.pressed.connect(_cycle_upscaler)
-	root.add_child(upscaler_btn)
-	_graphics_buttons["upscaler"] = upscaler_btn
-
-	row_y += 58.0
-	var view_distance_btn := _make_row_button("", Vector2(SUBMENU_X, row_y), row_width)
-	view_distance_btn.pressed.connect(_cycle_view_distance)
-	root.add_child(view_distance_btn)
-	_graphics_buttons["view_distance"] = view_distance_btn
-
-	row_y += 58.0
-	var enemy_visibility_btn := _make_row_button("", Vector2(SUBMENU_X, row_y), row_width)
-	enemy_visibility_btn.pressed.connect(_cycle_enemy_visibility)
-	root.add_child(enemy_visibility_btn)
-	_graphics_buttons["enemy_visibility"] = enemy_visibility_btn
-
-	row_y += 58.0
-	var fps_btn := _make_row_button("", Vector2(SUBMENU_X, row_y), row_width)
-	fps_btn.pressed.connect(_cycle_show_fps)
-	root.add_child(fps_btn)
-	_graphics_buttons["show_fps"] = fps_btn
+	var page := _build_settings_page("GRAPHICS", "DISPLAY, IMAGE QUALITY AND VISIBILITY", "graphics")
+	var display := _settings_section(page.left, "Display")
+	for setting in [
+		["display_mode", _cycle_display_mode],
+		["resolution", _cycle_resolution],
+		["vsync", _cycle_vsync],
+		["frame_limit", _cycle_frame_limit],
+	]:
+		_settings_button(display, _graphics_buttons, setting[0], setting[1])
+	var quality := _settings_section(page.right, "Image quality", "Balance image clarity and rendering performance.")
+	for setting in [
+		["anti_aliasing", _cycle_anti_aliasing],
+		["render_scale", _cycle_render_scale],
+		["upscaler", _cycle_upscaler],
+		["view_distance", _cycle_view_distance],
+	]:
+		_settings_button(quality, _graphics_buttons, setting[0], setting[1])
+	quality.add_child(_settings_paragraph("The upscale filter applies when render scale is below 100%."))
+	var visibility := _settings_section(page.right, "Enemy visibility", "Enhanced contrast helps distant enemies stand out.")
+	_settings_button(visibility, _graphics_buttons, "enemy_visibility", _cycle_enemy_visibility)
+	var performance := _settings_section(page.left, "Performance monitor", "Show the current frame rate while playing.")
+	_settings_button(performance, _graphics_buttons, "show_fps", _cycle_show_fps)
 	_refresh_graphics_button_labels()
-	return root
-
+	return page.root
 
 func _on_audio_volume_changed(value: float, key: String) -> void:
 	var clamped_value := clampf(value, 0.0, 1.0)
@@ -1183,11 +1184,20 @@ func _refresh_graphics_button_labels() -> void:
 
 
 func _refresh_gameplay_button_labels() -> void:
+	if _gameplay_buttons.has("hud_color"):
+		(_gameplay_buttons["hud_color"] as Button).text = "HUD COLOR: %s" % HUD_COLOR_LABELS[get_hud_color_index()]
+		(_gameplay_buttons["hud_brightness"] as Button).text = "HUD BRIGHTNESS: %s" % HUD_BRIGHTNESS_LABELS[get_hud_brightness_index()]
+		if _hud_color_swatch != null:
+			_hud_color_swatch.gradient.colors = PackedColorArray([get_hud_color(), get_hud_color()])
 	if is_instance_valid(_opentrack_help):
 		_opentrack_help.visible = _opentrack_enabled
+	if is_instance_valid(_opentrack_status):
+		_opentrack_status.visible = _opentrack_enabled
 	if _gameplay_buttons.has("opentrack"):
 		(_gameplay_buttons["opentrack"] as Button).text = "OPENTRACK: %s" % ("ON" if _opentrack_enabled else "OFF")
 		(_gameplay_buttons["opentrack_smoothing"] as Button).text = "TRACKING SMOOTHING: %s" % OpenTrackReceiver.SMOOTHING_LABELS[_opentrack_smoothing]
+		(_gameplay_buttons["opentrack_smoothing"] as Button).disabled = not _opentrack_enabled
+		(_gameplay_buttons["opentrack_smoothing"] as Button).tooltip_text = "Enable OpenTrack to adjust smoothing."
 	if _gameplay_buttons.has("fixed_time"):
 		(_gameplay_buttons["fixed_time"] as Button).text = "FIX TIME OF DAY: %s" % ("ON" if _fixed_time_enabled else "OFF")
 	if is_instance_valid(_fixed_time_controls):
@@ -1221,6 +1231,37 @@ func _refresh_gameplay_button_labels() -> void:
 		(_gameplay_buttons["camera_motion"] as Button).text = "CAMERA MOTION: %s" % CAMERA_MOTION_LABELS[_camera_motion_index]
 	if _gameplay_buttons.has("camera_fov"):
 		(_gameplay_buttons["camera_fov"] as Button).text = "CAMERA FOV: %s" % CAMERA_FOV_LABELS[_camera_fov_index]
+
+
+func set_hud_appearance(color_index: int, brightness_index: int, persist: bool = true) -> void:
+	_hud_color_index = clampi(color_index, 0, HUD_COLORS.size() - 1)
+	_hud_brightness_index = clampi(brightness_index, 0, HUD_BRIGHTNESS_VALUES.size() - 1)
+	_apply_hud_appearance()
+	_refresh_gameplay_button_labels()
+	if persist:
+		_save_settings()
+
+
+func get_hud_color_index() -> int:
+	return clampi(_hud_color_index, 0, HUD_COLORS.size() - 1)
+
+
+func get_hud_brightness_index() -> int:
+	return clampi(_hud_brightness_index, 0, HUD_BRIGHTNESS_VALUES.size() - 1)
+
+
+func get_hud_color() -> Color:
+	return HUD_COLORS[get_hud_color_index()]
+
+
+func get_hud_brightness() -> float:
+	return float(HUD_BRIGHTNESS_VALUES[get_hud_brightness_index()])
+
+
+func _apply_hud_appearance() -> void:
+	for hud in get_tree().get_nodes_in_group("flight_hud"):
+		if hud.has_method("apply_user_hud_settings"):
+			hud.apply_user_hud_settings()
 
 
 func get_rudder_assist_level() -> int:
@@ -1331,6 +1372,7 @@ func _apply_gameplay_settings() -> void:
 	_apply_stick_deadzone_setting()
 	_apply_camera_settings()
 	_apply_fixed_time_setting()
+	_apply_hud_appearance()
 
 
 func _apply_stick_deadzone_setting() -> void:
@@ -1604,6 +1646,8 @@ func _load_settings(path: String = SETTINGS_PATH) -> void:
 	_show_fps_enabled = bool(cfg.get_value(SETTINGS_SECTION_GRAPHICS, "show_fps_enabled", _show_fps_enabled))
 	_fixed_time_enabled = bool(cfg.get_value(SETTINGS_SECTION_GAMEPLAY, "fixed_time_enabled", false))
 	_fixed_time_minutes = clampi(int(cfg.get_value(SETTINGS_SECTION_GAMEPLAY, "fixed_time_minutes", DEFAULT_FIXED_TIME_MINUTES)), 0, 1439)
+	_hud_color_index = clampi(int(cfg.get_value(SETTINGS_SECTION_GAMEPLAY, "hud_color_index", DEFAULT_HUD_COLOR_INDEX)), 0, HUD_COLORS.size() - 1)
+	_hud_brightness_index = clampi(int(cfg.get_value(SETTINGS_SECTION_GAMEPLAY, "hud_brightness_index", DEFAULT_HUD_BRIGHTNESS_INDEX)), 0, HUD_BRIGHTNESS_VALUES.size() - 1)
 	_rudder_assist_level = clampi(
 		int(cfg.get_value(SETTINGS_SECTION_GAMEPLAY, "rudder_assist_level", _rudder_assist_level)),
 		0,
@@ -1676,6 +1720,8 @@ func _save_settings(path: String = SETTINGS_PATH) -> void:
 	cfg.set_value(SETTINGS_SECTION_GRAPHICS, "enemy_visibility_index", _enemy_visibility_index)
 	cfg.set_value(SETTINGS_SECTION_GRAPHICS, "show_fps_enabled", _show_fps_enabled)
 	cfg.set_value(SETTINGS_SECTION_GAMEPLAY, "settings_version", GAMEPLAY_SETTINGS_VERSION)
+	cfg.set_value(SETTINGS_SECTION_GAMEPLAY, "hud_color_index", _hud_color_index)
+	cfg.set_value(SETTINGS_SECTION_GAMEPLAY, "hud_brightness_index", _hud_brightness_index)
 	cfg.set_value(SETTINGS_SECTION_GAMEPLAY, "rudder_assist_level", _rudder_assist_level)
 	cfg.set_value(SETTINGS_SECTION_GAMEPLAY, "flight_model_index", _flight_model_index)
 	cfg.set_value(SETTINGS_SECTION_GAMEPLAY, "helicopter_rudder_assist_level", _helicopter_rudder_assist_level)
@@ -1718,6 +1764,8 @@ func _reset_all_defaults() -> void:
 	_invert_look_y = DEFAULT_INVERT_LOOK_Y
 	_camera_motion_index = DEFAULT_CAMERA_MOTION_INDEX
 	_camera_fov_index = DEFAULT_CAMERA_FOV_INDEX
+	_hud_color_index = DEFAULT_HUD_COLOR_INDEX
+	_hud_brightness_index = DEFAULT_HUD_BRIGHTNESS_INDEX
 	_controller_menu_cursor_enabled = DEFAULT_CONTROLLER_MENU_CURSOR_ENABLED
 	_fixed_time_enabled = false
 	_fixed_time_minutes = DEFAULT_FIXED_TIME_MINUTES

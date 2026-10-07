@@ -292,7 +292,20 @@ func order_escort(platoon_name: String, distance_m: float = 100.0) -> void:
 	if debug_print:
 		print("[GroundOps] %s — escort carrier at %.0fm" % [platoon_name, distance_m])
 
-## Return to base: recall a deployed platoon to a carrier-side rally area.
+## Keep the same harvester assignment through unloading and later sorties.
+func order_escort_harvester(platoon_name: String, distance_m: float = 65.0) -> bool:
+	var p := _get_platoon(platoon_name)
+	_refresh_carrier()
+	if p == null or not is_instance_valid(_carrier): return false
+	var manager := get_tree().get_first_node_in_group("carrier_manager")
+	if not is_instance_valid(manager) or int(manager.get_harvester_ops().map_status().get("strength", 0)) <= 0:
+		return false
+	p.set_escort_harvester(_carrier, distance_m)
+	_record_order(p, OpsOrder.escort_harvester(distance_m))
+	_ensure_platoon_deployed(platoon_name, p)
+	return true
+
+## Return to base: rally, then board when the shared vehicle bay is available.
 func order_rtb(platoon_name: String, distance_m: float = 90.0) -> void:
 	var p := _get_platoon(platoon_name)
 	if not p:
@@ -302,11 +315,14 @@ func order_rtb(platoon_name: String, distance_m: float = 90.0) -> void:
 		push_warning("[GroundOps] No carrier found for RTB order")
 		return
 	if not p.has_members():
+		_deploy_queue.erase(platoon_name)
+		p.set_hold_objective()
+		_record_order(p, OpsOrder.hold_position())
 		if debug_print:
 			print("[GroundOps] %s has no deployed vehicles to return" % platoon_name)
 		return
 	p.set_return_to_base(_carrier, distance_m)
-	_record_order(p, OpsOrder.return_to_base())
+	_record_order(p, OpsOrder.recover())
 	if debug_print:
 		print("[GroundOps] %s - return to base" % platoon_name)
 
@@ -436,27 +452,29 @@ func order_hold(platoon_name: String) -> void:
 		print("[GroundOps] %s — hold position" % platoon_name)
 
 ## Retrieve a platoon back to the carrier.
-func retrieve(platoon_name: String) -> void:
+func retrieve(platoon_name: String) -> bool:
 	var p := _get_platoon(platoon_name)
 	if not p:
-		return
+		return false
 	var members := p.get_members()
 	if debug_print:
 		print("[GroundOps] %s — %d registered members" % [platoon_name, members.size()])
 	if members.is_empty():
 		if debug_print:
 			print("[GroundOps] %s has no members to retrieve" % platoon_name)
-		return
+		return false
 	_refresh_vehicle_bay()
 	if not _vehicle_bay:
 		push_warning("[GroundOps] No vehicle bay found for retrieval")
-		return
+		return false
+	if not _vehicle_bay.can_retrieve_vehicles(): return false
 	# Clear platoon objective so vehicles stop their current task
 	p.objective_type = GroundVehiclePlatoon.ObjectiveType.NONE
 	_record_order(p, OpsOrder.recover())
 	_vehicle_bay.retrieve_vehicles(members)
 	if debug_print:
 		print("[GroundOps] %s — retrieving %d vehicles" % [platoon_name, members.size()])
+	return true
 
 ## Pursue nearby enemies.
 func order_pursue(platoon_name: String, range_m: float = 1200.0) -> void:
@@ -498,6 +516,7 @@ func get_platoon_status(platoon_name: String) -> Dictionary:
 		"kind": "platoon",
 		"name": platoon_name,
 		"objective": p.get_objective_name(),
+		"escort_state": p.get_harvester_escort_state() if p.objective_type == GroundVehiclePlatoon.ObjectiveType.ESCORT_HARVESTER else "",
 		"order_source": str(p.get_meta("ops_order_source", "automatic")),
 		"order_stalled": bool(OperationsCoordinator.get_unit_status(p).get("order_stalled", false)),
 		"phase": str(p.get_meta("ops_order_phase", "ACTIVE" if has_members else "STORED")),
@@ -511,6 +530,8 @@ func get_platoon_status(platoon_name: String) -> Dictionary:
 
 
 func get_campaign_save_blocker() -> String:
+	if is_instance_valid(_vehicle_bay) and _vehicle_bay.state != VehicleBayManager.BayState.IDLE:
+		return "Vehicle bay is still deploying or recovering vehicles"
 	if is_instance_valid(rescue_service) and not rescue_service.jobs.is_empty():
 		return "A ground rescue is still active"
 	for pname in get_platoon_names():
@@ -548,6 +569,10 @@ func get_campaign_save_blocker() -> String:
 		if not (node_variant is Node3D) or not is_instance_valid(node_variant):
 			continue
 		var vehicle := node_variant as Node3D
+		if vehicle.is_in_group("harvesters"):
+			if bool(vehicle.get("deploy_mode")) or bool(vehicle.get("retrieve_mode")) or bool(vehicle.get("is_dying")):
+				return "Harvester is still deploying, recovering or being destroyed"
+			continue # Cargo, source and mission are saved by CarrierManager.
 		if vehicle.is_in_group("friendlies") and not assigned_vehicles.has(vehicle):
 			return "Recover %s before saving" % vehicle.name
 	return ""
@@ -702,6 +727,8 @@ func _restore_platoon_objective(platoon: GroundVehiclePlatoon, state: Dictionary
 				_carrier,
 				float(state.get("escort_distance_m", platoon.escort_distance_m))
 			)
+		GroundVehiclePlatoon.ObjectiveType.ESCORT_HARVESTER:
+			platoon.set_escort_harvester(_carrier, float(state.get("escort_distance_m", 65.0)))
 		GroundVehiclePlatoon.ObjectiveType.RETURN_TO_BASE:
 			platoon.set_return_to_base(
 				_carrier,
@@ -726,8 +753,10 @@ func _restore_platoon_objective(platoon: GroundVehiclePlatoon, state: Dictionary
 			restored_order = OpsOrder.attack_position(position, platoon.attack_radius_m)
 		GroundVehiclePlatoon.ObjectiveType.ESCORT_CARRIER:
 			restored_order = OpsOrder.escort_carrier(platoon.escort_distance_m)
+		GroundVehiclePlatoon.ObjectiveType.ESCORT_HARVESTER:
+			restored_order = OpsOrder.escort_harvester(platoon.escort_distance_m)
 		GroundVehiclePlatoon.ObjectiveType.RETURN_TO_BASE:
-			restored_order = OpsOrder.return_to_base()
+			restored_order = OpsOrder.recover()
 		_:
 			restored_order = OpsOrder.hold_position()
 	_record_order(platoon, restored_order, str(platoon.get_meta("ops_order_source", "player")))

@@ -1276,6 +1276,18 @@ func _make_stored_aircraft_entry_unassigned(aircraft_name: String, scene: Packed
 		"metadata": {"airframe_id": ResourceUID.id_to_text(ResourceUID.create_id()).trim_prefix("uid://")}
 	}
 
+func accept_fabricated_airframe(aircraft_name: String, scene_path: String) -> bool:
+	if stored_aircraft.size() >= max_hangar_capacity:
+		return false
+	var scene := load(scene_path) as PackedScene
+	if scene == null:
+		return false
+	# A finished hull is inventory, not a launch order or a pilot reservation.
+	var entry := _make_stored_aircraft_entry_unassigned(aircraft_name, scene, scene_path)
+	entry.metadata["fabricated"] = true
+	stored_aircraft.append(entry)
+	return true
+
 func _make_stored_aircraft_entry(aircraft_name: String, scene: PackedScene, scene_file: String = "") -> Dictionary:
 	var entry := _make_stored_aircraft_entry_unassigned(aircraft_name, scene, scene_file)
 	if not _ensure_pilot_assigned_for_data(entry):
@@ -1700,6 +1712,7 @@ func queue_ai_flight(
 				aircraft_model = str(data.get("scene_file", ""))
 				break
 	var available := 0
+	var aircraft_kind := "fixed_wing"
 	if not airframe_ids.is_empty():
 		# Validate the entire chosen flight before claiming deck resources.
 		var seen: Dictionary = {}
@@ -1709,7 +1722,9 @@ func queue_ai_flight(
 			var found := false
 			for data: Dictionary in stored_aircraft:
 				if str(data.get("metadata", {}).get("airframe_id", "")) == id:
-					found = _stored_ready_for_launch(data) and _stored_aircraft_matches_model(data, aircraft_model) and not _stored_aircraft_is_helicopter(data)
+					var kind := "helicopter" if _stored_aircraft_is_helicopter(data) else "fixed_wing"
+					if seen.size() == 1: aircraft_kind = kind
+					found = _stored_ready_for_launch(data) and _stored_aircraft_matches_model(data, aircraft_model) and kind == aircraft_kind
 					break
 			if not found: return 0
 		available = airframe_ids.size()
@@ -1723,7 +1738,7 @@ func queue_ai_flight(
 	_pending_flight_ops = ops
 	_retrieval_ai_land_after_launch = false
 	_pending_ai_loadout_profile = loadout_profile
-	_pending_ai_aircraft_kind = "fixed_wing"
+	_pending_ai_aircraft_kind = aircraft_kind
 	_pending_ai_aircraft_model = aircraft_model
 	if current_state == DeckState.IDLE:
 		_launch_next_queued_ai()
@@ -5657,6 +5672,10 @@ func _release_restored_aircraft_ai(aircraft: RigidBody3D) -> void:
 	var pilot := aircraft.find_child("AIPilot", true, false) as AIPilot
 	if pilot != null and pilot.current_state in [AIPilot.State.IDLE, AIPilot.State.LAUNCHING]:
 		pilot.change_state(AIPilot.State.SEARCH)
+	var helicopter := aircraft.find_child("HelicopterPilot", true, false) as HelicopterPilot
+	if helicopter != null and helicopter.state in [HelicopterPilot.State.IDLE, HelicopterPilot.State.TAKEOFF]:
+		helicopter.mission_phase = HelicopterPilot.MissionPhase.OUTBOUND
+		helicopter.change_state(HelicopterPilot.State.LOW_LEVEL_TRANSIT)
 
 
 func _capture_deployed_landing_gear_state(aircraft: RigidBody3D) -> Array[Dictionary]:
@@ -5758,15 +5777,12 @@ func _stored_ready_for_launch(data: Dictionary) -> bool:
 	return true
 
 func _select_hangar_launch_index() -> int:
-	## Which stored aircraft to launch next. For an AI COMBAT flight launch (a flight-ops scramble), skip
-	## utility helicopters (Aircraft_11) -- they're prepended in the hangar for rescue readiness and must
-	## NOT be scrambled as fighters. Explicit retrievals (debug key / rescue) push_front their chosen
-	## aircraft, so index 0 is correct for them.
+	## Composed flights and rescue launches select individual airframe IDs.
+	## Other AI launches choose unassigned aircraft of the requested capability.
 	if stored_aircraft.is_empty():
 		return -1
 	# An AI operations launch is in progress when there's a pending callback target.
-	# Select by capability so utility helicopters cannot be scrambled as fighters,
-	# while helicopter missions can explicitly retrieve one from the same hangar.
+	# Automatic fixed-wing and helicopter requests use the same hangar safely.
 	var ai_ops_launch: bool = _pending_flight_ops != null and not _retrieval_ai_land_after_launch
 	if ai_ops_launch and not _pending_ai_airframe_ids.is_empty():
 		for id in _pending_ai_airframe_ids:

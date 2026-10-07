@@ -1,0 +1,6348 @@
+{
+	"cases": [
+		{
+			"aircraft": 9,
+			"damage": {
+				"cockpit": {
+					"destroyed": false,
+					"health": 100.0,
+					"max_health": 100.0
+				},
+				"engine": {
+					"destroyed": true,
+					"health": 0.0,
+					"max_health": 100.0
+				},
+				"fuselage": {
+					"destroyed": false,
+					"health": 100.0,
+					"max_health": 100.0
+				},
+				"lower_rotor": {
+					"destroyed": false,
+					"health": 100.0,
+					"max_health": 100.0
+				},
+				"main_rotor": {
+					"destroyed": false,
+					"health": 100.0,
+					"max_health": 100.0
+				},
+				"tail": {
+					"destroyed": false,
+					"health": 100.0,
+					"max_health": 100.0
+				}
+			},
+			"exploded": false,
+			"final_angular_speed": 0.00422043260186911,
+			"final_bank": 1.55745977649347,
+			"final_relative_speed": 0.00705726817250252,
+			"initial_bank": 0.0,
+			"initial_speed": 0.0,
+			"max_angular_speed": 0.206422805786133,
+			"minimum_airborne_rpm": 0.9416649492096,
+			"pilot_alive": true,
+			"profile": "low_altitude",
+			"settled_time": 3.38333333333333,
+			"touchdown": {
+				"belly": false,
+				"damaging": false,
+				"descent_speed_mps": 3.88337516784668,
+				"hard": false,
+				"position": "(2340.8, 1400.0, 3.2)",
+				"relative_speed_mps": 3.88337516784668,
+				"surface": "terrain"
+			},
+			"trajectory": [
+				{
+					"angular_speed": 0.0,
+					"collective": 0.818241666666667,
+					"gear_contacts": 0,
+					"height": 12.0,
+					"planar_speed": 0.0,
+					"rpm": 1.0,
+					"supported": false,
+					"time": 0.0,
+					"vertical_speed": 0.0
+				},
+				{
+					"angular_speed": 0.0,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 9.474853515625,
+					"planar_speed": 0.0,
+					"rpm": 1.02796841215346,
+					"supported": false,
+					"time": 1.0,
+					"vertical_speed": -5.39764165878296
+				},
+				{
+					"angular_speed": 0.0,
+					"collective": 1.0,
+					"gear_contacts": 0,
+					"height": 3.66943359375,
+					"planar_speed": 0.0,
+					"rpm": 1.00859822342169,
+					"supported": false,
+					"time": 2.0,
+					"vertical_speed": -4.69295024871826
+				},
+				{
+					"angular_speed": 0.048732552677393,
+					"collective": 0.0,
+					"gear_contacts": 4,
+					"height": 2.18017578125,
+					"planar_speed": 0.0649263933300972,
+					"rpm": 0.8616649492096,
+					"supported": true,
+					"time": 3.0,
+					"vertical_speed": -0.222378194332123
+				}
+			]
+		},
+		{
+			"aircraft": 10,
+			"damage": {
+				"cockpit": {
+					"destroyed": false,
+					"health": 45.0,
+					"max_health": 45.0
+				},
+				"engine": {
+					"destroyed": true,
+					"health": 0.0,
+					"max_health": 45.0
+				},
+				"fuselage": {
+					"destroyed": false,
+					"health": 45.0,
+					"max_health": 45.0
+				},
+				"main_rotor": {
+					"destroyed": false,
+					"health": 45.0,
+					"max_health": 45.0
+				},
+				"tail": {
+					"destroyed": false,
+					"health": 45.0,
+					"max_health": 45.0
+				},
+				"tail_rotor": {
+					"destroyed": false,
+					"health": 45.0,
+					"max_health": 45.0
+				}
+			},
+			"exploded": false,
+			"final_angular_speed": 0.187375798821449,
+			"final_bank": 1.81876111522967,
+			"final_relative_speed": 0.113783240318298,
+			"initial_bank": 0.0,
+			"initial_speed": 0.0,
+			"max_angular_speed": 0.321583122014999,
+			"minimum_airborne_rpm": 0.946402276149476,
+			"pilot_alive": true,
+			"profile": "low_altitude",
+			"settled_time": 3.51666666666667,
+			"touchdown": {
+				"belly": false,
+				"damaging": false,
+				"descent_speed_mps": 3.87841987609863,
+				"hard": false,
+				"position": "(2599.009, 1400.0, -0.6)",
+				"relative_speed_mps": 3.87841987609863,
+				"surface": "terrain"
+			},
+			"trajectory": [
+				{
+					"angular_speed": 0.0,
+					"collective": 0.783888888888889,
+					"gear_contacts": 0,
+					"height": 12.0,
+					"planar_speed": 0.0,
+					"rpm": 1.0,
+					"supported": false,
+					"time": 0.0,
+					"vertical_speed": 0.0
+				},
+				{
+					"angular_speed": 0.0,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 9.4281005859375,
+					"planar_speed": 0.0,
+					"rpm": 1.03171615806551,
+					"supported": false,
+					"time": 1.0,
+					"vertical_speed": -5.48487091064453
+				},
+				{
+					"angular_speed": 0.0,
+					"collective": 0.92008641242981,
+					"gear_contacts": 0,
+					"height": 3.56201171875,
+					"planar_speed": 0.0,
+					"rpm": 1.01293359195242,
+					"supported": false,
+					"time": 2.0,
+					"vertical_speed": -4.7008695602417
+				},
+				{
+					"angular_speed": 0.0731294900178909,
+					"collective": 0.0,
+					"gear_contacts": 2,
+					"height": 1.888671875,
+					"planar_speed": 0.0348375551402569,
+					"rpm": 0.874402276149476,
+					"supported": true,
+					"time": 3.0,
+					"vertical_speed": -0.151776239275932
+				}
+			]
+		},
+		{
+			"aircraft": 11,
+			"damage": {
+				"cockpit": {
+					"destroyed": false,
+					"health": 27.5,
+					"max_health": 27.5
+				},
+				"engine": {
+					"destroyed": true,
+					"health": 0.0,
+					"max_health": 27.5
+				},
+				"fuselage": {
+					"destroyed": false,
+					"health": 27.5,
+					"max_health": 27.5
+				},
+				"main_rotor": {
+					"destroyed": false,
+					"health": 27.5,
+					"max_health": 27.5
+				},
+				"tail": {
+					"destroyed": false,
+					"health": 27.5,
+					"max_health": 27.5
+				},
+				"tail_rotor": {
+					"destroyed": false,
+					"health": 27.5,
+					"max_health": 27.5
+				}
+			},
+			"exploded": false,
+			"final_angular_speed": 0.0299218241125345,
+			"final_bank": 0.731684208486319,
+			"final_relative_speed": 0.0236753188073635,
+			"initial_bank": 0.0,
+			"initial_speed": 0.0,
+			"max_angular_speed": 0.258772224187851,
+			"minimum_airborne_rpm": 0.958993133971721,
+			"pilot_alive": true,
+			"profile": "low_altitude",
+			"settled_time": 3.3,
+			"touchdown": {
+				"belly": false,
+				"damaging": false,
+				"descent_speed_mps": 4.33840847015381,
+				"hard": false,
+				"position": "(2858.784, 1400.0, -0.78)",
+				"relative_speed_mps": 4.33840847015381,
+				"surface": "terrain"
+			},
+			"trajectory": [
+				{
+					"angular_speed": 0.0,
+					"collective": 0.803636363636364,
+					"gear_contacts": 0,
+					"height": 12.0,
+					"planar_speed": 0.0,
+					"rpm": 1.0,
+					"supported": false,
+					"time": 0.0,
+					"vertical_speed": 0.0
+				},
+				{
+					"angular_speed": 0.0,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 9.437744140625,
+					"planar_speed": 0.0,
+					"rpm": 1.03002243429885,
+					"supported": false,
+					"time": 1.0,
+					"vertical_speed": -5.50705003738403
+				},
+				{
+					"angular_speed": 0.0,
+					"collective": 0.928437523841858,
+					"gear_contacts": 0,
+					"height": 3.5037841796875,
+					"planar_speed": 0.0,
+					"rpm": 1.00552111747383,
+					"supported": false,
+					"time": 2.0,
+					"vertical_speed": -4.87963724136353
+				},
+				{
+					"angular_speed": 0.0491619780659676,
+					"collective": 0.0,
+					"gear_contacts": 2,
+					"height": 2.23193359375,
+					"planar_speed": 0.00380795705132186,
+					"rpm": 0.870993133971721,
+					"supported": true,
+					"time": 3.0,
+					"vertical_speed": -0.134271025657654
+				}
+			]
+		},
+		{
+			"aircraft": 12,
+			"damage": {
+				"cockpit": {
+					"destroyed": false,
+					"health": 160.0,
+					"max_health": 160.0
+				},
+				"engine": {
+					"destroyed": true,
+					"health": 0.0,
+					"max_health": 160.0
+				},
+				"fuselage": {
+					"destroyed": false,
+					"health": 160.0,
+					"max_health": 160.0
+				},
+				"lower_rotor": {
+					"destroyed": false,
+					"health": 160.0,
+					"max_health": 160.0
+				},
+				"main_rotor": {
+					"destroyed": false,
+					"health": 160.0,
+					"max_health": 160.0
+				},
+				"tail": {
+					"destroyed": false,
+					"health": 160.0,
+					"max_health": 160.0
+				}
+			},
+			"exploded": false,
+			"final_angular_speed": 0.00456082401797175,
+			"final_bank": 0.560579468067675,
+			"final_relative_speed": 0.0377298220992088,
+			"initial_bank": 0.0,
+			"initial_speed": 0.0,
+			"max_angular_speed": 0.119047403335571,
+			"minimum_airborne_rpm": 0.951387220620476,
+			"pilot_alive": true,
+			"profile": "low_altitude",
+			"settled_time": 3.36666666666667,
+			"touchdown": {
+				"belly": false,
+				"damaging": false,
+				"descent_speed_mps": 3.64502716064453,
+				"hard": false,
+				"position": "(3120.0, 1400.0, 3.473723)",
+				"relative_speed_mps": 3.64502716064453,
+				"surface": "terrain"
+			},
+			"trajectory": [
+				{
+					"angular_speed": 0.0,
+					"collective": 0.782842105263158,
+					"gear_contacts": 0,
+					"height": 12.0,
+					"planar_speed": 0.0,
+					"rpm": 1.0,
+					"supported": false,
+					"time": 0.0,
+					"vertical_speed": 0.0
+				},
+				{
+					"angular_speed": 0.0,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 9.44677734375,
+					"planar_speed": 0.0,
+					"rpm": 1.03131202092622,
+					"supported": false,
+					"time": 1.0,
+					"vertical_speed": -5.40454339981079
+				},
+				{
+					"angular_speed": 0.0,
+					"collective": 0.969565620422363,
+					"gear_contacts": 0,
+					"height": 3.712890625,
+					"planar_speed": 0.0,
+					"rpm": 1.0125870626005,
+					"supported": false,
+					"time": 2.0,
+					"vertical_speed": -4.47425079345703
+				},
+				{
+					"angular_speed": 0.00692269671708345,
+					"collective": 0.0,
+					"gear_contacts": 3,
+					"height": 2.3533935546875,
+					"planar_speed": 0.0369807370007038,
+					"rpm": 0.871387220620476,
+					"supported": true,
+					"time": 3.0,
+					"vertical_speed": -0.138133391737938
+				}
+			]
+		},
+		{
+			"aircraft": 13,
+			"damage": {
+				"cockpit": {
+					"destroyed": false,
+					"health": 20.0,
+					"max_health": 20.0
+				},
+				"engine": {
+					"destroyed": true,
+					"health": 0.0,
+					"max_health": 20.0
+				},
+				"fuselage": {
+					"destroyed": false,
+					"health": 20.0,
+					"max_health": 20.0
+				},
+				"main_rotor": {
+					"destroyed": false,
+					"health": 20.0,
+					"max_health": 20.0
+				},
+				"tail": {
+					"destroyed": false,
+					"health": 20.0,
+					"max_health": 20.0
+				},
+				"tail_rotor": {
+					"destroyed": false,
+					"health": 20.0,
+					"max_health": 20.0
+				}
+			},
+			"exploded": false,
+			"final_angular_speed": 0.120457723736763,
+			"final_bank": 2.94151208859946,
+			"final_relative_speed": 0.0372493788599968,
+			"initial_bank": 0.0,
+			"initial_speed": 0.0,
+			"max_angular_speed": 0.997115850448608,
+			"minimum_airborne_rpm": 0.909068004503409,
+			"pilot_alive": true,
+			"profile": "low_altitude",
+			"settled_time": 3.85,
+			"touchdown": {
+				"belly": false,
+				"damaging": false,
+				"descent_speed_mps": 2.92560029029846,
+				"hard": false,
+				"position": "(3379.07, 1400.0, -0.3)",
+				"relative_speed_mps": 2.92560029029846,
+				"surface": "terrain"
+			},
+			"trajectory": [
+				{
+					"angular_speed": 0.0,
+					"collective": 0.74,
+					"gear_contacts": 0,
+					"height": 12.0,
+					"planar_speed": 0.0,
+					"rpm": 1.0,
+					"supported": false,
+					"time": 0.0,
+					"vertical_speed": 0.0
+				},
+				{
+					"angular_speed": 0.0,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 9.43017578125,
+					"planar_speed": 0.0,
+					"rpm": 1.03461646543788,
+					"supported": false,
+					"time": 1.0,
+					"vertical_speed": -5.3434853553772
+				},
+				{
+					"angular_speed": 0.0,
+					"collective": 0.966679635047913,
+					"gear_contacts": 0,
+					"height": 3.80322265625,
+					"planar_speed": 0.0,
+					"rpm": 1.02616634842468,
+					"supported": false,
+					"time": 2.0,
+					"vertical_speed": -4.40746021270752
+				},
+				{
+					"angular_speed": 0.111141189932823,
+					"collective": 0.287624588012695,
+					"gear_contacts": 2,
+					"height": 1.5172119140625,
+					"planar_speed": 0.0514526925981045,
+					"rpm": 0.869068004503409,
+					"supported": true,
+					"time": 3.0,
+					"vertical_speed": -0.0577165335416794
+				}
+			]
+		},
+		{
+			"aircraft": 15,
+			"damage": {
+				"cockpit": {
+					"destroyed": false,
+					"health": 42.5,
+					"max_health": 42.5
+				},
+				"engine": {
+					"destroyed": true,
+					"health": 0.0,
+					"max_health": 42.5
+				},
+				"fuselage": {
+					"destroyed": false,
+					"health": 42.5,
+					"max_health": 42.5
+				},
+				"main_rotor": {
+					"destroyed": false,
+					"health": 42.5,
+					"max_health": 42.5
+				},
+				"tail": {
+					"destroyed": false,
+					"health": 42.5,
+					"max_health": 42.5
+				},
+				"tail_rotor": {
+					"destroyed": false,
+					"health": 42.5,
+					"max_health": 42.5
+				}
+			},
+			"exploded": false,
+			"final_angular_speed": 0.00788507983088493,
+			"final_bank": 1.78586004725995,
+			"final_relative_speed": 0.0249341558665037,
+			"initial_bank": 0.0,
+			"initial_speed": 0.0,
+			"max_angular_speed": 0.363900035619736,
+			"minimum_airborne_rpm": 0.955417829030249,
+			"pilot_alive": true,
+			"profile": "low_altitude",
+			"settled_time": 3.5,
+			"touchdown": {
+				"belly": false,
+				"damaging": false,
+				"descent_speed_mps": 3.65276193618774,
+				"hard": false,
+				"position": "(3900.003, 1400.0, 2.397259)",
+				"relative_speed_mps": 3.65276193618774,
+				"surface": "terrain"
+			},
+			"trajectory": [
+				{
+					"angular_speed": 0.0,
+					"collective": 0.751923076923077,
+					"gear_contacts": 0,
+					"height": 12.0,
+					"planar_speed": 0.0,
+					"rpm": 1.0,
+					"supported": false,
+					"time": 0.0,
+					"vertical_speed": 0.0
+				},
+				{
+					"angular_speed": 0.0,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 9.414306640625,
+					"planar_speed": 0.0,
+					"rpm": 1.0342563856323,
+					"supported": false,
+					"time": 1.0,
+					"vertical_speed": -5.44361114501953
+				},
+				{
+					"angular_speed": 0.0,
+					"collective": 0.912756996154785,
+					"gear_contacts": 0,
+					"height": 3.6512451171875,
+					"planar_speed": 0.0,
+					"rpm": 1.02058707197931,
+					"supported": false,
+					"time": 2.0,
+					"vertical_speed": -4.54170894622803
+				},
+				{
+					"angular_speed": 0.101912282407284,
+					"collective": 0.0,
+					"gear_contacts": 2,
+					"height": 2.0008544921875,
+					"planar_speed": 0.0289489440619946,
+					"rpm": 0.883417829030249,
+					"supported": true,
+					"time": 3.0,
+					"vertical_speed": -0.247767925262451
+				}
+			]
+		},
+		{
+			"aircraft": 9,
+			"damage": {
+				"cockpit": {
+					"destroyed": false,
+					"health": 100.0,
+					"max_health": 100.0
+				},
+				"engine": {
+					"destroyed": true,
+					"health": 0.0,
+					"max_health": 100.0
+				},
+				"fuselage": {
+					"destroyed": false,
+					"health": 100.0,
+					"max_health": 100.0
+				},
+				"lower_rotor": {
+					"destroyed": false,
+					"health": 100.0,
+					"max_health": 100.0
+				},
+				"main_rotor": {
+					"destroyed": false,
+					"health": 100.0,
+					"max_health": 100.0
+				},
+				"tail": {
+					"destroyed": false,
+					"health": 100.0,
+					"max_health": 100.0
+				}
+			},
+			"exploded": false,
+			"final_angular_speed": 0.00146835332270712,
+			"final_bank": 1.45306501113607,
+			"final_relative_speed": 0.0115390755236149,
+			"initial_bank": 0.0,
+			"initial_speed": 20.0,
+			"max_angular_speed": 0.127288281917572,
+			"minimum_airborne_rpm": 0.915219017336225,
+			"pilot_alive": true,
+			"profile": "forward_speed",
+			"settled_time": 11.7666666666667,
+			"touchdown": {
+				"belly": false,
+				"damaging": false,
+				"descent_speed_mps": 3.72116136550903,
+				"hard": false,
+				"position": "(2341.96, 1400.0, 59.07587)",
+				"relative_speed_mps": 4.26130342483521,
+				"surface": "terrain"
+			},
+			"trajectory": [
+				{
+					"angular_speed": 0.0,
+					"collective": 0.818241666666667,
+					"gear_contacts": 0,
+					"height": 60.0,
+					"planar_speed": 20.0,
+					"rpm": 1.0,
+					"supported": false,
+					"time": 0.0,
+					"vertical_speed": 0.0
+				},
+				{
+					"angular_speed": 0.00878427922725677,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 57.6998291015625,
+					"planar_speed": 17.6244850158691,
+					"rpm": 1.04536947577932,
+					"supported": false,
+					"time": 1.0,
+					"vertical_speed": -4.69028234481812
+				},
+				{
+					"angular_speed": 0.0147111499682069,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 52.5042724609375,
+					"planar_speed": 14.2124834060669,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 2.0,
+					"vertical_speed": -5.36557960510254
+				},
+				{
+					"angular_speed": 0.0143425576388836,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 47.0489501953125,
+					"planar_speed": 10.6191682815552,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 3.0,
+					"vertical_speed": -5.56379842758179
+				},
+				{
+					"angular_speed": 0.0120159825310111,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 41.3232421875,
+					"planar_speed": 7.10676765441895,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 4.0,
+					"vertical_speed": -5.90812587738037
+				},
+				{
+					"angular_speed": 0.00752836046740413,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 35.1884765625,
+					"planar_speed": 3.98848557472229,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 5.0,
+					"vertical_speed": -6.35928106307983
+				},
+				{
+					"angular_speed": 0.00128245423547924,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 28.635498046875,
+					"planar_speed": 1.58073735237122,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 6.0,
+					"vertical_speed": -6.71148777008057
+				},
+				{
+					"angular_speed": 0.00405985070392489,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 21.821533203125,
+					"planar_speed": 0.112337902188301,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 7.0,
+					"vertical_speed": -6.88754177093506
+				},
+				{
+					"angular_speed": 0.00739964889362454,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 14.8984375,
+					"planar_speed": 1.20028781890869,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 8.0,
+					"vertical_speed": -6.94145154953003
+				},
+				{
+					"angular_speed": 0.00982409436255693,
+					"collective": 0.34,
+					"gear_contacts": 0,
+					"height": 7.963134765625,
+					"planar_speed": 1.79457211494446,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 9.0,
+					"vertical_speed": -6.83170318603516
+				},
+				{
+					"angular_speed": 0.0212897956371307,
+					"collective": 0.974994652271271,
+					"gear_contacts": 0,
+					"height": 2.719970703125,
+					"planar_speed": 2.08389568328857,
+					"rpm": 0.936905820591499,
+					"supported": false,
+					"time": 10.0,
+					"vertical_speed": -3.85125207901001
+				},
+				{
+					"angular_speed": 0.00168504030443728,
+					"collective": 0.0,
+					"gear_contacts": 4,
+					"height": 2.1568603515625,
+					"planar_speed": 0.339938431978226,
+					"rpm": 0.809219017336225,
+					"supported": true,
+					"time": 11.0,
+					"vertical_speed": -0.0516955815255642
+				},
+				{
+					"angular_speed": 0.00307483226060867,
+					"collective": 0.0,
+					"gear_contacts": 4,
+					"height": 2.15234375,
+					"planar_speed": 0.0202689822763205,
+					"rpm": 0.689219017336225,
+					"supported": true,
+					"time": 12.0,
+					"vertical_speed": -0.000509849283844233
+				}
+			]
+		},
+		{
+			"aircraft": 10,
+			"damage": {
+				"cockpit": {
+					"destroyed": false,
+					"health": 45.0,
+					"max_health": 45.0
+				},
+				"engine": {
+					"destroyed": true,
+					"health": 0.0,
+					"max_health": 45.0
+				},
+				"fuselage": {
+					"destroyed": false,
+					"health": 45.0,
+					"max_health": 45.0
+				},
+				"main_rotor": {
+					"destroyed": false,
+					"health": 45.0,
+					"max_health": 45.0
+				},
+				"tail": {
+					"destroyed": false,
+					"health": 45.0,
+					"max_health": 45.0
+				},
+				"tail_rotor": {
+					"destroyed": false,
+					"health": 45.0,
+					"max_health": 45.0
+				}
+			},
+			"exploded": false,
+			"final_angular_speed": 0.00644294172525406,
+			"final_bank": 1.38437356740114,
+			"final_relative_speed": 0.0120452335104346,
+			"initial_bank": 0.0,
+			"initial_speed": 20.0,
+			"max_angular_speed": 0.370941668748856,
+			"minimum_airborne_rpm": 0.911770409537979,
+			"pilot_alive": true,
+			"profile": "forward_speed",
+			"settled_time": 12.3333333333333,
+			"touchdown": {
+				"belly": false,
+				"damaging": false,
+				"descent_speed_mps": 3.85163688659668,
+				"hard": false,
+				"position": "(2598.998, 1400.0, 55.90686)",
+				"relative_speed_mps": 4.25946092605591,
+				"surface": "terrain"
+			},
+			"trajectory": [
+				{
+					"angular_speed": 0.0,
+					"collective": 0.783888888888889,
+					"gear_contacts": 0,
+					"height": 60.0,
+					"planar_speed": 20.0,
+					"rpm": 1.0,
+					"supported": false,
+					"time": 0.0,
+					"vertical_speed": 0.0
+				},
+				{
+					"angular_speed": 0.011546541005373,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 57.6326904296875,
+					"planar_speed": 17.5873241424561,
+					"rpm": 1.0498292633001,
+					"supported": false,
+					"time": 1.0,
+					"vertical_speed": -4.82070875167847
+				},
+				{
+					"angular_speed": 0.0220038983970881,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 52.22021484375,
+					"planar_speed": 14.0973176956177,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 2.0,
+					"vertical_speed": -5.63903999328613
+				},
+				{
+					"angular_speed": 0.0221648383885622,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 46.481201171875,
+					"planar_speed": 10.3035984039307,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 3.0,
+					"vertical_speed": -5.8528208732605
+				},
+				{
+					"angular_speed": 0.0168705489486456,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 40.449951171875,
+					"planar_speed": 6.5129508972168,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 4.0,
+					"vertical_speed": -6.23957061767578
+				},
+				{
+					"angular_speed": 0.00656380550935864,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 33.9498291015625,
+					"planar_speed": 3.19770264625549,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 5.0,
+					"vertical_speed": -6.74860239028931
+				},
+				{
+					"angular_speed": 0.0060046473518014,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 26.9996337890625,
+					"planar_speed": 0.69945216178894,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 6.0,
+					"vertical_speed": -7.10668182373047
+				},
+				{
+					"angular_speed": 0.0153930317610502,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 19.8048095703125,
+					"planar_speed": 0.957878530025482,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 7.0,
+					"vertical_speed": -7.24877119064331
+				},
+				{
+					"angular_speed": 0.019767152145505,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 12.5487060546875,
+					"planar_speed": 1.83127343654633,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 8.0,
+					"vertical_speed": -7.24605178833008
+				},
+				{
+					"angular_speed": 0.0253104381263256,
+					"collective": 0.969188504219055,
+					"gear_contacts": 0,
+					"height": 5.645263671875,
+					"planar_speed": 2.08428478240967,
+					"rpm": 1.0577066456278,
+					"supported": false,
+					"time": 9.0,
+					"vertical_speed": -5.63177633285522
+				},
+				{
+					"angular_speed": 0.354190409183502,
+					"collective": 0.603374466896057,
+					"gear_contacts": 2,
+					"height": 1.860107421875,
+					"planar_speed": 0.503428995609283,
+					"rpm": 0.893770409537979,
+					"supported": true,
+					"time": 10.0,
+					"vertical_speed": 0.549975335597992
+				},
+				{
+					"angular_speed": 0.173543438315392,
+					"collective": 0.0,
+					"gear_contacts": 2,
+					"height": 1.8570556640625,
+					"planar_speed": 0.0016358980210498,
+					"rpm": 0.773770409537979,
+					"supported": true,
+					"time": 11.0,
+					"vertical_speed": -0.0994240716099739
+				},
+				{
+					"angular_speed": 0.0395665280520916,
+					"collective": 0.0,
+					"gear_contacts": 4,
+					"height": 1.845703125,
+					"planar_speed": 0.000104128921520896,
+					"rpm": 0.653770409537978,
+					"supported": true,
+					"time": 12.0,
+					"vertical_speed": -0.0450264662504196
+				}
+			]
+		},
+		{
+			"aircraft": 11,
+			"damage": {
+				"cockpit": {
+					"destroyed": false,
+					"health": 27.5,
+					"max_health": 27.5
+				},
+				"engine": {
+					"destroyed": true,
+					"health": 0.0,
+					"max_health": 27.5
+				},
+				"fuselage": {
+					"destroyed": false,
+					"health": 27.5,
+					"max_health": 27.5
+				},
+				"main_rotor": {
+					"destroyed": false,
+					"health": 27.5,
+					"max_health": 27.5
+				},
+				"tail": {
+					"destroyed": false,
+					"health": 27.5,
+					"max_health": 27.5
+				},
+				"tail_rotor": {
+					"destroyed": false,
+					"health": 27.5,
+					"max_health": 27.5
+				}
+			},
+			"exploded": false,
+			"final_angular_speed": 0.0303127113729715,
+			"final_bank": 1.79176782998194,
+			"final_relative_speed": 0.0325766205787659,
+			"initial_bank": 0.0,
+			"initial_speed": 20.0,
+			"max_angular_speed": 0.320226103067398,
+			"minimum_airborne_rpm": 0.92373756921161,
+			"pilot_alive": true,
+			"profile": "forward_speed",
+			"settled_time": 12.9166666666667,
+			"touchdown": {
+				"belly": false,
+				"damaging": false,
+				"descent_speed_mps": 4.26903057098389,
+				"hard": false,
+				"position": "(2858.792, 1400.0, 56.79475)",
+				"relative_speed_mps": 4.83965349197388,
+				"surface": "terrain"
+			},
+			"trajectory": [
+				{
+					"angular_speed": 0.0,
+					"collective": 0.803636363636364,
+					"gear_contacts": 0,
+					"height": 60.0,
+					"planar_speed": 20.0,
+					"rpm": 1.0,
+					"supported": false,
+					"time": 0.0,
+					"vertical_speed": 0.0
+				},
+				{
+					"angular_speed": 0.00899791810661554,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 57.634521484375,
+					"planar_speed": 17.5802421569824,
+					"rpm": 1.04801016893457,
+					"supported": false,
+					"time": 1.0,
+					"vertical_speed": -4.86327886581421
+				},
+				{
+					"angular_speed": 0.0188845992088318,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 52.1259765625,
+					"planar_speed": 14.1440668106079,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 2.0,
+					"vertical_speed": -5.76632499694824
+				},
+				{
+					"angular_speed": 0.0212217196822166,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 46.2508544921875,
+					"planar_speed": 10.4468278884888,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 3.0,
+					"vertical_speed": -5.98785972595215
+				},
+				{
+					"angular_speed": 0.0183245297521353,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 40.09912109375,
+					"planar_speed": 6.74493789672852,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 4.0,
+					"vertical_speed": -6.3406195640564
+				},
+				{
+					"angular_speed": 0.010422557592392,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 33.51513671875,
+					"planar_speed": 3.44829940795898,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 5.0,
+					"vertical_speed": -6.82188653945923
+				},
+				{
+					"angular_speed": 0.000939508434385061,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 26.4913330078125,
+					"planar_speed": 0.900038301944733,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 6.0,
+					"vertical_speed": -7.18643951416016
+				},
+				{
+					"angular_speed": 0.0111815938726068,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 19.2047119140625,
+					"planar_speed": 0.874040484428406,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 7.0,
+					"vertical_speed": -7.35329675674438
+				},
+				{
+					"angular_speed": 0.017752630636096,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 11.83251953125,
+					"planar_speed": 1.90807390213013,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 8.0,
+					"vertical_speed": -7.37115287780762
+				},
+				{
+					"angular_speed": 0.0275661386549473,
+					"collective": 0.951067214012146,
+					"gear_contacts": 0,
+					"height": 5.048828125,
+					"planar_speed": 2.36188817024231,
+					"rpm": 1.02845540090396,
+					"supported": false,
+					"time": 9.0,
+					"vertical_speed": -5.31227827072144
+				},
+				{
+					"angular_speed": 0.257938355207443,
+					"collective": 0.174491724967956,
+					"gear_contacts": 2,
+					"height": 2.3387451171875,
+					"planar_speed": 0.0934577658772469,
+					"rpm": 0.87573756921161,
+					"supported": true,
+					"time": 10.0,
+					"vertical_speed": 0.00623166933655739
+				},
+				{
+					"angular_speed": 0.0748842135071754,
+					"collective": 0.0,
+					"gear_contacts": 2,
+					"height": 2.2904052734375,
+					"planar_speed": 0.000360476813511923,
+					"rpm": 0.75573756921161,
+					"supported": true,
+					"time": 11.0,
+					"vertical_speed": 0.0146680641919374
+				},
+				{
+					"angular_speed": 0.189559102058411,
+					"collective": 0.0,
+					"gear_contacts": 4,
+					"height": 2.235107421875,
+					"planar_speed": 0.000943640829063952,
+					"rpm": 0.63573756921161,
+					"supported": true,
+					"time": 12.0,
+					"vertical_speed": 0.270513296127319
+				}
+			]
+		},
+		{
+			"aircraft": 12,
+			"damage": {
+				"cockpit": {
+					"destroyed": false,
+					"health": 160.0,
+					"max_health": 160.0
+				},
+				"engine": {
+					"destroyed": true,
+					"health": 0.0,
+					"max_health": 160.0
+				},
+				"fuselage": {
+					"destroyed": false,
+					"health": 160.0,
+					"max_health": 160.0
+				},
+				"lower_rotor": {
+					"destroyed": false,
+					"health": 160.0,
+					"max_health": 160.0
+				},
+				"main_rotor": {
+					"destroyed": false,
+					"health": 160.0,
+					"max_health": 160.0
+				},
+				"tail": {
+					"destroyed": false,
+					"health": 160.0,
+					"max_health": 160.0
+				}
+			},
+			"exploded": false,
+			"final_angular_speed": 0.00272151036188006,
+			"final_bank": 0.511290065681727,
+			"final_relative_speed": 0.0317053869366646,
+			"initial_bank": 0.0,
+			"initial_speed": 20.0,
+			"max_angular_speed": 0.141803607344627,
+			"minimum_airborne_rpm": 0.921686595775155,
+			"pilot_alive": true,
+			"profile": "forward_speed",
+			"settled_time": 11.7666666666667,
+			"touchdown": {
+				"belly": false,
+				"damaging": false,
+				"descent_speed_mps": 3.49761748313904,
+				"hard": false,
+				"position": "(3118.805, 1400.0, 57.54879)",
+				"relative_speed_mps": 4.1386923789978,
+				"surface": "terrain"
+			},
+			"trajectory": [
+				{
+					"angular_speed": 0.0,
+					"collective": 0.782842105263158,
+					"gear_contacts": 0,
+					"height": 60.0,
+					"planar_speed": 20.0,
+					"rpm": 1.0,
+					"supported": false,
+					"time": 0.0,
+					"vertical_speed": 0.0
+				},
+				{
+					"angular_speed": 0.00828417390584946,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 57.6676025390625,
+					"planar_speed": 17.6152877807617,
+					"rpm": 1.04878246543109,
+					"supported": false,
+					"time": 1.0,
+					"vertical_speed": -4.70623779296875
+				},
+				{
+					"angular_speed": 0.0159991886466742,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 52.4542236328125,
+					"planar_speed": 14.1986846923828,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 2.0,
+					"vertical_speed": -5.39277172088623
+				},
+				{
+					"angular_speed": 0.0169895738363266,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 46.972412109375,
+					"planar_speed": 10.5809526443481,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 3.0,
+					"vertical_speed": -5.58705759048462
+				},
+				{
+					"angular_speed": 0.0145662752911448,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 41.227783203125,
+					"planar_speed": 7.00587606430054,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 4.0,
+					"vertical_speed": -5.92585897445679
+				},
+				{
+					"angular_speed": 0.00910426862537861,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 35.072265625,
+					"planar_speed": 3.81377577781677,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 5.0,
+					"vertical_speed": -6.38337898254395
+				},
+				{
+					"angular_speed": 0.00125034712255001,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 28.4923095703125,
+					"planar_speed": 1.33623230457306,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 6.0,
+					"vertical_speed": -6.74079036712646
+				},
+				{
+					"angular_speed": 0.00584714813157916,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 21.6484375,
+					"planar_speed": 0.411880195140839,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 7.0,
+					"vertical_speed": -6.91679763793945
+				},
+				{
+					"angular_speed": 0.0105080418288708,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 14.69970703125,
+					"planar_speed": 1.51403069496155,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 8.0,
+					"vertical_speed": -6.96192407608032
+				},
+				{
+					"angular_speed": 0.0131602324545383,
+					"collective": 0.4,
+					"gear_contacts": 0,
+					"height": 7.7579345703125,
+					"planar_speed": 2.06411743164063,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 9.0,
+					"vertical_speed": -6.76824903488159
+				},
+				{
+					"angular_speed": 0.0238945316523314,
+					"collective": 0.922384276390076,
+					"gear_contacts": 0,
+					"height": 2.7686767578125,
+					"planar_speed": 2.23280191421509,
+					"rpm": 0.938473316372006,
+					"supported": false,
+					"time": 10.0,
+					"vertical_speed": -3.60322141647339
+				},
+				{
+					"angular_speed": 0.00192569207865745,
+					"collective": 0.0,
+					"gear_contacts": 3,
+					"height": 2.3297119140625,
+					"planar_speed": 0.552676856517792,
+					"rpm": 0.813686595775155,
+					"supported": true,
+					"time": 11.0,
+					"vertical_speed": -0.0526911355555058
+				},
+				{
+					"angular_speed": 0.0062187067233026,
+					"collective": 0.0,
+					"gear_contacts": 3,
+					"height": 2.3212890625,
+					"planar_speed": 0.109608963131905,
+					"rpm": 0.693686595775154,
+					"supported": true,
+					"time": 12.0,
+					"vertical_speed": -0.0238012857735157
+				}
+			]
+		},
+		{
+			"aircraft": 13,
+			"damage": {
+				"cockpit": {
+					"destroyed": false,
+					"health": 20.0,
+					"max_health": 20.0
+				},
+				"engine": {
+					"destroyed": true,
+					"health": 0.0,
+					"max_health": 20.0
+				},
+				"fuselage": {
+					"destroyed": false,
+					"health": 20.0,
+					"max_health": 20.0
+				},
+				"main_rotor": {
+					"destroyed": false,
+					"health": 20.0,
+					"max_health": 20.0
+				},
+				"tail": {
+					"destroyed": false,
+					"health": 20.0,
+					"max_health": 20.0
+				},
+				"tail_rotor": {
+					"destroyed": false,
+					"health": 20.0,
+					"max_health": 20.0
+				}
+			},
+			"exploded": false,
+			"final_angular_speed": 0.00772450584918261,
+			"final_bank": 2.94842513197973,
+			"final_relative_speed": 0.0278863571584225,
+			"initial_bank": 0.0,
+			"initial_speed": 20.0,
+			"max_angular_speed": 0.832393705844879,
+			"minimum_airborne_rpm": 0.881632679528036,
+			"pilot_alive": true,
+			"profile": "forward_speed",
+			"settled_time": 12.2333333333333,
+			"touchdown": {
+				"belly": false,
+				"damaging": false,
+				"descent_speed_mps": 3.00707268714905,
+				"hard": false,
+				"position": "(3379.07, 1400.0, 69.8252)",
+				"relative_speed_mps": 3.06285524368286,
+				"surface": "terrain"
+			},
+			"trajectory": [
+				{
+					"angular_speed": 0.0,
+					"collective": 0.74,
+					"gear_contacts": 0,
+					"height": 60.0,
+					"planar_speed": 20.0,
+					"rpm": 1.0,
+					"supported": false,
+					"time": 0.0,
+					"vertical_speed": 0.0
+				},
+				{
+					"angular_speed": 0.0280092228204012,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 57.6973876953125,
+					"planar_speed": 17.5801830291748,
+					"rpm": 1.05484773098082,
+					"supported": false,
+					"time": 1.0,
+					"vertical_speed": -4.48315620422363
+				},
+				{
+					"angular_speed": 0.0240346379578114,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 52.9000244140625,
+					"planar_speed": 14.3678121566772,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 2.0,
+					"vertical_speed": -4.86505651473999
+				},
+				{
+					"angular_speed": 0.0158552639186382,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 47.9825439453125,
+					"planar_speed": 11.092568397522,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 3.0,
+					"vertical_speed": -5.00601530075073
+				},
+				{
+					"angular_speed": 0.0100020235404372,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 42.81640625,
+					"planar_speed": 7.98098564147949,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 4.0,
+					"vertical_speed": -5.34674882888794
+				},
+				{
+					"angular_speed": 0.000353863288182765,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 37.23779296875,
+					"planar_speed": 5.2191743850708,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 5.0,
+					"vertical_speed": -5.81634140014648
+				},
+				{
+					"angular_speed": 0.00963565520942211,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 31.1927490234375,
+					"planar_speed": 3.0699565410614,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 6.0,
+					"vertical_speed": -6.24020147323608
+				},
+				{
+					"angular_speed": 0.0143602835014462,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 24.8101806640625,
+					"planar_speed": 1.53354001045227,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 7.0,
+					"vertical_speed": -6.49225044250488
+				},
+				{
+					"angular_speed": 0.014811048284173,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 18.250732421875,
+					"planar_speed": 0.518503367900848,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 8.0,
+					"vertical_speed": -6.60625839233398
+				},
+				{
+					"angular_speed": 0.0129103232175112,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 11.6202392578125,
+					"planar_speed": 0.100926473736763,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 9.0,
+					"vertical_speed": -6.6451210975647
+				},
+				{
+					"angular_speed": 0.0209983922541142,
+					"collective": 1.0,
+					"gear_contacts": 0,
+					"height": 5.2581787109375,
+					"planar_speed": 0.485251575708389,
+					"rpm": 1.06349950436788,
+					"supported": false,
+					"time": 10.0,
+					"vertical_speed": -5.23192691802979
+				},
+				{
+					"angular_speed": 0.0115271480754018,
+					"collective": 0.890843322277069,
+					"gear_contacts": 0,
+					"height": 1.5155029296875,
+					"planar_speed": 0.581889510154724,
+					"rpm": 0.881632679528036,
+					"supported": false,
+					"time": 11.0,
+					"vertical_speed": -3.00707268714905
+				},
+				{
+					"angular_speed": 0.230969235301018,
+					"collective": 0.0,
+					"gear_contacts": 4,
+					"height": 1.4295654296875,
+					"planar_speed": 0.0000272600136668189,
+					"rpm": 0.761632679528036,
+					"supported": true,
+					"time": 12.0,
+					"vertical_speed": -0.0732339322566986
+				}
+			]
+		},
+		{
+			"aircraft": 15,
+			"damage": {
+				"cockpit": {
+					"destroyed": false,
+					"health": 42.5,
+					"max_health": 42.5
+				},
+				"engine": {
+					"destroyed": true,
+					"health": 0.0,
+					"max_health": 42.5
+				},
+				"fuselage": {
+					"destroyed": false,
+					"health": 42.5,
+					"max_health": 42.5
+				},
+				"main_rotor": {
+					"destroyed": false,
+					"health": 42.5,
+					"max_health": 42.5
+				},
+				"tail": {
+					"destroyed": false,
+					"health": 42.5,
+					"max_health": 42.5
+				},
+				"tail_rotor": {
+					"destroyed": false,
+					"health": 42.5,
+					"max_health": 42.5
+				}
+			},
+			"exploded": false,
+			"final_angular_speed": 0.0026954747736454,
+			"final_bank": 1.72112837205421,
+			"final_relative_speed": 0.0140892779454589,
+			"initial_bank": 0.0,
+			"initial_speed": 20.0,
+			"max_angular_speed": 0.218965470790863,
+			"minimum_airborne_rpm": 0.925809675969763,
+			"pilot_alive": true,
+			"profile": "forward_speed",
+			"settled_time": 11.4333333333333,
+			"touchdown": {
+				"belly": false,
+				"damaging": false,
+				"descent_speed_mps": 3.627601146698,
+				"hard": false,
+				"position": "(3901.525, 1400.0, 78.27542)",
+				"relative_speed_mps": 3.65163731575012,
+				"surface": "terrain"
+			},
+			"trajectory": [
+				{
+					"angular_speed": 0.0,
+					"collective": 0.751923076923077,
+					"gear_contacts": 0,
+					"height": 60.0,
+					"planar_speed": 20.0,
+					"rpm": 1.0,
+					"supported": false,
+					"time": 0.0,
+					"vertical_speed": 0.0
+				},
+				{
+					"angular_speed": 0.0170548651367426,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 57.629150390625,
+					"planar_speed": 17.7871704101563,
+					"rpm": 1.05093654963173,
+					"supported": false,
+					"time": 1.0,
+					"vertical_speed": -4.77065753936768
+				},
+				{
+					"angular_speed": 0.0228370670229197,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 52.36669921875,
+					"planar_speed": 14.9912796020508,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 2.0,
+					"vertical_speed": -5.39316320419312
+				},
+				{
+					"angular_speed": 0.0179699044674635,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 46.9608154296875,
+					"planar_speed": 12.07408618927,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 3.0,
+					"vertical_speed": -5.43414545059204
+				},
+				{
+					"angular_speed": 0.0121630793437362,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 41.4385986328125,
+					"planar_speed": 9.24226856231689,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 4.0,
+					"vertical_speed": -5.63368272781372
+				},
+				{
+					"angular_speed": 0.00713245943188667,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 35.6458740234375,
+					"planar_speed": 6.594153881073,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 5.0,
+					"vertical_speed": -5.96562051773071
+				},
+				{
+					"angular_speed": 0.00104041118174791,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 29.475830078125,
+					"planar_speed": 4.33976793289185,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 6.0,
+					"vertical_speed": -6.36432456970215
+				},
+				{
+					"angular_speed": 0.00846360251307487,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 22.9417724609375,
+					"planar_speed": 2.57720017433167,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 7.0,
+					"vertical_speed": -6.6779956817627
+				},
+				{
+					"angular_speed": 0.0124716637656093,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 16.1590576171875,
+					"planar_speed": 1.28901374340057,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 8.0,
+					"vertical_speed": -6.86457061767578
+				},
+				{
+					"angular_speed": 0.0132934572175145,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 9.2430419921875,
+					"planar_speed": 0.411329388618469,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 9.0,
+					"vertical_speed": -6.95336198806763
+				},
+				{
+					"angular_speed": 0.0224015358835459,
+					"collective": 0.890707259178162,
+					"gear_contacts": 0,
+					"height": 3.51953125,
+					"planar_speed": 0.286915212869644,
+					"rpm": 0.98671078752018,
+					"supported": false,
+					"time": 10.0,
+					"vertical_speed": -4.13933038711548
+				},
+				{
+					"angular_speed": 0.115468360483646,
+					"collective": 0.0,
+					"gear_contacts": 2,
+					"height": 1.992919921875,
+					"planar_speed": 0.0604900494217873,
+					"rpm": 0.851809675969763,
+					"supported": true,
+					"time": 11.0,
+					"vertical_speed": -0.228185787796974
+				},
+				{
+					"angular_speed": 0.00870063807815313,
+					"collective": 0.0,
+					"gear_contacts": 3,
+					"height": 1.971923828125,
+					"planar_speed": 0.00027572872932069,
+					"rpm": 0.731809675969762,
+					"supported": true,
+					"time": 12.0,
+					"vertical_speed": -0.00255445716902614
+				}
+			]
+		},
+		{
+			"aircraft": 9,
+			"damage": {
+				"cockpit": {
+					"destroyed": false,
+					"health": 100.0,
+					"max_health": 100.0
+				},
+				"engine": {
+					"destroyed": true,
+					"health": 0.0,
+					"max_health": 100.0
+				},
+				"fuselage": {
+					"destroyed": false,
+					"health": 100.0,
+					"max_health": 100.0
+				},
+				"lower_rotor": {
+					"destroyed": false,
+					"health": 100.0,
+					"max_health": 100.0
+				},
+				"main_rotor": {
+					"destroyed": false,
+					"health": 100.0,
+					"max_health": 100.0
+				},
+				"tail": {
+					"destroyed": false,
+					"health": 100.0,
+					"max_health": 100.0
+				}
+			},
+			"exploded": false,
+			"final_angular_speed": 0.00118502927944064,
+			"final_bank": 1.42147714996596,
+			"final_relative_speed": 0.0132565749809146,
+			"initial_bank": 11.9999930583802,
+			"initial_speed": 6.0,
+			"max_angular_speed": 0.324370294809341,
+			"minimum_airborne_rpm": 0.921224512356806,
+			"pilot_alive": true,
+			"profile": "bank_and_drift",
+			"settled_time": 10.4,
+			"touchdown": {
+				"belly": false,
+				"damaging": false,
+				"descent_speed_mps": 3.64754891395569,
+				"hard": false,
+				"position": "(2325.203, 1400.0, 3.079497)",
+				"relative_speed_mps": 4.12416076660156,
+				"surface": "terrain"
+			},
+			"trajectory": [
+				{
+					"angular_speed": 0.0,
+					"collective": 0.818241666666667,
+					"gear_contacts": 0,
+					"height": 60.0,
+					"planar_speed": 6.0,
+					"rpm": 1.0,
+					"supported": false,
+					"time": 0.0,
+					"vertical_speed": 0.0
+				},
+				{
+					"angular_speed": 0.0313517898321152,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 57.4874267578125,
+					"planar_speed": 3.60367465019226,
+					"rpm": 1.0451837616977,
+					"supported": false,
+					"time": 1.0,
+					"vertical_speed": -5.1737756729126
+				},
+				{
+					"angular_speed": 0.0285662449896336,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 51.2862548828125,
+					"planar_speed": 0.464900106191635,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 2.0,
+					"vertical_speed": -6.77699947357178
+				},
+				{
+					"angular_speed": 0.026356527581811,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 44.257080078125,
+					"planar_speed": 2.02796387672424,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 3.0,
+					"vertical_speed": -7.18509817123413
+				},
+				{
+					"angular_speed": 0.0236366949975491,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 37.04248046875,
+					"planar_speed": 3.52204966545105,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 4.0,
+					"vertical_speed": -7.20321607589722
+				},
+				{
+					"angular_speed": 0.0234243348240852,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 29.9029541015625,
+					"planar_speed": 4.11910152435303,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 5.0,
+					"vertical_speed": -7.06991767883301
+				},
+				{
+					"angular_speed": 0.0265853721648455,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 22.905517578125,
+					"planar_speed": 4.06825399398804,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 6.0,
+					"vertical_speed": -6.93342065811157
+				},
+				{
+					"angular_speed": 0.0294375289231539,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 16.0198974609375,
+					"planar_speed": 3.63300013542175,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 7.0,
+					"vertical_speed": -6.84938097000122
+				},
+				{
+					"angular_speed": 0.0298384986817837,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 9.19091796875,
+					"planar_speed": 3.02170634269714,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 8.0,
+					"vertical_speed": -6.8161940574646
+				},
+				{
+					"angular_speed": 0.0340024828910828,
+					"collective": 0.991666059494019,
+					"gear_contacts": 0,
+					"height": 3.44287109375,
+					"planar_speed": 2.19771289825439,
+					"rpm": 0.980763349058918,
+					"supported": false,
+					"time": 9.0,
+					"vertical_speed": -4.1487193107605
+				},
+				{
+					"angular_speed": 0.0371295176446438,
+					"collective": 0.0,
+					"gear_contacts": 4,
+					"height": 2.1741943359375,
+					"planar_speed": 0.0417063161730766,
+					"rpm": 0.837224512356806,
+					"supported": true,
+					"time": 10.0,
+					"vertical_speed": -0.125117212533951
+				},
+				{
+					"angular_speed": 0.00674387672916055,
+					"collective": 0.0,
+					"gear_contacts": 4,
+					"height": 2.151611328125,
+					"planar_speed": 0.00224372465163469,
+					"rpm": 0.717224512356805,
+					"supported": true,
+					"time": 11.0,
+					"vertical_speed": 0.00124815560411662
+				}
+			]
+		},
+		{
+			"aircraft": 10,
+			"damage": {
+				"cockpit": {
+					"destroyed": false,
+					"health": 45.0,
+					"max_health": 45.0
+				},
+				"engine": {
+					"destroyed": true,
+					"health": 0.0,
+					"max_health": 45.0
+				},
+				"fuselage": {
+					"destroyed": false,
+					"health": 45.0,
+					"max_health": 45.0
+				},
+				"main_rotor": {
+					"destroyed": false,
+					"health": 45.0,
+					"max_health": 45.0
+				},
+				"tail": {
+					"destroyed": false,
+					"health": 45.0,
+					"max_health": 45.0
+				},
+				"tail_rotor": {
+					"destroyed": false,
+					"health": 45.0,
+					"max_health": 45.0
+				}
+			},
+			"exploded": false,
+			"final_angular_speed": 0.0389972068369389,
+			"final_bank": 1.44116489539916,
+			"final_relative_speed": 0.0416124761104584,
+			"initial_bank": 11.9999930583802,
+			"initial_speed": 6.0,
+			"max_angular_speed": 1.42430579662323,
+			"minimum_airborne_rpm": 0.917354367194096,
+			"pilot_alive": true,
+			"profile": "bank_and_drift",
+			"settled_time": 10.35,
+			"touchdown": {
+				"belly": false,
+				"damaging": false,
+				"descent_speed_mps": 3.81232690811157,
+				"hard": false,
+				"position": "(2599.943, 1400.0, -0.747345)",
+				"relative_speed_mps": 3.82669353485107,
+				"surface": "terrain"
+			},
+			"trajectory": [
+				{
+					"angular_speed": 0.0,
+					"collective": 0.783888888888889,
+					"gear_contacts": 0,
+					"height": 60.0,
+					"planar_speed": 6.0,
+					"rpm": 1.0,
+					"supported": false,
+					"time": 0.0,
+					"vertical_speed": 0.0
+				},
+				{
+					"angular_speed": 0.0485616438090801,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 57.420654296875,
+					"planar_speed": 3.7112295627594,
+					"rpm": 1.04846261908565,
+					"supported": false,
+					"time": 1.0,
+					"vertical_speed": -5.30052804946899
+				},
+				{
+					"angular_speed": 0.0344391837716103,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 51.0650634765625,
+					"planar_speed": 1.07431590557098,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 2.0,
+					"vertical_speed": -6.91999435424805
+				},
+				{
+					"angular_speed": 0.0283173564821482,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 43.9459228515625,
+					"planar_speed": 0.773402333259583,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 3.0,
+					"vertical_speed": -7.22817134857178
+				},
+				{
+					"angular_speed": 0.0231482777744532,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 36.7010498046875,
+					"planar_speed": 1.68230426311493,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 4.0,
+					"vertical_speed": -7.23827791213989
+				},
+				{
+					"angular_speed": 0.0177265759557486,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 29.4896240234375,
+					"planar_speed": 1.88808059692383,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 5.0,
+					"vertical_speed": -7.18460893630981
+				},
+				{
+					"angular_speed": 0.0123073812574148,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 22.3271484375,
+					"planar_speed": 1.67817485332489,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 6.0,
+					"vertical_speed": -7.14612150192261
+				},
+				{
+					"angular_speed": 0.00755956768989563,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 15.1895751953125,
+					"planar_speed": 1.28929352760315,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 7.0,
+					"vertical_speed": -7.13367414474487
+				},
+				{
+					"angular_speed": 0.00400941679254174,
+					"collective": 0.37,
+					"gear_contacts": 0,
+					"height": 8.064208984375,
+					"planar_speed": 0.872312843799591,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 8.0,
+					"vertical_speed": -6.99497604370117
+				},
+				{
+					"angular_speed": 0.00196287990547717,
+					"collective": 0.882809476852417,
+					"gear_contacts": 0,
+					"height": 2.7518310546875,
+					"planar_speed": 0.406956046819687,
+					"rpm": 0.952320352097259,
+					"supported": false,
+					"time": 9.0,
+					"vertical_speed": -4.01265716552734
+				},
+				{
+					"angular_speed": 0.0173020642250776,
+					"collective": 0.0,
+					"gear_contacts": 2,
+					"height": 1.870361328125,
+					"planar_speed": 0.0147633356973529,
+					"rpm": 0.823354367194096,
+					"supported": true,
+					"time": 10.0,
+					"vertical_speed": -0.0614157617092133
+				},
+				{
+					"angular_speed": 0.028928903862834,
+					"collective": 0.0,
+					"gear_contacts": 4,
+					"height": 1.8582763671875,
+					"planar_speed": 0.0000594202247157227,
+					"rpm": 0.703354367194096,
+					"supported": true,
+					"time": 11.0,
+					"vertical_speed": -0.0523282736539841
+				}
+			]
+		},
+		{
+			"aircraft": 11,
+			"damage": {
+				"cockpit": {
+					"destroyed": false,
+					"health": 27.5,
+					"max_health": 27.5
+				},
+				"engine": {
+					"destroyed": true,
+					"health": 0.0,
+					"max_health": 27.5
+				},
+				"fuselage": {
+					"destroyed": false,
+					"health": 27.5,
+					"max_health": 27.5
+				},
+				"main_rotor": {
+					"destroyed": false,
+					"health": 27.5,
+					"max_health": 27.5
+				},
+				"tail": {
+					"destroyed": false,
+					"health": 27.5,
+					"max_health": 27.5
+				},
+				"tail_rotor": {
+					"destroyed": false,
+					"health": 27.5,
+					"max_health": 27.5
+				}
+			},
+			"exploded": false,
+			"final_angular_speed": 0.00340920756570995,
+			"final_bank": 1.76823966313324,
+			"final_relative_speed": 0.000125868566101417,
+			"initial_bank": 11.9999930583802,
+			"initial_speed": 6.0,
+			"max_angular_speed": 1.53914415836334,
+			"minimum_airborne_rpm": 0.932695388174239,
+			"pilot_alive": true,
+			"profile": "bank_and_drift",
+			"settled_time": 10.0166666666667,
+			"touchdown": {
+				"belly": false,
+				"damaging": false,
+				"descent_speed_mps": 4.20725202560425,
+				"hard": false,
+				"position": "(2860.355, 1400.0, -0.992217)",
+				"relative_speed_mps": 4.22700023651123,
+				"surface": "terrain"
+			},
+			"trajectory": [
+				{
+					"angular_speed": 0.0,
+					"collective": 0.803636363636364,
+					"gear_contacts": 0,
+					"height": 60.0,
+					"planar_speed": 6.0,
+					"rpm": 1.0,
+					"supported": false,
+					"time": 0.0,
+					"vertical_speed": 0.0
+				},
+				{
+					"angular_speed": 0.049328874796629,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 57.421630859375,
+					"planar_speed": 3.71445202827454,
+					"rpm": 1.0467079376326,
+					"supported": false,
+					"time": 1.0,
+					"vertical_speed": -5.33455419540405
+				},
+				{
+					"angular_speed": 0.034349113702774,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 50.9964599609375,
+					"planar_speed": 1.09859585762024,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 2.0,
+					"vertical_speed": -7.00833463668823
+				},
+				{
+					"angular_speed": 0.02825678139925,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 43.7833251953125,
+					"planar_speed": 0.74563330411911,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 3.0,
+					"vertical_speed": -7.32624197006226
+				},
+				{
+					"angular_speed": 0.0231082439422607,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 36.43896484375,
+					"planar_speed": 1.65711259841919,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 4.0,
+					"vertical_speed": -7.33921241760254
+				},
+				{
+					"angular_speed": 0.0176725592464209,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 29.1260986328125,
+					"planar_speed": 1.86860632896423,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 5.0,
+					"vertical_speed": -7.28677940368652
+				},
+				{
+					"angular_speed": 0.0122207524254918,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 21.8609619140625,
+					"planar_speed": 1.6652991771698,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 6.0,
+					"vertical_speed": -7.24856567382813
+				},
+				{
+					"angular_speed": 0.0074632316827774,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 14.620849609375,
+					"planar_speed": 1.28210341930389,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 7.0,
+					"vertical_speed": -7.23593044281006
+				},
+				{
+					"angular_speed": 0.00464088842272758,
+					"collective": 0.58,
+					"gear_contacts": 0,
+					"height": 7.4237060546875,
+					"planar_speed": 0.860741794109344,
+					"rpm": 1.09840926430341,
+					"supported": false,
+					"time": 8.0,
+					"vertical_speed": -6.85107660293579
+				},
+				{
+					"angular_speed": 1.53914415836334,
+					"collective": 0.891081480979919,
+					"gear_contacts": 4,
+					"height": 2.2386474609375,
+					"planar_speed": 0.243464440107346,
+					"rpm": 0.930695388174239,
+					"supported": true,
+					"time": 9.0,
+					"vertical_speed": -3.15085744857788
+				},
+				{
+					"angular_speed": 0.120856545865536,
+					"collective": 0.0,
+					"gear_contacts": 4,
+					"height": 2.2073974609375,
+					"planar_speed": 0.0040143677033484,
+					"rpm": 0.810695388174239,
+					"supported": true,
+					"time": 10.0,
+					"vertical_speed": 0.109273731708527
+				},
+				{
+					"angular_speed": 0.0280156806111336,
+					"collective": 0.0,
+					"gear_contacts": 4,
+					"height": 2.22314453125,
+					"planar_speed": 0.000210289159440435,
+					"rpm": 0.690695388174239,
+					"supported": true,
+					"time": 11.0,
+					"vertical_speed": -0.0270382724702358
+				}
+			]
+		},
+		{
+			"aircraft": 12,
+			"damage": {
+				"cockpit": {
+					"destroyed": false,
+					"health": 160.0,
+					"max_health": 160.0
+				},
+				"engine": {
+					"destroyed": true,
+					"health": 0.0,
+					"max_health": 160.0
+				},
+				"fuselage": {
+					"destroyed": false,
+					"health": 160.0,
+					"max_health": 160.0
+				},
+				"lower_rotor": {
+					"destroyed": false,
+					"health": 160.0,
+					"max_health": 160.0
+				},
+				"main_rotor": {
+					"destroyed": false,
+					"health": 160.0,
+					"max_health": 160.0
+				},
+				"tail": {
+					"destroyed": false,
+					"health": 160.0,
+					"max_health": 160.0
+				}
+			},
+			"exploded": false,
+			"final_angular_speed": 0.00509387208148837,
+			"final_bank": 0.590498034446978,
+			"final_relative_speed": 0.0203538611531258,
+			"initial_bank": 11.9999930583802,
+			"initial_speed": 6.0,
+			"max_angular_speed": 0.193900436162949,
+			"minimum_airborne_rpm": 0.92866359736972,
+			"pilot_alive": true,
+			"profile": "bank_and_drift",
+			"settled_time": 10.4166666666667,
+			"touchdown": {
+				"belly": false,
+				"damaging": false,
+				"descent_speed_mps": 3.44347333908081,
+				"hard": false,
+				"position": "(3110.063, 1400.0, 3.284959)",
+				"relative_speed_mps": 3.58507061004639,
+				"surface": "terrain"
+			},
+			"trajectory": [
+				{
+					"angular_speed": 0.0,
+					"collective": 0.782842105263158,
+					"gear_contacts": 0,
+					"height": 60.0,
+					"planar_speed": 6.0,
+					"rpm": 1.0,
+					"supported": false,
+					"time": 0.0,
+					"vertical_speed": 0.0
+				},
+				{
+					"angular_speed": 0.0358769334852695,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 57.459228515625,
+					"planar_speed": 3.60443425178528,
+					"rpm": 1.04865909206434,
+					"supported": false,
+					"time": 1.0,
+					"vertical_speed": -5.18665599822998
+				},
+				{
+					"angular_speed": 0.0302531011402607,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 51.2691650390625,
+					"planar_speed": 0.588265836238861,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 2.0,
+					"vertical_speed": -6.74462699890137
+				},
+				{
+					"angular_speed": 0.027921337634325,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 44.3033447265625,
+					"planar_speed": 1.68477249145508,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 3.0,
+					"vertical_speed": -7.09498119354248
+				},
+				{
+					"angular_speed": 0.0256433356553316,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 37.1942138671875,
+					"planar_speed": 2.93322467803955,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 4.0,
+					"vertical_speed": -7.08999300003052
+				},
+				{
+					"angular_speed": 0.0227052439004183,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 30.1605224609375,
+					"planar_speed": 3.31705546379089,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 5.0,
+					"vertical_speed": -6.97590112686157
+				},
+				{
+					"angular_speed": 0.0194116402417421,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 23.23828125,
+					"planar_speed": 3.1202130317688,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 6.0,
+					"vertical_speed": -6.87835645675659
+				},
+				{
+					"angular_speed": 0.0159833785146475,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 16.387939453125,
+					"planar_speed": 2.61611151695251,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 7.0,
+					"vertical_speed": -6.83123207092285
+				},
+				{
+					"angular_speed": 0.0126113751903176,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 9.56396484375,
+					"planar_speed": 2.00749206542969,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 8.0,
+					"vertical_speed": -6.82241010665894
+				},
+				{
+					"angular_speed": 0.014874679967761,
+					"collective": 0.949132385253906,
+					"gear_contacts": 0,
+					"height": 3.7669677734375,
+					"planar_speed": 1.26344501972198,
+					"rpm": 0.994008605224898,
+					"supported": false,
+					"time": 9.0,
+					"vertical_speed": -4.09089994430542
+				},
+				{
+					"angular_speed": 0.0251664593815804,
+					"collective": 0.0,
+					"gear_contacts": 3,
+					"height": 2.352294921875,
+					"planar_speed": 0.0700137838721275,
+					"rpm": 0.85266359736972,
+					"supported": true,
+					"time": 10.0,
+					"vertical_speed": -0.134839922189713
+				},
+				{
+					"angular_speed": 0.0029331617988646,
+					"collective": 0.0,
+					"gear_contacts": 3,
+					"height": 2.3253173828125,
+					"planar_speed": 0.00768099306151271,
+					"rpm": 0.73266359736972,
+					"supported": true,
+					"time": 11.0,
+					"vertical_speed": 0.00429375655949116
+				}
+			]
+		},
+		{
+			"aircraft": 13,
+			"damage": {
+				"cockpit": {
+					"destroyed": false,
+					"health": 20.0,
+					"max_health": 20.0
+				},
+				"engine": {
+					"destroyed": true,
+					"health": 0.0,
+					"max_health": 20.0
+				},
+				"fuselage": {
+					"destroyed": false,
+					"health": 20.0,
+					"max_health": 20.0
+				},
+				"main_rotor": {
+					"destroyed": false,
+					"health": 20.0,
+					"max_health": 20.0
+				},
+				"tail": {
+					"destroyed": false,
+					"health": 20.0,
+					"max_health": 20.0
+				},
+				"tail_rotor": {
+					"destroyed": false,
+					"health": 20.0,
+					"max_health": 20.0
+				}
+			},
+			"exploded": false,
+			"final_angular_speed": 0.133457407355309,
+			"final_bank": 3.12987794883291,
+			"final_relative_speed": 0.109572686254978,
+			"initial_bank": 11.9999930583802,
+			"initial_speed": 6.0,
+			"max_angular_speed": 1.4778071641922,
+			"minimum_airborne_rpm": 0.885534367730789,
+			"pilot_alive": true,
+			"profile": "bank_and_drift",
+			"settled_time": 11.2833333333333,
+			"touchdown": {
+				"belly": false,
+				"damaging": false,
+				"descent_speed_mps": 2.99048805236816,
+				"hard": false,
+				"position": "(3382.24, 1400.0, -0.24452)",
+				"relative_speed_mps": 3.04203963279724,
+				"surface": "terrain"
+			},
+			"trajectory": [
+				{
+					"angular_speed": 0.0,
+					"collective": 0.74,
+					"gear_contacts": 0,
+					"height": 60.0,
+					"planar_speed": 6.0,
+					"rpm": 1.0,
+					"supported": false,
+					"time": 0.0,
+					"vertical_speed": 0.0
+				},
+				{
+					"angular_speed": 0.0450739897787571,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 57.5545654296875,
+					"planar_speed": 4.1219654083252,
+					"rpm": 1.05111285949232,
+					"supported": false,
+					"time": 1.0,
+					"vertical_speed": -4.95075845718384
+				},
+				{
+					"angular_speed": 0.0329383499920368,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 51.7415771484375,
+					"planar_speed": 1.95979166030884,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 2.0,
+					"vertical_speed": -6.27418041229248
+				},
+				{
+					"angular_speed": 0.0280155669897795,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 45.272705078125,
+					"planar_speed": 0.397109359502792,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 3.0,
+					"vertical_speed": -6.59625625610352
+				},
+				{
+					"angular_speed": 0.0228770785033703,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 38.6229248046875,
+					"planar_speed": 0.546420037746429,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 4.0,
+					"vertical_speed": -6.6807336807251
+				},
+				{
+					"angular_speed": 0.018004322424531,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 31.937255859375,
+					"planar_speed": 1.02498614788055,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 5.0,
+					"vertical_speed": -6.68275737762451
+				},
+				{
+					"angular_speed": 0.0134515641257167,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 25.2642822265625,
+					"planar_speed": 1.18421244621277,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 6.0,
+					"vertical_speed": -6.66336584091187
+				},
+				{
+					"angular_speed": 0.0094402227550745,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 18.610107421875,
+					"planar_speed": 1.14760184288025,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 7.0,
+					"vertical_speed": -6.64637136459351
+				},
+				{
+					"angular_speed": 0.00615209387615323,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 11.969482421875,
+					"planar_speed": 1.00769603252411,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 8.0,
+					"vertical_speed": -6.63718557357788
+				},
+				{
+					"angular_speed": 0.00774819683283567,
+					"collective": 0.910000000000001,
+					"gear_contacts": 0,
+					"height": 5.5357666015625,
+					"planar_speed": 0.813423454761505,
+					"rpm": 1.0767845825861,
+					"supported": false,
+					"time": 9.0,
+					"vertical_speed": -5.47138452529907
+				},
+				{
+					"angular_speed": 0.00170711113605648,
+					"collective": 0.891215887069702,
+					"gear_contacts": 0,
+					"height": 1.658203125,
+					"planar_speed": 0.568285405635834,
+					"rpm": 0.893102424758318,
+					"supported": false,
+					"time": 10.0,
+					"vertical_speed": -3.00766372680664
+				},
+				{
+					"angular_speed": 0.191428199410439,
+					"collective": 0.0,
+					"gear_contacts": 2,
+					"height": 1.43701171875,
+					"planar_speed": 0.0000804468509159051,
+					"rpm": 0.771534367730789,
+					"supported": true,
+					"time": 11.0,
+					"vertical_speed": -0.0688418671488762
+				}
+			]
+		},
+		{
+			"aircraft": 15,
+			"damage": {
+				"cockpit": {
+					"destroyed": false,
+					"health": 42.5,
+					"max_health": 42.5
+				},
+				"engine": {
+					"destroyed": true,
+					"health": 0.0,
+					"max_health": 42.5
+				},
+				"fuselage": {
+					"destroyed": false,
+					"health": 42.5,
+					"max_health": 42.5
+				},
+				"main_rotor": {
+					"destroyed": false,
+					"health": 42.5,
+					"max_health": 42.5
+				},
+				"tail": {
+					"destroyed": false,
+					"health": 42.5,
+					"max_health": 42.5
+				},
+				"tail_rotor": {
+					"destroyed": false,
+					"health": 42.5,
+					"max_health": 42.5
+				}
+			},
+			"exploded": false,
+			"final_angular_speed": 0.01025156583637,
+			"final_bank": 1.68597594162547,
+			"final_relative_speed": 0.0158254411071539,
+			"initial_bank": 11.9999930583802,
+			"initial_speed": 6.0,
+			"max_angular_speed": 0.520426571369171,
+			"minimum_airborne_rpm": 0.925840473490134,
+			"pilot_alive": true,
+			"profile": "bank_and_drift",
+			"settled_time": 10.5666666666667,
+			"touchdown": {
+				"belly": false,
+				"damaging": false,
+				"descent_speed_mps": 3.6206362247467,
+				"hard": false,
+				"position": "(3904.637, 1400.0, 2.403367)",
+				"relative_speed_mps": 3.71577930450439,
+				"surface": "terrain"
+			},
+			"trajectory": [
+				{
+					"angular_speed": 0.0,
+					"collective": 0.751923076923077,
+					"gear_contacts": 0,
+					"height": 60.0,
+					"planar_speed": 6.0,
+					"rpm": 1.0,
+					"supported": false,
+					"time": 0.0,
+					"vertical_speed": 0.0
+				},
+				{
+					"angular_speed": 0.0417106151580811,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 57.5391845703125,
+					"planar_speed": 4.28469705581665,
+					"rpm": 1.05073030910105,
+					"supported": false,
+					"time": 1.0,
+					"vertical_speed": -5.05491209030151
+				},
+				{
+					"angular_speed": 0.0314900390803814,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 51.5340576171875,
+					"planar_speed": 2.27286410331726,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 2.0,
+					"vertical_speed": -6.52143335342407
+				},
+				{
+					"angular_speed": 0.0264319572597742,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 44.7921142578125,
+					"planar_speed": 0.722742557525635,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 3.0,
+					"vertical_speed": -6.88947010040283
+				},
+				{
+					"angular_speed": 0.0221410170197487,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 37.8328857421875,
+					"planar_speed": 0.282508701086044,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 4.0,
+					"vertical_speed": -7.00408887863159
+				},
+				{
+					"angular_speed": 0.0178740993142128,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 30.8140869140625,
+					"planar_speed": 0.860728621482849,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 5.0,
+					"vertical_speed": -7.02480506896973
+				},
+				{
+					"angular_speed": 0.0140199493616819,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 23.794189453125,
+					"planar_speed": 1.12695586681366,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 6.0,
+					"vertical_speed": -7.01260852813721
+				},
+				{
+					"angular_speed": 0.0105312457308173,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 16.791015625,
+					"planar_speed": 1.18324494361877,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 7.0,
+					"vertical_speed": -6.99506282806396
+				},
+				{
+					"angular_speed": 0.00751880509778857,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 9.802978515625,
+					"planar_speed": 1.11169803142548,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 8.0,
+					"vertical_speed": -6.98219966888428
+				},
+				{
+					"angular_speed": 0.00995361153036356,
+					"collective": 0.901401405334473,
+					"gear_contacts": 0,
+					"height": 3.840087890625,
+					"planar_speed": 0.943366229534149,
+					"rpm": 1.00072499689673,
+					"supported": false,
+					"time": 9.0,
+					"vertical_speed": -4.33673620223999
+				},
+				{
+					"angular_speed": 0.0445746853947639,
+					"collective": 0.0,
+					"gear_contacts": 2,
+					"height": 2.0189208984375,
+					"planar_speed": 0.0379239022731781,
+					"rpm": 0.861840473490134,
+					"supported": true,
+					"time": 10.0,
+					"vertical_speed": -0.271116465330124
+				},
+				{
+					"angular_speed": 0.00547966081649065,
+					"collective": 0.0,
+					"gear_contacts": 3,
+					"height": 1.970947265625,
+					"planar_speed": 0.000214646031963639,
+					"rpm": 0.741840473490134,
+					"supported": true,
+					"time": 11.0,
+					"vertical_speed": 0.0195846762508154
+				}
+			]
+		},
+		{
+			"aircraft": 9,
+			"damage": {
+				"cockpit": {
+					"destroyed": false,
+					"health": 100.0,
+					"max_health": 100.0
+				},
+				"engine": {
+					"destroyed": true,
+					"health": 0.0,
+					"max_health": 100.0
+				},
+				"fuselage": {
+					"destroyed": false,
+					"health": 100.0,
+					"max_health": 100.0
+				},
+				"lower_rotor": {
+					"destroyed": false,
+					"health": 100.0,
+					"max_health": 100.0
+				},
+				"main_rotor": {
+					"destroyed": false,
+					"health": 100.0,
+					"max_health": 100.0
+				},
+				"tail": {
+					"destroyed": false,
+					"health": 100.0,
+					"max_health": 100.0
+				}
+			},
+			"exploded": false,
+			"final_angular_speed": 0.0203862022608519,
+			"final_bank": 6.68823768435264,
+			"final_relative_speed": 0.14059080183506,
+			"initial_bank": 0.0,
+			"initial_speed": 0.0,
+			"max_angular_speed": 1.05721628665924,
+			"minimum_airborne_rpm": 0.928719850585193,
+			"pilot_alive": true,
+			"profile": "slope",
+			"settled_time": 10.5166666666667,
+			"touchdown": {
+				"belly": false,
+				"damaging": false,
+				"descent_speed_mps": 3.69582653045654,
+				"hard": false,
+				"position": "(2341.955, 1400.205, -1.338329)",
+				"relative_speed_mps": 3.71618413925171,
+				"surface": "terrain"
+			},
+			"trajectory": [
+				{
+					"angular_speed": 0.0,
+					"collective": 0.818241666666667,
+					"gear_contacts": 0,
+					"height": 60.0,
+					"planar_speed": 0.0,
+					"rpm": 1.0,
+					"supported": false,
+					"time": 0.0,
+					"vertical_speed": 0.0
+				},
+				{
+					"angular_speed": 0.0,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 57.474853515625,
+					"planar_speed": 0.0,
+					"rpm": 1.02796841215346,
+					"supported": false,
+					"time": 1.0,
+					"vertical_speed": -5.39764165878296
+				},
+				{
+					"angular_speed": 0.0,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 51.101318359375,
+					"planar_speed": 0.0,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 2.0,
+					"vertical_speed": -6.74867343902588
+				},
+				{
+					"angular_speed": 0.0,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 44.2825927734375,
+					"planar_speed": 0.0,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 3.0,
+					"vertical_speed": -6.84981298446655
+				},
+				{
+					"angular_speed": 0.0,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 37.4273681640625,
+					"planar_speed": 0.0,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 4.0,
+					"vertical_speed": -6.85923767089844
+				},
+				{
+					"angular_speed": 0.0,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 30.5645751953125,
+					"planar_speed": 0.0,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 5.0,
+					"vertical_speed": -6.86010837554932
+				},
+				{
+					"angular_speed": 0.0,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 23.7017822265625,
+					"planar_speed": 0.0,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 6.0,
+					"vertical_speed": -6.86019039154053
+				},
+				{
+					"angular_speed": 0.0,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 16.8389892578125,
+					"planar_speed": 0.0,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 7.0,
+					"vertical_speed": -6.86019420623779
+				},
+				{
+					"angular_speed": 0.0,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 9.9761962890625,
+					"planar_speed": 0.0,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 8.0,
+					"vertical_speed": -6.86019420623779
+				},
+				{
+					"angular_speed": 0.0,
+					"collective": 1.0,
+					"gear_contacts": 0,
+					"height": 3.9263916015625,
+					"planar_speed": 0.0,
+					"rpm": 1.00141752388412,
+					"supported": false,
+					"time": 9.0,
+					"vertical_speed": -4.46439266204834
+				},
+				{
+					"angular_speed": 0.0626328438520432,
+					"collective": 0.0,
+					"gear_contacts": 4,
+					"height": 2.173828125,
+					"planar_speed": 0.186282873153687,
+					"rpm": 0.852719850585193,
+					"supported": true,
+					"time": 10.0,
+					"vertical_speed": -0.247675359249115
+				},
+				{
+					"angular_speed": 0.0211454723030329,
+					"collective": 0.0,
+					"gear_contacts": 4,
+					"height": 2.132568359375,
+					"planar_speed": 0.137073829770088,
+					"rpm": 0.732719850585193,
+					"supported": true,
+					"time": 11.0,
+					"vertical_speed": -0.0349525474011898
+				}
+			]
+		},
+		{
+			"aircraft": 10,
+			"damage": {
+				"cockpit": {
+					"destroyed": false,
+					"health": 45.0,
+					"max_health": 45.0
+				},
+				"engine": {
+					"destroyed": true,
+					"health": 0.0,
+					"max_health": 45.0
+				},
+				"fuselage": {
+					"destroyed": false,
+					"health": 45.0,
+					"max_health": 45.0
+				},
+				"main_rotor": {
+					"destroyed": false,
+					"health": 45.0,
+					"max_health": 45.0
+				},
+				"tail": {
+					"destroyed": false,
+					"health": 45.0,
+					"max_health": 45.0
+				},
+				"tail_rotor": {
+					"destroyed": false,
+					"health": 45.0,
+					"max_health": 45.0
+				}
+			},
+			"exploded": false,
+			"final_angular_speed": 0.046794205904007,
+			"final_bank": 6.50502505730863,
+			"final_relative_speed": 0.0579122602939606,
+			"initial_bank": 0.0,
+			"initial_speed": 0.0,
+			"max_angular_speed": 1.98440742492676,
+			"minimum_airborne_rpm": 0.915166026984886,
+			"pilot_alive": true,
+			"profile": "slope",
+			"settled_time": 10.45,
+			"touchdown": {
+				"belly": false,
+				"damaging": false,
+				"descent_speed_mps": 3.80584907531738,
+				"hard": false,
+				"position": "(2601.012, 1400.107, -0.6)",
+				"relative_speed_mps": 3.82681274414063,
+				"surface": "terrain"
+			},
+			"trajectory": [
+				{
+					"angular_speed": 0.0,
+					"collective": 0.783888888888889,
+					"gear_contacts": 0,
+					"height": 60.0,
+					"planar_speed": 0.0,
+					"rpm": 1.0,
+					"supported": false,
+					"time": 0.0,
+					"vertical_speed": 0.0
+				},
+				{
+					"angular_speed": 0.0,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 57.4281005859375,
+					"planar_speed": 0.0,
+					"rpm": 1.03171615806551,
+					"supported": false,
+					"time": 1.0,
+					"vertical_speed": -5.48487091064453
+				},
+				{
+					"angular_speed": 0.0,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 50.8846435546875,
+					"planar_speed": 0.0,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 2.0,
+					"vertical_speed": -6.9896354675293
+				},
+				{
+					"angular_speed": 0.0,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 43.7987060546875,
+					"planar_speed": 0.0,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 3.0,
+					"vertical_speed": -7.13128519058228
+				},
+				{
+					"angular_speed": 0.0,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 36.656982421875,
+					"planar_speed": 0.0,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 4.0,
+					"vertical_speed": -7.14621782302856
+				},
+				{
+					"angular_speed": 0.0,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 29.508544921875,
+					"planar_speed": 0.0,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 5.0,
+					"vertical_speed": -7.14777517318726
+				},
+				{
+					"angular_speed": 0.0,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 22.360107421875,
+					"planar_speed": 0.0,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 6.0,
+					"vertical_speed": -7.14793634414673
+				},
+				{
+					"angular_speed": 0.0,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 15.211669921875,
+					"planar_speed": 0.0,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 7.0,
+					"vertical_speed": -7.14794921875
+				},
+				{
+					"angular_speed": 0.0,
+					"collective": 0.4,
+					"gear_contacts": 0,
+					"height": 8.074951171875,
+					"planar_speed": 0.0,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 8.0,
+					"vertical_speed": -6.97694253921509
+				},
+				{
+					"angular_speed": 0.0,
+					"collective": 0.882420425415039,
+					"gear_contacts": 0,
+					"height": 2.801513671875,
+					"planar_speed": 0.0,
+					"rpm": 0.949471608692629,
+					"supported": false,
+					"time": 9.0,
+					"vertical_speed": -4.00755929946899
+				},
+				{
+					"angular_speed": 0.0127409407868981,
+					"collective": 0.0,
+					"gear_contacts": 2,
+					"height": 1.870849609375,
+					"planar_speed": 0.0567510053515434,
+					"rpm": 0.821166026984886,
+					"supported": true,
+					"time": 10.0,
+					"vertical_speed": -0.0622320175170898
+				},
+				{
+					"angular_speed": 0.0217851065099239,
+					"collective": 0.0,
+					"gear_contacts": 4,
+					"height": 1.8538818359375,
+					"planar_speed": 0.031777385622263,
+					"rpm": 0.701166026984886,
+					"supported": true,
+					"time": 11.0,
+					"vertical_speed": -0.0622454732656479
+				}
+			]
+		},
+		{
+			"aircraft": 11,
+			"damage": {
+				"cockpit": {
+					"destroyed": false,
+					"health": 27.5,
+					"max_health": 27.5
+				},
+				"engine": {
+					"destroyed": true,
+					"health": 0.0,
+					"max_health": 27.5
+				},
+				"fuselage": {
+					"destroyed": false,
+					"health": 27.5,
+					"max_health": 27.5
+				},
+				"main_rotor": {
+					"destroyed": false,
+					"health": 27.5,
+					"max_health": 27.5
+				},
+				"tail": {
+					"destroyed": false,
+					"health": 27.5,
+					"max_health": 27.5
+				},
+				"tail_rotor": {
+					"destroyed": false,
+					"health": 27.5,
+					"max_health": 27.5
+				}
+			},
+			"exploded": false,
+			"final_angular_speed": 0.0185728315263987,
+			"final_bank": 6.72094060908952,
+			"final_relative_speed": 0.0388373099267483,
+			"initial_bank": 0.0,
+			"initial_speed": 0.0,
+			"max_angular_speed": 2.14461851119995,
+			"minimum_airborne_rpm": 0.936169283005884,
+			"pilot_alive": true,
+			"profile": "slope",
+			"settled_time": 10.1333333333333,
+			"touchdown": {
+				"belly": false,
+				"damaging": false,
+				"descent_speed_mps": 4.20682191848755,
+				"hard": false,
+				"position": "(2861.216, 1400.128, -0.78)",
+				"relative_speed_mps": 4.22999429702759,
+				"surface": "terrain"
+			},
+			"trajectory": [
+				{
+					"angular_speed": 0.0,
+					"collective": 0.803636363636364,
+					"gear_contacts": 0,
+					"height": 60.0,
+					"planar_speed": 0.0,
+					"rpm": 1.0,
+					"supported": false,
+					"time": 0.0,
+					"vertical_speed": 0.0
+				},
+				{
+					"angular_speed": 0.0,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 57.437744140625,
+					"planar_speed": 0.0,
+					"rpm": 1.03002243429885,
+					"supported": false,
+					"time": 1.0,
+					"vertical_speed": -5.50705003738403
+				},
+				{
+					"angular_speed": 0.0,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 50.8292236328125,
+					"planar_speed": 0.0,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 2.0,
+					"vertical_speed": -7.07872438430786
+				},
+				{
+					"angular_speed": 0.0,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 43.6470947265625,
+					"planar_speed": 0.0,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 3.0,
+					"vertical_speed": -7.23131418228149
+				},
+				{
+					"angular_speed": 0.0,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 36.405029296875,
+					"planar_speed": 0.0,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 4.0,
+					"vertical_speed": -7.24778747558594
+				},
+				{
+					"angular_speed": 0.0,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 29.154052734375,
+					"planar_speed": 0.0,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 5.0,
+					"vertical_speed": -7.24954748153687
+				},
+				{
+					"angular_speed": 0.0,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 21.903076171875,
+					"planar_speed": 0.0,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 6.0,
+					"vertical_speed": -7.24973344802856
+				},
+				{
+					"angular_speed": 0.0,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 14.652099609375,
+					"planar_speed": 0.0,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 7.0,
+					"vertical_speed": -7.24974727630615
+				},
+				{
+					"angular_speed": 0.0,
+					"collective": 0.58,
+					"gear_contacts": 0,
+					"height": 7.4407958984375,
+					"planar_speed": 0.0,
+					"rpm": 1.09840888112963,
+					"supported": false,
+					"time": 8.0,
+					"vertical_speed": -6.86281776428223
+				},
+				{
+					"angular_speed": 2.02197337150574,
+					"collective": 0.832887501716614,
+					"gear_contacts": 2,
+					"height": 2.2742919921875,
+					"planar_speed": 0.163499414920807,
+					"rpm": 0.932169283005884,
+					"supported": true,
+					"time": 9.0,
+					"vertical_speed": -2.63603281974792
+				},
+				{
+					"angular_speed": 0.152409180998802,
+					"collective": 0.0,
+					"gear_contacts": 4,
+					"height": 2.2205810546875,
+					"planar_speed": 0.034012995660305,
+					"rpm": 0.812169283005884,
+					"supported": true,
+					"time": 10.0,
+					"vertical_speed": 0.0297366939485073
+				},
+				{
+					"angular_speed": 0.0265941023826599,
+					"collective": 0.0,
+					"gear_contacts": 4,
+					"height": 2.224365234375,
+					"planar_speed": 0.0223971549421549,
+					"rpm": 0.692169283005884,
+					"supported": true,
+					"time": 11.0,
+					"vertical_speed": -0.029898626729846
+				}
+			]
+		},
+		{
+			"aircraft": 12,
+			"damage": {
+				"cockpit": {
+					"destroyed": false,
+					"health": 160.0,
+					"max_health": 160.0
+				},
+				"engine": {
+					"destroyed": true,
+					"health": 0.0,
+					"max_health": 160.0
+				},
+				"fuselage": {
+					"destroyed": false,
+					"health": 160.0,
+					"max_health": 160.0
+				},
+				"lower_rotor": {
+					"destroyed": false,
+					"health": 160.0,
+					"max_health": 160.0
+				},
+				"main_rotor": {
+					"destroyed": false,
+					"health": 160.0,
+					"max_health": 160.0
+				},
+				"tail": {
+					"destroyed": false,
+					"health": 160.0,
+					"max_health": 160.0
+				}
+			},
+			"exploded": false,
+			"final_angular_speed": 0.0126259075477719,
+			"final_bank": 7.35628768561679,
+			"final_relative_speed": 0.216397821903229,
+			"initial_bank": 0.0,
+			"initial_speed": 0.0,
+			"max_angular_speed": 0.791471183300018,
+			"minimum_airborne_rpm": 0.934269659506135,
+			"pilot_alive": true,
+			"profile": "slope",
+			"settled_time": 10.5333333333333,
+			"touchdown": {
+				"belly": false,
+				"damaging": false,
+				"descent_speed_mps": 3.47599864006042,
+				"hard": false,
+				"position": "(3121.2, 1400.126, -1.3)",
+				"relative_speed_mps": 3.49514532089233,
+				"surface": "terrain"
+			},
+			"trajectory": [
+				{
+					"angular_speed": 0.0,
+					"collective": 0.782842105263158,
+					"gear_contacts": 0,
+					"height": 60.0,
+					"planar_speed": 0.0,
+					"rpm": 1.0,
+					"supported": false,
+					"time": 0.0,
+					"vertical_speed": 0.0
+				},
+				{
+					"angular_speed": 0.0,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 57.44677734375,
+					"planar_speed": 0.0,
+					"rpm": 1.03131202092622,
+					"supported": false,
+					"time": 1.0,
+					"vertical_speed": -5.40454339981079
+				},
+				{
+					"angular_speed": 0.0,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 51.0810546875,
+					"planar_speed": 0.0,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 2.0,
+					"vertical_speed": -6.7427921295166
+				},
+				{
+					"angular_speed": 0.0,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 44.265380859375,
+					"planar_speed": 0.0,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 3.0,
+					"vertical_speed": -6.84876012802124
+				},
+				{
+					"angular_speed": 0.0,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 37.410888671875,
+					"planar_speed": 0.0,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 4.0,
+					"vertical_speed": -6.85883760452271
+				},
+				{
+					"angular_speed": 0.0,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 30.549072265625,
+					"planar_speed": 0.0,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 5.0,
+					"vertical_speed": -6.859787940979
+				},
+				{
+					"angular_speed": 0.0,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 23.686279296875,
+					"planar_speed": 0.0,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 6.0,
+					"vertical_speed": -6.85987663269043
+				},
+				{
+					"angular_speed": 0.0,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 16.823486328125,
+					"planar_speed": 0.0,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 7.0,
+					"vertical_speed": -6.85988140106201
+				},
+				{
+					"angular_speed": 0.0,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 9.960693359375,
+					"planar_speed": 0.0,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 8.0,
+					"vertical_speed": -6.85988140106201
+				},
+				{
+					"angular_speed": 0.0,
+					"collective": 0.957826795578003,
+					"gear_contacts": 0,
+					"height": 3.99658203125,
+					"planar_speed": 0.0,
+					"rpm": 1.00336162346832,
+					"supported": false,
+					"time": 9.0,
+					"vertical_speed": -4.25429344177246
+				},
+				{
+					"angular_speed": 0.0364128649234772,
+					"collective": 0.0,
+					"gear_contacts": 3,
+					"height": 2.3404541015625,
+					"planar_speed": 0.264666736125946,
+					"rpm": 0.860269659506135,
+					"supported": true,
+					"time": 10.0,
+					"vertical_speed": -0.154105916619301
+				},
+				{
+					"angular_speed": 0.0128438184037805,
+					"collective": 0.0,
+					"gear_contacts": 3,
+					"height": 2.2916259765625,
+					"planar_speed": 0.214541673660278,
+					"rpm": 0.740269659506135,
+					"supported": true,
+					"time": 11.0,
+					"vertical_speed": -0.0176606774330139
+				}
+			]
+		},
+		{
+			"aircraft": 13,
+			"damage": {
+				"cockpit": {
+					"destroyed": false,
+					"health": 20.0,
+					"max_health": 20.0
+				},
+				"engine": {
+					"destroyed": true,
+					"health": 0.0,
+					"max_health": 20.0
+				},
+				"fuselage": {
+					"destroyed": false,
+					"health": 20.0,
+					"max_health": 20.0
+				},
+				"main_rotor": {
+					"destroyed": false,
+					"health": 20.0,
+					"max_health": 20.0
+				},
+				"tail": {
+					"destroyed": false,
+					"health": 20.0,
+					"max_health": 20.0
+				},
+				"tail_rotor": {
+					"destroyed": false,
+					"health": 20.0,
+					"max_health": 20.0
+				}
+			},
+			"exploded": false,
+			"final_angular_speed": 0.110076390206814,
+			"final_bank": 6.91999383978842,
+			"final_relative_speed": 0.0453955605626106,
+			"initial_bank": 0.0,
+			"initial_speed": 0.0,
+			"max_angular_speed": 1.83215534687042,
+			"minimum_airborne_rpm": 0.891045668709178,
+			"pilot_alive": true,
+			"profile": "slope",
+			"settled_time": 11.0833333333333,
+			"touchdown": {
+				"belly": false,
+				"damaging": false,
+				"descent_speed_mps": 2.98638129234314,
+				"hard": false,
+				"position": "(3380.93, 1400.098, -0.3)",
+				"relative_speed_mps": 3.00283098220825,
+				"surface": "terrain"
+			},
+			"trajectory": [
+				{
+					"angular_speed": 0.0,
+					"collective": 0.74,
+					"gear_contacts": 0,
+					"height": 60.0,
+					"planar_speed": 0.0,
+					"rpm": 1.0,
+					"supported": false,
+					"time": 0.0,
+					"vertical_speed": 0.0
+				},
+				{
+					"angular_speed": 0.0,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 57.43017578125,
+					"planar_speed": 0.0,
+					"rpm": 1.03461646543788,
+					"supported": false,
+					"time": 1.0,
+					"vertical_speed": -5.3434853553772
+				},
+				{
+					"angular_speed": 0.0,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 51.215576171875,
+					"planar_speed": 0.0,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 2.0,
+					"vertical_speed": -6.54373598098755
+				},
+				{
+					"angular_speed": 0.0,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 44.6116943359375,
+					"planar_speed": 0.0,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 3.0,
+					"vertical_speed": -6.6310601234436
+				},
+				{
+					"angular_speed": 0.0,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 37.976318359375,
+					"planar_speed": 0.0,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 4.0,
+					"vertical_speed": -6.63890075683594
+				},
+				{
+					"angular_speed": 0.0,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 31.33642578125,
+					"planar_speed": 0.0,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 5.0,
+					"vertical_speed": -6.63960075378418
+				},
+				{
+					"angular_speed": 0.0,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 24.693359375,
+					"planar_speed": 0.0,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 6.0,
+					"vertical_speed": -6.63966703414917
+				},
+				{
+					"angular_speed": 0.0,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 18.05029296875,
+					"planar_speed": 0.0,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 7.0,
+					"vertical_speed": -6.63966798782349
+				},
+				{
+					"angular_speed": 0.0,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 11.4072265625,
+					"planar_speed": 0.0,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 8.0,
+					"vertical_speed": -6.63966798782349
+				},
+				{
+					"angular_speed": 0.0,
+					"collective": 1.0,
+					"gear_contacts": 0,
+					"height": 5.0806884765625,
+					"planar_speed": 0.0,
+					"rpm": 1.0600345064738,
+					"supported": false,
+					"time": 9.0,
+					"vertical_speed": -5.15384578704834
+				},
+				{
+					"angular_speed": 0.738042175769806,
+					"collective": 0.770815165042877,
+					"gear_contacts": 4,
+					"height": 1.473876953125,
+					"planar_speed": 0.082286924123764,
+					"rpm": 0.883045668709178,
+					"supported": true,
+					"time": 10.0,
+					"vertical_speed": -1.17600476741791
+				},
+				{
+					"angular_speed": 0.0615294873714447,
+					"collective": 0.0,
+					"gear_contacts": 4,
+					"height": 1.4459228515625,
+					"planar_speed": 0.00507188914343715,
+					"rpm": 0.763045668709178,
+					"supported": true,
+					"time": 11.0,
+					"vertical_speed": -0.00734121818095446
+				}
+			]
+		},
+		{
+			"aircraft": 15,
+			"damage": {
+				"cockpit": {
+					"destroyed": false,
+					"health": 42.5,
+					"max_health": 42.5
+				},
+				"engine": {
+					"destroyed": true,
+					"health": 0.0,
+					"max_health": 42.5
+				},
+				"fuselage": {
+					"destroyed": false,
+					"health": 42.5,
+					"max_health": 42.5
+				},
+				"main_rotor": {
+					"destroyed": false,
+					"health": 42.5,
+					"max_health": 42.5
+				},
+				"tail": {
+					"destroyed": false,
+					"health": 42.5,
+					"max_health": 42.5
+				},
+				"tail_rotor": {
+					"destroyed": false,
+					"health": 42.5,
+					"max_health": 42.5
+				}
+			},
+			"exploded": false,
+			"final_angular_speed": 0.0139208035543561,
+			"final_bank": 6.73609742270443,
+			"final_relative_speed": 0.0698473155498505,
+			"initial_bank": 0.0,
+			"initial_speed": 0.0,
+			"max_angular_speed": 1.62092459201813,
+			"minimum_airborne_rpm": 0.931058329287076,
+			"pilot_alive": true,
+			"profile": "slope",
+			"settled_time": 10.4833333333333,
+			"touchdown": {
+				"belly": false,
+				"damaging": false,
+				"descent_speed_mps": 3.62932801246643,
+				"hard": false,
+				"position": "(3901.525, 1400.16, -0.466232)",
+				"relative_speed_mps": 3.64931917190552,
+				"surface": "terrain"
+			},
+			"trajectory": [
+				{
+					"angular_speed": 0.0,
+					"collective": 0.751923076923077,
+					"gear_contacts": 0,
+					"height": 60.0,
+					"planar_speed": 0.0,
+					"rpm": 1.0,
+					"supported": false,
+					"time": 0.0,
+					"vertical_speed": 0.0
+				},
+				{
+					"angular_speed": 0.0,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 57.414306640625,
+					"planar_speed": 0.0,
+					"rpm": 1.0342563856323,
+					"supported": false,
+					"time": 1.0,
+					"vertical_speed": -5.44361114501953
+				},
+				{
+					"angular_speed": 0.0,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 50.98193359375,
+					"planar_speed": 0.0,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 2.0,
+					"vertical_speed": -6.83980894088745
+				},
+				{
+					"angular_speed": 0.0,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 44.0570068359375,
+					"planar_speed": 0.0,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 3.0,
+					"vertical_speed": -6.96423625946045
+				},
+				{
+					"angular_speed": 0.0,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 37.08447265625,
+					"planar_speed": 0.0,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 4.0,
+					"vertical_speed": -6.97683095932007
+				},
+				{
+					"angular_speed": 0.0,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 30.1044921875,
+					"planar_speed": 0.0,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 5.0,
+					"vertical_speed": -6.97809457778931
+				},
+				{
+					"angular_speed": 0.0,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 23.12451171875,
+					"planar_speed": 0.0,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 6.0,
+					"vertical_speed": -6.97821664810181
+				},
+				{
+					"angular_speed": 0.0,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 16.14453125,
+					"planar_speed": 0.0,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 7.0,
+					"vertical_speed": -6.97822427749634
+				},
+				{
+					"angular_speed": 0.0,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 9.16455078125,
+					"planar_speed": 0.0,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 8.0,
+					"vertical_speed": -6.97822427749634
+				},
+				{
+					"angular_speed": 0.0,
+					"collective": 0.88867326259613,
+					"gear_contacts": 0,
+					"height": 3.4810791015625,
+					"planar_speed": 0.0,
+					"rpm": 0.983945815478803,
+					"supported": false,
+					"time": 9.0,
+					"vertical_speed": -4.10134696960449
+				},
+				{
+					"angular_speed": 0.159563466906548,
+					"collective": 0.0,
+					"gear_contacts": 3,
+					"height": 1.978759765625,
+					"planar_speed": 0.0738201811909676,
+					"rpm": 0.851058329287076,
+					"supported": true,
+					"time": 10.0,
+					"vertical_speed": -0.20181205868721
+				},
+				{
+					"angular_speed": 0.0162889752537012,
+					"collective": 0.0,
+					"gear_contacts": 3,
+					"height": 1.963623046875,
+					"planar_speed": 0.0658727064728737,
+					"rpm": 0.731058329287075,
+					"supported": true,
+					"time": 11.0,
+					"vertical_speed": -0.0297424085438252
+				}
+			]
+		},
+		{
+			"aircraft": 9,
+			"damage": {
+				"cockpit": {
+					"destroyed": false,
+					"health": 100.0,
+					"max_health": 100.0
+				},
+				"engine": {
+					"destroyed": true,
+					"health": 0.0,
+					"max_health": 100.0
+				},
+				"fuselage": {
+					"destroyed": false,
+					"health": 100.0,
+					"max_health": 100.0
+				},
+				"lower_rotor": {
+					"destroyed": false,
+					"health": 100.0,
+					"max_health": 100.0
+				},
+				"main_rotor": {
+					"destroyed": false,
+					"health": 100.0,
+					"max_health": 100.0
+				},
+				"tail": {
+					"destroyed": false,
+					"health": 100.0,
+					"max_health": 100.0
+				}
+			},
+			"exploded": false,
+			"final_angular_speed": 0.00346151692792773,
+			"final_bank": 1.56972517830466,
+			"final_relative_speed": 0.010344916023314,
+			"initial_bank": 0.0,
+			"initial_speed": 0.0,
+			"max_angular_speed": 0.230238392949104,
+			"minimum_airborne_rpm": 0.937210109936227,
+			"pilot_alive": true,
+			"profile": "gusts",
+			"settled_time": 10.9,
+			"touchdown": {
+				"belly": false,
+				"damaging": false,
+				"descent_speed_mps": 3.41435194015503,
+				"hard": false,
+				"position": "(2333.422, 1400.0, -0.051652)",
+				"relative_speed_mps": 3.43766140937805,
+				"surface": "terrain"
+			},
+			"trajectory": [
+				{
+					"angular_speed": 0.0,
+					"collective": 0.818241666666667,
+					"gear_contacts": 0,
+					"height": 60.0,
+					"planar_speed": 0.0,
+					"rpm": 1.0,
+					"supported": false,
+					"time": 0.0,
+					"vertical_speed": 0.0
+				},
+				{
+					"angular_speed": 0.0664927884936333,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 57.49853515625,
+					"planar_speed": 0.00719550345093012,
+					"rpm": 1.02894820117668,
+					"supported": false,
+					"time": 1.0,
+					"vertical_speed": -5.38244438171387
+				},
+				{
+					"angular_speed": 0.117266789078712,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 51.0679931640625,
+					"planar_speed": 0.0885369479656219,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 2.0,
+					"vertical_speed": -6.80231952667236
+				},
+				{
+					"angular_speed": 0.164738059043884,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 44.3734130859375,
+					"planar_speed": 0.210086986422539,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 3.0,
+					"vertical_speed": -6.54155540466309
+				},
+				{
+					"angular_speed": 0.205780744552612,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 37.869384765625,
+					"planar_speed": 0.33080267906189,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 4.0,
+					"vertical_speed": -6.52887630462646
+				},
+				{
+					"angular_speed": 0.226344123482704,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 31.3453369140625,
+					"planar_speed": 0.435805380344391,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 5.0,
+					"vertical_speed": -6.47167825698853
+				},
+				{
+					"angular_speed": 0.230165615677834,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 24.990966796875,
+					"planar_speed": 0.506867706775665,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 6.0,
+					"vertical_speed": -6.24512910842896
+				},
+				{
+					"angular_speed": 0.224762320518494,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 18.7664794921875,
+					"planar_speed": 0.532348930835724,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 7.0,
+					"vertical_speed": -6.25901794433594
+				},
+				{
+					"angular_speed": 0.206221088767052,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 12.4486083984375,
+					"planar_speed": 0.518012285232544,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 8.0,
+					"vertical_speed": -6.34281730651855
+				},
+				{
+					"angular_speed": 0.173871770501137,
+					"collective": 0.64,
+					"gear_contacts": 0,
+					"height": 6.0869140625,
+					"planar_speed": 0.470186233520508,
+					"rpm": 1.0959902791372,
+					"supported": false,
+					"time": 9.0,
+					"vertical_speed": -6.07831335067749
+				},
+				{
+					"angular_speed": 0.150798335671425,
+					"collective": 0.682884368896484,
+					"gear_contacts": 4,
+					"height": 2.161865234375,
+					"planar_speed": 0.243684142827988,
+					"rpm": 0.919210109936227,
+					"supported": true,
+					"time": 10.0,
+					"vertical_speed": 0.31413209438324
+				},
+				{
+					"angular_speed": 0.0127316601574421,
+					"collective": 0.0,
+					"gear_contacts": 4,
+					"height": 2.151123046875,
+					"planar_speed": 0.0107867475599051,
+					"rpm": 0.799210109936227,
+					"supported": true,
+					"time": 11.0,
+					"vertical_speed": -0.020257230848074
+				}
+			]
+		},
+		{
+			"aircraft": 10,
+			"damage": {
+				"cockpit": {
+					"destroyed": false,
+					"health": 45.0,
+					"max_health": 45.0
+				},
+				"engine": {
+					"destroyed": true,
+					"health": 0.0,
+					"max_health": 45.0
+				},
+				"fuselage": {
+					"destroyed": false,
+					"health": 45.0,
+					"max_health": 45.0
+				},
+				"main_rotor": {
+					"destroyed": false,
+					"health": 45.0,
+					"max_health": 45.0
+				},
+				"tail": {
+					"destroyed": false,
+					"health": 45.0,
+					"max_health": 45.0
+				},
+				"tail_rotor": {
+					"destroyed": false,
+					"health": 45.0,
+					"max_health": 45.0
+				}
+			},
+			"exploded": false,
+			"final_angular_speed": 0.00820483174175024,
+			"final_bank": 0.781345916348945,
+			"final_relative_speed": 0.0265959743410349,
+			"initial_bank": 0.0,
+			"initial_speed": 0.0,
+			"max_angular_speed": 0.268871009349823,
+			"minimum_airborne_rpm": 0.934224712998222,
+			"pilot_alive": true,
+			"profile": "gusts",
+			"settled_time": 10.8666666666667,
+			"touchdown": {
+				"belly": false,
+				"damaging": false,
+				"descent_speed_mps": 3.34128308296204,
+				"hard": false,
+				"position": "(2598.542, 1400.0, -0.968569)",
+				"relative_speed_mps": 3.34309506416321,
+				"surface": "terrain"
+			},
+			"trajectory": [
+				{
+					"angular_speed": 0.0,
+					"collective": 0.783888888888889,
+					"gear_contacts": 0,
+					"height": 60.0,
+					"planar_speed": 0.0,
+					"rpm": 1.0,
+					"supported": false,
+					"time": 0.0,
+					"vertical_speed": 0.0
+				},
+				{
+					"angular_speed": 0.0264575388282537,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 57.5146484375,
+					"planar_speed": 0.0135906999930739,
+					"rpm": 1.04008046933113,
+					"supported": false,
+					"time": 1.0,
+					"vertical_speed": -5.20670413970947
+				},
+				{
+					"angular_speed": 0.0375557951629162,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 51.4559326171875,
+					"planar_speed": 0.0335303619503975,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 2.0,
+					"vertical_speed": -6.39689016342163
+				},
+				{
+					"angular_speed": 0.043701559305191,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 44.9697265625,
+					"planar_speed": 0.0801058933138847,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 3.0,
+					"vertical_speed": -6.56889581680298
+				},
+				{
+					"angular_speed": 0.0525141842663288,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 38.270751953125,
+					"planar_speed": 0.1079411059618,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 4.0,
+					"vertical_speed": -6.80477333068848
+				},
+				{
+					"angular_speed": 0.0577859431505203,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 31.5006103515625,
+					"planar_speed": 0.132313475012779,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 5.0,
+					"vertical_speed": -6.69447946548462
+				},
+				{
+					"angular_speed": 0.0611695051193237,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 24.8145751953125,
+					"planar_speed": 0.139438852667809,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 6.0,
+					"vertical_speed": -6.72077751159668
+				},
+				{
+					"angular_speed": 0.0669185742735863,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 18.0733642578125,
+					"planar_speed": 0.130293950438499,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 7.0,
+					"vertical_speed": -6.71589422225952
+				},
+				{
+					"angular_speed": 0.0726139843463898,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 11.446044921875,
+					"planar_speed": 0.118754670023918,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 8.0,
+					"vertical_speed": -6.54714107513428
+				},
+				{
+					"angular_speed": 0.0763744115829468,
+					"collective": 0.948113899230957,
+					"gear_contacts": 0,
+					"height": 5.1612548828125,
+					"planar_speed": 0.114829413592815,
+					"rpm": 1.06783787712392,
+					"supported": false,
+					"time": 9.0,
+					"vertical_speed": -5.20700025558472
+				},
+				{
+					"angular_speed": 0.188538402318954,
+					"collective": 0.518182098865509,
+					"gear_contacts": 2,
+					"height": 1.88525390625,
+					"planar_speed": 0.0270132981240749,
+					"rpm": 0.912224712998222,
+					"supported": true,
+					"time": 10.0,
+					"vertical_speed": 0.290543973445892
+				},
+				{
+					"angular_speed": 0.114413052797318,
+					"collective": 0.0,
+					"gear_contacts": 4,
+					"height": 1.836669921875,
+					"planar_speed": 0.0181399006396532,
+					"rpm": 0.792224712998222,
+					"supported": true,
+					"time": 11.0,
+					"vertical_speed": 0.212177962064743
+				}
+			]
+		},
+		{
+			"aircraft": 11,
+			"damage": {
+				"cockpit": {
+					"destroyed": false,
+					"health": 27.5,
+					"max_health": 27.5
+				},
+				"engine": {
+					"destroyed": true,
+					"health": 0.0,
+					"max_health": 27.5
+				},
+				"fuselage": {
+					"destroyed": false,
+					"health": 27.5,
+					"max_health": 27.5
+				},
+				"main_rotor": {
+					"destroyed": false,
+					"health": 27.5,
+					"max_health": 27.5
+				},
+				"tail": {
+					"destroyed": false,
+					"health": 27.5,
+					"max_health": 27.5
+				},
+				"tail_rotor": {
+					"destroyed": false,
+					"health": 27.5,
+					"max_health": 27.5
+				}
+			},
+			"exploded": false,
+			"final_angular_speed": 0.00369465420953929,
+			"final_bank": 1.82112683371742,
+			"final_relative_speed": 0.00721952272579074,
+			"initial_bank": 0.0,
+			"initial_speed": 0.0,
+			"max_angular_speed": 0.17075702548027,
+			"minimum_airborne_rpm": 0.954200253956563,
+			"pilot_alive": true,
+			"profile": "gusts",
+			"settled_time": 10.2166666666667,
+			"touchdown": {
+				"belly": false,
+				"damaging": false,
+				"descent_speed_mps": 3.73806381225586,
+				"hard": false,
+				"position": "(2858.232, 1400.0, -1.090118)",
+				"relative_speed_mps": 3.73936223983765,
+				"surface": "terrain"
+			},
+			"trajectory": [
+				{
+					"angular_speed": 0.0,
+					"collective": 0.803636363636364,
+					"gear_contacts": 0,
+					"height": 60.0,
+					"planar_speed": 0.0,
+					"rpm": 1.0,
+					"supported": false,
+					"time": 0.0,
+					"vertical_speed": 0.0
+				},
+				{
+					"angular_speed": 0.0220484957098961,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 57.4246826171875,
+					"planar_speed": 0.0418424382805824,
+					"rpm": 1.02771194032135,
+					"supported": false,
+					"time": 1.0,
+					"vertical_speed": -5.57832431793213
+				},
+				{
+					"angular_speed": 0.0332976281642914,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 50.6849365234375,
+					"planar_speed": 0.00830130651593208,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 2.0,
+					"vertical_speed": -7.21007585525513
+				},
+				{
+					"angular_speed": 0.0417090430855751,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 43.4102783203125,
+					"planar_speed": 0.0806512758135796,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 3.0,
+					"vertical_speed": -7.29525375366211
+				},
+				{
+					"angular_speed": 0.0493294969201088,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 36.1207275390625,
+					"planar_speed": 0.134661734104156,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 4.0,
+					"vertical_speed": -7.26994180679321
+				},
+				{
+					"angular_speed": 0.0535945557057858,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 28.9114990234375,
+					"planar_speed": 0.173017248511314,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 5.0,
+					"vertical_speed": -7.12933158874512
+				},
+				{
+					"angular_speed": 0.0517880581319332,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 21.903564453125,
+					"planar_speed": 0.190099775791168,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 6.0,
+					"vertical_speed": -6.8889331817627
+				},
+				{
+					"angular_speed": 0.0505743958055973,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 15.112060546875,
+					"planar_speed": 0.171162590384483,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 7.0,
+					"vertical_speed": -6.7173113822937
+				},
+				{
+					"angular_speed": 0.0501615963876247,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 8.458984375,
+					"planar_speed": 0.138715386390686,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 8.0,
+					"vertical_speed": -6.59282875061035
+				},
+				{
+					"angular_speed": 0.0496723689138889,
+					"collective": 0.883520917892456,
+					"gear_contacts": 0,
+					"height": 3.048095703125,
+					"planar_speed": 0.106806144118309,
+					"rpm": 0.986376550514133,
+					"supported": false,
+					"time": 9.0,
+					"vertical_speed": -4.01086235046387
+				},
+				{
+					"angular_speed": 0.0886556729674339,
+					"collective": 0.0,
+					"gear_contacts": 4,
+					"height": 2.21142578125,
+					"planar_speed": 0.0102685932070017,
+					"rpm": 0.858200253956563,
+					"supported": true,
+					"time": 10.0,
+					"vertical_speed": 0.0129238963127136
+				},
+				{
+					"angular_speed": 0.0312598198652267,
+					"collective": 0.0,
+					"gear_contacts": 4,
+					"height": 2.2213134765625,
+					"planar_speed": 0.00229652877897024,
+					"rpm": 0.738200253956563,
+					"supported": true,
+					"time": 11.0,
+					"vertical_speed": -0.0187093541026115
+				}
+			]
+		},
+		{
+			"aircraft": 12,
+			"damage": {
+				"cockpit": {
+					"destroyed": false,
+					"health": 160.0,
+					"max_health": 160.0
+				},
+				"engine": {
+					"destroyed": true,
+					"health": 0.0,
+					"max_health": 160.0
+				},
+				"fuselage": {
+					"destroyed": false,
+					"health": 160.0,
+					"max_health": 160.0
+				},
+				"lower_rotor": {
+					"destroyed": false,
+					"health": 160.0,
+					"max_health": 160.0
+				},
+				"main_rotor": {
+					"destroyed": false,
+					"health": 160.0,
+					"max_health": 160.0
+				},
+				"tail": {
+					"destroyed": false,
+					"health": 160.0,
+					"max_health": 160.0
+				}
+			},
+			"exploded": false,
+			"final_angular_speed": 0.00752131873741746,
+			"final_bank": 0.622439886985433,
+			"final_relative_speed": 0.00970446411520243,
+			"initial_bank": 0.0,
+			"initial_speed": 0.0,
+			"max_angular_speed": 0.141984224319458,
+			"minimum_airborne_rpm": 0.910007643058719,
+			"pilot_alive": true,
+			"profile": "gusts",
+			"settled_time": 9.95,
+			"touchdown": {
+				"belly": false,
+				"damaging": false,
+				"descent_speed_mps": 3.66335844993591,
+				"hard": false,
+				"position": "(3117.367, 1400.0, 2.960262)",
+				"relative_speed_mps": 3.66664481163025,
+				"surface": "terrain"
+			},
+			"trajectory": [
+				{
+					"angular_speed": 0.0,
+					"collective": 0.782842105263158,
+					"gear_contacts": 0,
+					"height": 60.0,
+					"planar_speed": 0.0,
+					"rpm": 1.0,
+					"supported": false,
+					"time": 0.0,
+					"vertical_speed": 0.0
+				},
+				{
+					"angular_speed": 0.0210028346627951,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 57.418212890625,
+					"planar_speed": 0.000266169430688024,
+					"rpm": 1.02742685197092,
+					"supported": false,
+					"time": 1.0,
+					"vertical_speed": -5.55331993103027
+				},
+				{
+					"angular_speed": 0.0401654578745365,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 50.656982421875,
+					"planar_speed": 0.0222516525536776,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 2.0,
+					"vertical_speed": -7.33050060272217
+				},
+				{
+					"angular_speed": 0.0545891672372818,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 43.1292724609375,
+					"planar_speed": 0.0566753074526787,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 3.0,
+					"vertical_speed": -7.639976978302
+				},
+				{
+					"angular_speed": 0.0629860311746597,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 35.5384521484375,
+					"planar_speed": 0.0918101966381073,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 4.0,
+					"vertical_speed": -7.47098731994629
+				},
+				{
+					"angular_speed": 0.0728768929839134,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 28.22216796875,
+					"planar_speed": 0.121402554214001,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 5.0,
+					"vertical_speed": -7.21293544769287
+				},
+				{
+					"angular_speed": 0.0806789100170136,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 21.0009765625,
+					"planar_speed": 0.145723566412926,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 6.0,
+					"vertical_speed": -7.26068735122681
+				},
+				{
+					"angular_speed": 0.0825377926230431,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 13.7203369140625,
+					"planar_speed": 0.161871984601021,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 7.0,
+					"vertical_speed": -7.26854991912842
+				},
+				{
+					"angular_speed": 0.0795557945966721,
+					"collective": 0.820000000000001,
+					"gear_contacts": 0,
+					"height": 6.61865234375,
+					"planar_speed": 0.167414888739586,
+					"rpm": 1.08510276999482,
+					"supported": false,
+					"time": 8.0,
+					"vertical_speed": -6.32859659194946
+				},
+				{
+					"angular_speed": 0.128542199730873,
+					"collective": 0.774429728984833,
+					"gear_contacts": 3,
+					"height": 2.308349609375,
+					"planar_speed": 0.100495576858521,
+					"rpm": 0.900007643058719,
+					"supported": true,
+					"time": 9.0,
+					"vertical_speed": -0.118003934621811
+				},
+				{
+					"angular_speed": 0.0183214172720909,
+					"collective": 0.0,
+					"gear_contacts": 3,
+					"height": 2.3232421875,
+					"planar_speed": 0.00711553310975432,
+					"rpm": 0.780007643058719,
+					"supported": true,
+					"time": 10.0,
+					"vertical_speed": -0.0432620421051979
+				},
+				{
+					"angular_speed": 0.00948126055300236,
+					"collective": 0.0,
+					"gear_contacts": 3,
+					"height": 2.3193359375,
+					"planar_speed": 0.00379239046014845,
+					"rpm": 0.660007643058719,
+					"supported": true,
+					"time": 11.0,
+					"vertical_speed": 0.0189583692699671
+				}
+			]
+		},
+		{
+			"aircraft": 13,
+			"damage": {
+				"cockpit": {
+					"destroyed": false,
+					"health": 20.0,
+					"max_health": 20.0
+				},
+				"engine": {
+					"destroyed": true,
+					"health": 0.0,
+					"max_health": 20.0
+				},
+				"fuselage": {
+					"destroyed": false,
+					"health": 20.0,
+					"max_health": 20.0
+				},
+				"main_rotor": {
+					"destroyed": false,
+					"health": 20.0,
+					"max_health": 20.0
+				},
+				"tail": {
+					"destroyed": false,
+					"health": 20.0,
+					"max_health": 20.0
+				},
+				"tail_rotor": {
+					"destroyed": false,
+					"health": 20.0,
+					"max_health": 20.0
+				}
+			},
+			"exploded": false,
+			"final_angular_speed": 0.227068305015564,
+			"final_bank": 4.49858263092789,
+			"final_relative_speed": 0.00563292391598225,
+			"initial_bank": 0.0,
+			"initial_speed": 0.0,
+			"max_angular_speed": 1.48919463157654,
+			"minimum_airborne_rpm": 0.87379561558431,
+			"pilot_alive": true,
+			"profile": "gusts",
+			"settled_time": 11.25,
+			"touchdown": {
+				"belly": false,
+				"damaging": false,
+				"descent_speed_mps": 3.2954273223877,
+				"hard": false,
+				"position": "(3381.781, 1400.0, -0.342199)",
+				"relative_speed_mps": 3.3159773349762,
+				"surface": "terrain"
+			},
+			"trajectory": [
+				{
+					"angular_speed": 0.0,
+					"collective": 0.74,
+					"gear_contacts": 0,
+					"height": 60.0,
+					"planar_speed": 0.0,
+					"rpm": 1.0,
+					"supported": false,
+					"time": 0.0,
+					"vertical_speed": 0.0
+				},
+				{
+					"angular_speed": 0.0404200553894043,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 57.3812255859375,
+					"planar_speed": 0.0572850219905376,
+					"rpm": 1.02926592481919,
+					"supported": false,
+					"time": 1.0,
+					"vertical_speed": -5.50378894805908
+				},
+				{
+					"angular_speed": 0.0409510396420956,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 50.9608154296875,
+					"planar_speed": 0.113562025129795,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 2.0,
+					"vertical_speed": -6.71398782730103
+				},
+				{
+					"angular_speed": 0.0490019246935844,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 44.2327880859375,
+					"planar_speed": 0.173999965190887,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 3.0,
+					"vertical_speed": -6.73108434677124
+				},
+				{
+					"angular_speed": 0.049065500497818,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 37.5919189453125,
+					"planar_speed": 0.227568209171295,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 4.0,
+					"vertical_speed": -6.48612070083618
+				},
+				{
+					"angular_speed": 0.0534648708999157,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 31.2718505859375,
+					"planar_speed": 0.269154071807861,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 5.0,
+					"vertical_speed": -6.23362255096436
+				},
+				{
+					"angular_speed": 0.0669893249869347,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 25.0196533203125,
+					"planar_speed": 0.315872102975845,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 6.0,
+					"vertical_speed": -6.2583646774292
+				},
+				{
+					"angular_speed": 0.0707770884037018,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 18.7635498046875,
+					"planar_speed": 0.35912761092186,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 7.0,
+					"vertical_speed": -6.32194471359253
+				},
+				{
+					"angular_speed": 0.0645300447940826,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 12.1973876953125,
+					"planar_speed": 0.384215354919434,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 8.0,
+					"vertical_speed": -6.8268928527832
+				},
+				{
+					"angular_speed": 0.0664303973317146,
+					"collective": 1.0,
+					"gear_contacts": 0,
+					"height": 5.52880859375,
+					"planar_speed": 0.385140299797058,
+					"rpm": 1.05992905400814,
+					"supported": false,
+					"time": 9.0,
+					"vertical_speed": -5.54963397979736
+				},
+				{
+					"angular_speed": 0.0844228714704514,
+					"collective": 0.905199422836304,
+					"gear_contacts": 4,
+					"height": 1.489501953125,
+					"planar_speed": 0.368598341941834,
+					"rpm": 0.87379561558431,
+					"supported": true,
+					"time": 10.0,
+					"vertical_speed": -3.2954273223877
+				},
+				{
+					"angular_speed": 0.167530059814453,
+					"collective": 0.0,
+					"gear_contacts": 2,
+					"height": 1.439453125,
+					"planar_speed": 0.000560177082661539,
+					"rpm": 0.75379561558431,
+					"supported": true,
+					"time": 11.0,
+					"vertical_speed": -0.052632812410593
+				}
+			]
+		},
+		{
+			"aircraft": 15,
+			"damage": {
+				"cockpit": {
+					"destroyed": false,
+					"health": 42.5,
+					"max_health": 42.5
+				},
+				"engine": {
+					"destroyed": true,
+					"health": 0.0,
+					"max_health": 42.5
+				},
+				"fuselage": {
+					"destroyed": false,
+					"health": 42.5,
+					"max_health": 42.5
+				},
+				"main_rotor": {
+					"destroyed": false,
+					"health": 42.5,
+					"max_health": 42.5
+				},
+				"tail": {
+					"destroyed": false,
+					"health": 42.5,
+					"max_health": 42.5
+				},
+				"tail_rotor": {
+					"destroyed": false,
+					"health": 42.5,
+					"max_health": 42.5
+				}
+			},
+			"exploded": false,
+			"final_angular_speed": 0.0106121152639389,
+			"final_bank": 1.69026524200977,
+			"final_relative_speed": 0.0160198118537664,
+			"initial_bank": 0.0,
+			"initial_speed": 0.0,
+			"max_angular_speed": 0.373911291360855,
+			"minimum_airborne_rpm": 0.927327565099105,
+			"pilot_alive": true,
+			"profile": "gusts",
+			"settled_time": 10.5333333333333,
+			"touchdown": {
+				"belly": false,
+				"damaging": false,
+				"descent_speed_mps": 3.68130469322205,
+				"hard": false,
+				"position": "(3899.539, 1400.0, 2.300381)",
+				"relative_speed_mps": 3.68165302276611,
+				"surface": "terrain"
+			},
+			"trajectory": [
+				{
+					"angular_speed": 0.0,
+					"collective": 0.751923076923077,
+					"gear_contacts": 0,
+					"height": 60.0,
+					"planar_speed": 0.0,
+					"rpm": 1.0,
+					"supported": false,
+					"time": 0.0,
+					"vertical_speed": 0.0
+				},
+				{
+					"angular_speed": 0.0528671070933342,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 57.378662109375,
+					"planar_speed": 0.0279413778334856,
+					"rpm": 1.0290848768482,
+					"supported": false,
+					"time": 1.0,
+					"vertical_speed": -5.57368850708008
+				},
+				{
+					"angular_speed": 0.0515395663678646,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 50.8145751953125,
+					"planar_speed": 0.0409425981342793,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 2.0,
+					"vertical_speed": -6.87132215499878
+				},
+				{
+					"angular_speed": 0.0480951219797134,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 44.0262451171875,
+					"planar_speed": 0.0483104027807713,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 3.0,
+					"vertical_speed": -6.71448850631714
+				},
+				{
+					"angular_speed": 0.04706060141325,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 37.229248046875,
+					"planar_speed": 0.0545166246592999,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 4.0,
+					"vertical_speed": -6.93920040130615
+				},
+				{
+					"angular_speed": 0.0439972653985024,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 30.1893310546875,
+					"planar_speed": 0.0580767802894115,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 5.0,
+					"vertical_speed": -7.04977226257324
+				},
+				{
+					"angular_speed": 0.0404102392494679,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 23.24853515625,
+					"planar_speed": 0.0594477020204067,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 6.0,
+					"vertical_speed": -6.84382009506226
+				},
+				{
+					"angular_speed": 0.0339831858873367,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 16.4534912109375,
+					"planar_speed": 0.0573289021849632,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 7.0,
+					"vertical_speed": -6.75963640213013
+				},
+				{
+					"angular_speed": 0.0325286686420441,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 9.6649169921875,
+					"planar_speed": 0.0557397268712521,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 8.0,
+					"vertical_speed": -6.88427305221558
+				},
+				{
+					"angular_speed": 0.0362859964370728,
+					"collective": 0.901329760551453,
+					"gear_contacts": 0,
+					"height": 3.728759765625,
+					"planar_speed": 0.0514299273490906,
+					"rpm": 0.997273104977743,
+					"supported": false,
+					"time": 9.0,
+					"vertical_speed": -4.33901834487915
+				},
+				{
+					"angular_speed": 0.0709568783640862,
+					"collective": 0.0,
+					"gear_contacts": 2,
+					"height": 2.010986328125,
+					"planar_speed": 0.0319035388529301,
+					"rpm": 0.859327565099105,
+					"supported": true,
+					"time": 10.0,
+					"vertical_speed": -0.265651226043701
+				},
+				{
+					"angular_speed": 0.00495116505771875,
+					"collective": 0.0,
+					"gear_contacts": 3,
+					"height": 1.9716796875,
+					"planar_speed": 0.00317559018731117,
+					"rpm": 0.739327565099105,
+					"supported": true,
+					"time": 11.0,
+					"vertical_speed": 0.0135966399684548
+				}
+			]
+		},
+		{
+			"aircraft": 9,
+			"damage": {
+				"cockpit": {
+					"destroyed": false,
+					"health": 100.0,
+					"max_health": 100.0
+				},
+				"engine": {
+					"destroyed": true,
+					"health": 0.0,
+					"max_health": 100.0
+				},
+				"fuselage": {
+					"destroyed": false,
+					"health": 100.0,
+					"max_health": 100.0
+				},
+				"lower_rotor": {
+					"destroyed": false,
+					"health": 100.0,
+					"max_health": 100.0
+				},
+				"main_rotor": {
+					"destroyed": false,
+					"health": 100.0,
+					"max_health": 100.0
+				},
+				"tail": {
+					"destroyed": false,
+					"health": 100.0,
+					"max_health": 100.0
+				}
+			},
+			"exploded": false,
+			"final_angular_speed": 0.00442440621554852,
+			"final_bank": 1.38987552127622,
+			"final_relative_speed": 0.0169892441481352,
+			"initial_bank": 0.0,
+			"initial_speed": 8.0,
+			"max_angular_speed": 0.349194198846817,
+			"minimum_airborne_rpm": 0.913038858562618,
+			"pilot_alive": true,
+			"profile": "moving_deck",
+			"settled_time": 10.3833333333333,
+			"touchdown": {
+				"belly": false,
+				"damaging": false,
+				"descent_speed_mps": 3.85656476020813,
+				"hard": true,
+				"position": "(2340.8, 1400.0, 61.36768)",
+				"relative_speed_mps": 4.22070264816284,
+				"surface": "carrier"
+			},
+			"trajectory": [
+				{
+					"angular_speed": 0.0,
+					"collective": 0.818241666666667,
+					"gear_contacts": 0,
+					"height": 60.0,
+					"planar_speed": 0.0,
+					"rpm": 1.0,
+					"supported": false,
+					"time": 0.0,
+					"vertical_speed": 0.0
+				},
+				{
+					"angular_speed": 0.000128560059238225,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 57.4788818359375,
+					"planar_speed": 0.756207942962646,
+					"rpm": 1.02770841963168,
+					"supported": false,
+					"time": 1.0,
+					"vertical_speed": -5.3984203338623
+				},
+				{
+					"angular_speed": 0.000880063336808234,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 51.0867919921875,
+					"planar_speed": 1.35867643356323,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 2.0,
+					"vertical_speed": -6.78613042831421
+				},
+				{
+					"angular_speed": 0.00172144826501608,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 44.209716796875,
+					"planar_speed": 1.77206373214722,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 3.0,
+					"vertical_speed": -6.92937421798706
+				},
+				{
+					"angular_speed": 0.00230394909158349,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 37.2528076171875,
+					"planar_speed": 2.01942443847656,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 4.0,
+					"vertical_speed": -6.97839784622192
+				},
+				{
+					"angular_speed": 0.00257040886208415,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 30.25634765625,
+					"planar_speed": 2.13720607757568,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 5.0,
+					"vertical_speed": -7.01252365112305
+				},
+				{
+					"angular_speed": 0.00252955732867122,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 23.22900390625,
+					"planar_speed": 2.16201972961426,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 6.0,
+					"vertical_speed": -7.03936719894409
+				},
+				{
+					"angular_speed": 0.0022649047896266,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 16.178466796875,
+					"planar_speed": 2.12663793563843,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 7.0,
+					"vertical_speed": -7.05986213684082
+				},
+				{
+					"angular_speed": 0.00187344185542315,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 9.1103515625,
+					"planar_speed": 2.05793809890747,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 8.0,
+					"vertical_speed": -7.07450723648071
+				},
+				{
+					"angular_speed": 0.00294202100485563,
+					"collective": 0.994870858192444,
+					"gear_contacts": 0,
+					"height": 3.3291015625,
+					"planar_speed": 1.76298522949219,
+					"rpm": 0.963364280457313,
+					"supported": false,
+					"time": 9.0,
+					"vertical_speed": -4.22464227676392
+				},
+				{
+					"angular_speed": 0.137871652841568,
+					"collective": 0.0,
+					"gear_contacts": 4,
+					"height": 2.1639404296875,
+					"planar_speed": 0.0127487182617188,
+					"rpm": 0.823038858562618,
+					"supported": true,
+					"time": 10.0,
+					"vertical_speed": -0.322268217802048
+				},
+				{
+					"angular_speed": 0.00461885426193476,
+					"collective": 0.0,
+					"gear_contacts": 4,
+					"height": 2.1492919921875,
+					"planar_speed": 0.012761116027832,
+					"rpm": 0.703038858562618,
+					"supported": true,
+					"time": 11.0,
+					"vertical_speed": -0.00417756102979183
+				}
+			]
+		},
+		{
+			"aircraft": 10,
+			"damage": {
+				"cockpit": {
+					"destroyed": false,
+					"health": 45.0,
+					"max_health": 45.0
+				},
+				"engine": {
+					"destroyed": true,
+					"health": 0.0,
+					"max_health": 45.0
+				},
+				"fuselage": {
+					"destroyed": false,
+					"health": 45.0,
+					"max_health": 45.0
+				},
+				"main_rotor": {
+					"destroyed": false,
+					"health": 45.0,
+					"max_health": 45.0
+				},
+				"tail": {
+					"destroyed": false,
+					"health": 45.0,
+					"max_health": 45.0
+				},
+				"tail_rotor": {
+					"destroyed": false,
+					"health": 45.0,
+					"max_health": 45.0
+				}
+			},
+			"exploded": false,
+			"final_angular_speed": 0.0188999082893133,
+			"final_bank": 1.72158312975266,
+			"final_relative_speed": 0.041367307305336,
+			"initial_bank": 0.0,
+			"initial_speed": 8.0,
+			"max_angular_speed": 0.480757713317871,
+			"minimum_airborne_rpm": 0.908323860387589,
+			"pilot_alive": true,
+			"profile": "moving_deck",
+			"settled_time": 10.4666666666667,
+			"touchdown": {
+				"belly": false,
+				"damaging": false,
+				"descent_speed_mps": 4.01080226898193,
+				"hard": true,
+				"position": "(2599.009, 1400.0, 60.06411)",
+				"relative_speed_mps": 4.29441404342651,
+				"surface": "carrier"
+			},
+			"trajectory": [
+				{
+					"angular_speed": 0.0,
+					"collective": 0.783888888888889,
+					"gear_contacts": 0,
+					"height": 60.0,
+					"planar_speed": 0.0,
+					"rpm": 1.0,
+					"supported": false,
+					"time": 0.0,
+					"vertical_speed": 0.0
+				},
+				{
+					"angular_speed": 0.000168613318237476,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 57.4307861328125,
+					"planar_speed": 0.760251522064209,
+					"rpm": 1.0314979510284,
+					"supported": false,
+					"time": 1.0,
+					"vertical_speed": -5.48754215240479
+				},
+				{
+					"angular_speed": 0.00128852133639157,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 50.8675537109375,
+					"planar_speed": 1.36034727096558,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 2.0,
+					"vertical_speed": -7.0280704498291
+				},
+				{
+					"angular_speed": 0.00260130898095667,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 43.7213134765625,
+					"planar_speed": 1.76071643829346,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 3.0,
+					"vertical_speed": -7.21310186386108
+				},
+				{
+					"angular_speed": 0.00347042223438621,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 36.475830078125,
+					"planar_speed": 1.98391771316528,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 4.0,
+					"vertical_speed": -7.27035427093506
+				},
+				{
+					"angular_speed": 0.0036513558588922,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 29.184814453125,
+					"planar_speed": 2.06675815582275,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 5.0,
+					"vertical_speed": -7.30921030044556
+				},
+				{
+					"angular_speed": 0.00318928062915802,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 21.8592529296875,
+					"planar_speed": 2.05096101760864,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 6.0,
+					"vertical_speed": -7.33965921401978
+				},
+				{
+					"angular_speed": 0.00231878622435033,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 14.5076904296875,
+					"planar_speed": 1.97792768478394,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 7.0,
+					"vertical_speed": -7.36139822006226
+				},
+				{
+					"angular_speed": 0.0013419451424852,
+					"collective": 0.7,
+					"gear_contacts": 0,
+					"height": 7.21728515625,
+					"planar_speed": 1.8345193862915,
+					"rpm": 1.0934383751756,
+					"supported": false,
+					"time": 8.0,
+					"vertical_speed": -6.74839544296265
+				},
+				{
+					"angular_speed": 0.000729813938960433,
+					"collective": 0.883743648529053,
+					"gear_contacts": 0,
+					"height": 2.20947265625,
+					"planar_speed": 1.54191160202026,
+					"rpm": 0.919232172325851,
+					"supported": false,
+					"time": 9.0,
+					"vertical_speed": -4.05062675476074
+				},
+				{
+					"angular_speed": 0.0789407938718796,
+					"collective": 0.0,
+					"gear_contacts": 2,
+					"height": 1.8804931640625,
+					"planar_speed": 0.0124125480651855,
+					"rpm": 0.796323860387589,
+					"supported": true,
+					"time": 10.0,
+					"vertical_speed": -0.0767563432455063
+				},
+				{
+					"angular_speed": 0.0402632802724838,
+					"collective": 0.0,
+					"gear_contacts": 4,
+					"height": 1.8609619140625,
+					"planar_speed": 0.0115580558776855,
+					"rpm": 0.676323860387589,
+					"supported": true,
+					"time": 11.0,
+					"vertical_speed": -0.0570617988705635
+				}
+			]
+		},
+		{
+			"aircraft": 11,
+			"damage": {
+				"cockpit": {
+					"destroyed": false,
+					"health": 27.5,
+					"max_health": 27.5
+				},
+				"engine": {
+					"destroyed": true,
+					"health": 0.0,
+					"max_health": 27.5
+				},
+				"fuselage": {
+					"destroyed": false,
+					"health": 27.5,
+					"max_health": 27.5
+				},
+				"main_rotor": {
+					"destroyed": false,
+					"health": 27.5,
+					"max_health": 27.5
+				},
+				"tail": {
+					"destroyed": false,
+					"health": 27.5,
+					"max_health": 27.5
+				},
+				"tail_rotor": {
+					"destroyed": false,
+					"health": 27.5,
+					"max_health": 27.5
+				}
+			},
+			"exploded": false,
+			"final_angular_speed": 0.0227488037198782,
+			"final_bank": 1.78761253619549,
+			"final_relative_speed": 0.0382306016981602,
+			"initial_bank": 0.0,
+			"initial_speed": 8.0,
+			"max_angular_speed": 0.331612288951874,
+			"minimum_airborne_rpm": 0.924712989557668,
+			"pilot_alive": true,
+			"profile": "moving_deck",
+			"settled_time": 10.0666666666667,
+			"touchdown": {
+				"belly": false,
+				"damaging": false,
+				"descent_speed_mps": 4.39572525024414,
+				"hard": true,
+				"position": "(2858.784, 1400.0, 58.05441)",
+				"relative_speed_mps": 4.52940464019775,
+				"surface": "carrier"
+			},
+			"trajectory": [
+				{
+					"angular_speed": 0.0,
+					"collective": 0.803636363636364,
+					"gear_contacts": 0,
+					"height": 60.0,
+					"planar_speed": 0.0,
+					"rpm": 1.0,
+					"supported": false,
+					"time": 0.0,
+					"vertical_speed": 0.0
+				},
+				{
+					"angular_speed": 0.000126009937957861,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 57.4398193359375,
+					"planar_speed": 0.763567924499512,
+					"rpm": 1.02980241185201,
+					"supported": false,
+					"time": 1.0,
+					"vertical_speed": -5.50954866409302
+				},
+				{
+					"angular_speed": 0.00102432060521096,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 50.811767578125,
+					"planar_speed": 1.36726427078247,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 2.0,
+					"vertical_speed": -7.11659049987793
+				},
+				{
+					"angular_speed": 0.00226055993698537,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 43.570068359375,
+					"planar_speed": 1.77376508712769,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 3.0,
+					"vertical_speed": -7.31123828887939
+				},
+				{
+					"angular_speed": 0.00321677699685097,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 36.2265625,
+					"planar_speed": 2.00659942626953,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 4.0,
+					"vertical_speed": -7.36842966079712
+				},
+				{
+					"angular_speed": 0.00363051821477711,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 28.8377685546875,
+					"planar_speed": 2.10027170181274,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 5.0,
+					"vertical_speed": -7.40652179718018
+				},
+				{
+					"angular_speed": 0.00343594723381102,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 21.4150390625,
+					"planar_speed": 2.09234857559204,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 6.0,
+					"vertical_speed": -7.4374098777771
+				},
+				{
+					"angular_speed": 0.00276039098389447,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 13.9644775390625,
+					"planar_speed": 2.02061367034912,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 7.0,
+					"vertical_speed": -7.46108436584473
+				},
+				{
+					"angular_speed": 0.00190698076039553,
+					"collective": 0.880000000000001,
+					"gear_contacts": 0,
+					"height": 6.64794921875,
+					"planar_speed": 1.84317255020142,
+					"rpm": 1.08025452121814,
+					"supported": false,
+					"time": 8.0,
+					"vertical_speed": -6.51106643676758
+				},
+				{
+					"angular_speed": 0.28093284368515,
+					"collective": 0.630932650566101,
+					"gear_contacts": 4,
+					"height": 2.2310791015625,
+					"planar_speed": 0.0118758352473378,
+					"rpm": 0.906712989557668,
+					"supported": true,
+					"time": 9.0,
+					"vertical_speed": 0.492761790752411
+				},
+				{
+					"angular_speed": 0.110664732754231,
+					"collective": 0.0,
+					"gear_contacts": 2,
+					"height": 2.239013671875,
+					"planar_speed": 0.0119390487670898,
+					"rpm": 0.786712989557668,
+					"supported": true,
+					"time": 10.0,
+					"vertical_speed": -0.0519925691187382
+				},
+				{
+					"angular_speed": 0.0615744479000568,
+					"collective": 0.0,
+					"gear_contacts": 4,
+					"height": 2.2364501953125,
+					"planar_speed": 0.0107254991307855,
+					"rpm": 0.666712989557667,
+					"supported": true,
+					"time": 11.0,
+					"vertical_speed": -0.0355190448462963
+				}
+			]
+		},
+		{
+			"aircraft": 12,
+			"damage": {
+				"cockpit": {
+					"destroyed": false,
+					"health": 160.0,
+					"max_health": 160.0
+				},
+				"engine": {
+					"destroyed": true,
+					"health": 0.0,
+					"max_health": 160.0
+				},
+				"fuselage": {
+					"destroyed": false,
+					"health": 160.0,
+					"max_health": 160.0
+				},
+				"lower_rotor": {
+					"destroyed": false,
+					"health": 160.0,
+					"max_health": 160.0
+				},
+				"main_rotor": {
+					"destroyed": false,
+					"health": 160.0,
+					"max_health": 160.0
+				},
+				"tail": {
+					"destroyed": false,
+					"health": 160.0,
+					"max_health": 160.0
+				}
+			},
+			"exploded": false,
+			"final_angular_speed": 0.00253881164826453,
+			"final_bank": 0.571297740851804,
+			"final_relative_speed": 0.0277682170271873,
+			"initial_bank": 0.0,
+			"initial_speed": 8.0,
+			"max_angular_speed": 0.266247481107712,
+			"minimum_airborne_rpm": 0.922077689814043,
+			"pilot_alive": true,
+			"profile": "moving_deck",
+			"settled_time": 10.3166666666667,
+			"touchdown": {
+				"belly": false,
+				"damaging": false,
+				"descent_speed_mps": 3.63756394386292,
+				"hard": true,
+				"position": "(3120.0, 1400.0, 61.85663)",
+				"relative_speed_mps": 3.98517680168152,
+				"surface": "carrier"
+			},
+			"trajectory": [
+				{
+					"angular_speed": 0.0,
+					"collective": 0.782842105263158,
+					"gear_contacts": 0,
+					"height": 60.0,
+					"planar_speed": 0.0,
+					"rpm": 1.0,
+					"supported": false,
+					"time": 0.0,
+					"vertical_speed": 0.0
+				},
+				{
+					"angular_speed": 0.000113940390292555,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 57.450439453125,
+					"planar_speed": 0.755954742431641,
+					"rpm": 1.03107224991148,
+					"supported": false,
+					"time": 1.0,
+					"vertical_speed": -5.40623950958252
+				},
+				{
+					"angular_speed": 0.000876918551512063,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 51.06591796875,
+					"planar_speed": 1.35666513442993,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 2.0,
+					"vertical_speed": -6.7801399230957
+				},
+				{
+					"angular_speed": 0.00186452630441636,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 44.1917724609375,
+					"planar_speed": 1.76779222488403,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 3.0,
+					"vertical_speed": -6.92740726470947
+				},
+				{
+					"angular_speed": 0.0025985271204263,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 37.23681640625,
+					"planar_speed": 2.01140117645264,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 4.0,
+					"vertical_speed": -6.97688341140747
+				},
+				{
+					"angular_speed": 0.00294935726560652,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 30.2412109375,
+					"planar_speed": 2.12195205688477,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 5.0,
+					"vertical_speed": -7.01188468933105
+				},
+				{
+					"angular_speed": 0.00289255240932107,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 23.214111328125,
+					"planar_speed": 2.13563251495361,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 6.0,
+					"vertical_speed": -7.04009008407593
+				},
+				{
+					"angular_speed": 0.00251966388896108,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 16.162109375,
+					"planar_speed": 2.08650732040405,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 7.0,
+					"vertical_speed": -7.06191778182983
+				},
+				{
+					"angular_speed": 0.00196317536756396,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 9.0916748046875,
+					"planar_speed": 2.00390195846558,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 8.0,
+					"vertical_speed": -7.07731437683105
+				},
+				{
+					"angular_speed": 0.00230544246733189,
+					"collective": 0.943690767288208,
+					"gear_contacts": 0,
+					"height": 3.437744140625,
+					"planar_speed": 1.67634677886963,
+					"rpm": 0.967617139238023,
+					"supported": false,
+					"time": 9.0,
+					"vertical_speed": -4.00375604629517
+				},
+				{
+					"angular_speed": 0.0583744272589684,
+					"collective": 0.0,
+					"gear_contacts": 3,
+					"height": 2.334716796875,
+					"planar_speed": 0.0130033493041992,
+					"rpm": 0.832077689814043,
+					"supported": true,
+					"time": 10.0,
+					"vertical_speed": -0.0534051842987537
+				},
+				{
+					"angular_speed": 0.00310607184655964,
+					"collective": 0.0,
+					"gear_contacts": 3,
+					"height": 2.32666015625,
+					"planar_speed": 0.0130033493041992,
+					"rpm": 0.712077689814043,
+					"supported": true,
+					"time": 11.0,
+					"vertical_speed": -0.00814576633274555
+				}
+			]
+		},
+		{
+			"aircraft": 13,
+			"damage": {
+				"cockpit": {
+					"destroyed": false,
+					"health": 20.0,
+					"max_health": 20.0
+				},
+				"engine": {
+					"destroyed": true,
+					"health": 0.0,
+					"max_health": 20.0
+				},
+				"fuselage": {
+					"destroyed": false,
+					"health": 20.0,
+					"max_health": 20.0
+				},
+				"main_rotor": {
+					"destroyed": false,
+					"health": 20.0,
+					"max_health": 20.0
+				},
+				"tail": {
+					"destroyed": false,
+					"health": 20.0,
+					"max_health": 20.0
+				},
+				"tail_rotor": {
+					"destroyed": false,
+					"health": 20.0,
+					"max_health": 20.0
+				}
+			},
+			"exploded": false,
+			"final_angular_speed": 0.0221883952617645,
+			"final_bank": 2.82521557767161,
+			"final_relative_speed": 0.030599744990468,
+			"initial_bank": 0.0,
+			"initial_speed": 8.0,
+			"max_angular_speed": 1.46736395359039,
+			"minimum_airborne_rpm": 0.878620847277815,
+			"pilot_alive": true,
+			"profile": "moving_deck",
+			"settled_time": 11.0,
+			"touchdown": {
+				"belly": false,
+				"damaging": false,
+				"descent_speed_mps": 3.21252775192261,
+				"hard": true,
+				"position": "(3379.07, 1400.0, 60.65024)",
+				"relative_speed_mps": 3.61816096305847,
+				"surface": "carrier"
+			},
+			"trajectory": [
+				{
+					"angular_speed": 0.0,
+					"collective": 0.74,
+					"gear_contacts": 0,
+					"height": 60.0,
+					"planar_speed": 0.0,
+					"rpm": 1.0,
+					"supported": false,
+					"time": 0.0,
+					"vertical_speed": 0.0
+				},
+				{
+					"angular_speed": 0.00086702749831602,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 57.4312744140625,
+					"planar_speed": 0.773755073547363,
+					"rpm": 1.03437968586063,
+					"supported": false,
+					"time": 1.0,
+					"vertical_speed": -5.34892082214355
+				},
+				{
+					"angular_speed": 0.0026275054551661,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 51.1898193359375,
+					"planar_speed": 1.39679336547852,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 2.0,
+					"vertical_speed": -6.59363460540771
+				},
+				{
+					"angular_speed": 0.00370191456750035,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 44.510009765625,
+					"planar_speed": 1.84591341018677,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 3.0,
+					"vertical_speed": -6.73125791549683
+				},
+				{
+					"angular_speed": 0.00396380294114351,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 37.7493896484375,
+					"planar_speed": 2.14455795288086,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 4.0,
+					"vertical_speed": -6.78456974029541
+				},
+				{
+					"angular_speed": 0.0036555053666234,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 30.9447021484375,
+					"planar_speed": 2.32448673248291,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 5.0,
+					"vertical_speed": -6.8221640586853
+				},
+				{
+					"angular_speed": 0.00303765991702676,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 24.107177734375,
+					"planar_speed": 2.4175853729248,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 6.0,
+					"vertical_speed": -6.85074281692505
+				},
+				{
+					"angular_speed": 0.00231892429292202,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 17.244873046875,
+					"planar_speed": 2.45202970504761,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 7.0,
+					"vertical_speed": -6.87176609039307
+				},
+				{
+					"angular_speed": 0.00163434294518083,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 10.3651123046875,
+					"planar_speed": 2.45057725906372,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 8.0,
+					"vertical_speed": -6.88638067245483
+				},
+				{
+					"angular_speed": 0.00370779051445425,
+					"collective": 0.972135081291199,
+					"gear_contacts": 0,
+					"height": 4.247802734375,
+					"planar_speed": 2.27454662322998,
+					"rpm": 1.01239789263472,
+					"supported": false,
+					"time": 9.0,
+					"vertical_speed": -4.51714134216309
+				},
+				{
+					"angular_speed": 0.258735805749893,
+					"collective": 0.451066019535064,
+					"gear_contacts": 2,
+					"height": 1.504150390625,
+					"planar_speed": 0.022957120090723,
+					"rpm": 0.848620847277815,
+					"supported": true,
+					"time": 10.0,
+					"vertical_speed": 0.318489879369736
+				},
+				{
+					"angular_speed": 0.213895440101624,
+					"collective": 0.0,
+					"gear_contacts": 4,
+					"height": 1.4356689453125,
+					"planar_speed": 0.0114173945039511,
+					"rpm": 0.728620847277815,
+					"supported": true,
+					"time": 11.0,
+					"vertical_speed": 0.0090362410992384
+				}
+			]
+		},
+		{
+			"aircraft": 15,
+			"damage": {
+				"cockpit": {
+					"destroyed": false,
+					"health": 42.5,
+					"max_health": 42.5
+				},
+				"engine": {
+					"destroyed": true,
+					"health": 0.0,
+					"max_health": 42.5
+				},
+				"fuselage": {
+					"destroyed": false,
+					"health": 42.5,
+					"max_health": 42.5
+				},
+				"main_rotor": {
+					"destroyed": false,
+					"health": 42.5,
+					"max_health": 42.5
+				},
+				"tail": {
+					"destroyed": false,
+					"health": 42.5,
+					"max_health": 42.5
+				},
+				"tail_rotor": {
+					"destroyed": false,
+					"health": 42.5,
+					"max_health": 42.5
+				}
+			},
+			"exploded": false,
+			"final_angular_speed": 0.0110724521800876,
+			"final_bank": 1.8907229309268,
+			"final_relative_speed": 0.017956817522645,
+			"initial_bank": 0.0,
+			"initial_speed": 8.0,
+			"max_angular_speed": 0.732355415821075,
+			"minimum_airborne_rpm": 0.919096144134732,
+			"pilot_alive": true,
+			"profile": "moving_deck",
+			"settled_time": 11.4333333333333,
+			"touchdown": {
+				"belly": false,
+				"damaging": false,
+				"descent_speed_mps": 3.81109046936035,
+				"hard": true,
+				"position": "(3900.003, 1400.0, 57.44194)",
+				"relative_speed_mps": 4.54033660888672,
+				"surface": "carrier"
+			},
+			"trajectory": [
+				{
+					"angular_speed": 0.0,
+					"collective": 0.751923076923077,
+					"gear_contacts": 0,
+					"height": 60.0,
+					"planar_speed": 0.0,
+					"rpm": 1.0,
+					"supported": false,
+					"time": 0.0,
+					"vertical_speed": 0.0
+				},
+				{
+					"angular_speed": 0.000335192336933687,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 57.4183349609375,
+					"planar_speed": 0.762918949127197,
+					"rpm": 1.03398896455316,
+					"supported": false,
+					"time": 1.0,
+					"vertical_speed": -5.4445858001709
+				},
+				{
+					"angular_speed": 0.00187157990876585,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 50.9671630859375,
+					"planar_speed": 1.39901351928711,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 2.0,
+					"vertical_speed": -6.87762117385864
+				},
+				{
+					"angular_speed": 0.00301627465523779,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 43.982177734375,
+					"planar_speed": 1.88474369049072,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 3.0,
+					"vertical_speed": -7.04579067230225
+				},
+				{
+					"angular_speed": 0.00368448137305677,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 36.9063720703125,
+					"planar_speed": 2.23250436782837,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 4.0,
+					"vertical_speed": -7.10043334960938
+				},
+				{
+					"angular_speed": 0.00377984181977808,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 29.785888671875,
+					"planar_speed": 2.46325922012329,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 5.0,
+					"vertical_speed": -7.13833856582642
+				},
+				{
+					"angular_speed": 0.00345385074615479,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 22.63134765625,
+					"planar_speed": 2.60106134414673,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 6.0,
+					"vertical_speed": -7.1689305305481
+				},
+				{
+					"angular_speed": 0.00289025227539241,
+					"collective": 0.1,
+					"gear_contacts": 0,
+					"height": 15.4493408203125,
+					"planar_speed": 2.66989517211914,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 7.0,
+					"vertical_speed": -7.19327068328857
+				},
+				{
+					"angular_speed": 0.0022450084798038,
+					"collective": 0.37,
+					"gear_contacts": 0,
+					"height": 8.256103515625,
+					"planar_speed": 2.68225049972534,
+					"rpm": 1.1,
+					"supported": false,
+					"time": 8.0,
+					"vertical_speed": -7.05538272857666
+				},
+				{
+					"angular_speed": 0.00390975875779986,
+					"collective": 0.882265930175781,
+					"gear_contacts": 0,
+					"height": 2.899658203125,
+					"planar_speed": 2.48588514328003,
+					"rpm": 0.951382255026052,
+					"supported": false,
+					"time": 9.0,
+					"vertical_speed": -3.99997186660767
+				},
+				{
+					"angular_speed": 0.102286726236343,
+					"collective": 0.0,
+					"gear_contacts": 2,
+					"height": 1.997802734375,
+					"planar_speed": 0.0126757621765137,
+					"rpm": 0.823096144134732,
+					"supported": true,
+					"time": 10.0,
+					"vertical_speed": -0.114404089748859
+				},
+				{
+					"angular_speed": 0.0293079204857349,
+					"collective": 0.0,
+					"gear_contacts": 3,
+					"height": 1.973388671875,
+					"planar_speed": 0.0123410224914551,
+					"rpm": 0.703096144134732,
+					"supported": true,
+					"time": 11.0,
+					"vertical_speed": -0.0274903941899538
+				}
+			]
+		}
+	],
+	"failures": [],
+	"moving_deck_fixture": true
+}

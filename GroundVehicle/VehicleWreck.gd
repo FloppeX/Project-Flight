@@ -14,6 +14,13 @@ static func spawn(
 ) -> void:
 	if not is_instance_valid(parent):
 		return
+	if parent.is_inside_tree():
+		var poi := parent.get_tree().root.get_node_or_null("POIManager")
+		if poi != null and parent.get_tree().current_scene != null and parent.get_tree().current_scene.scene_file_path == "res://Main_Scene.tscn":
+			var at := t.origin
+			if TerrainNavGrid.is_ready():
+				at.y = TerrainNavGrid.sample_height(at.x, at.z)
+			poi.get_resource_field().add_source("Vehicle wreck salvage", at, "salvage", {"corium": 0.0, "plasteel": 35.0}, false)
 	if staged and spread_duration_s > 0.0:
 		var staged_spawner_script := load("res://GroundVehicle/VehicleWreckStagedSpawner.gd") as Script
 		if staged_spawner_script == null:

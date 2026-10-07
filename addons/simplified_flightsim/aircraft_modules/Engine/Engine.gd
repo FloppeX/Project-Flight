@@ -13,6 +13,7 @@ signal update_interface(values)
 @export var propeller_node: NodePath = "../Model/propeller_spin"  # Adjust path
 @onready var propeller = get_node_or_null(propeller_node)
 @export var propeller_disc_node: NodePath = NodePath()
+@export var damage_smoke_inset_m: float = 0.35  # From the propeller hub into its fuselage/nacelle mount
 
 @export var EngineSoundLoop: AudioStream
 @export var EngineSoundStart: AudioStream
@@ -58,6 +59,10 @@ var sfx_engine_start = null
 var sfx_engine_stop = null
 var sfx_tween
 var is_engine_working = false
+var damage_power_factor: float = 1.0
+var damage_disabled: bool = false
+var propeller_broken: bool = false
+var propeller_damage: Node = null
 var current_power = 0.0
 var target_power = 0.0
 var throttle_input = 0.0 # The user/AI's desired throttle setting
@@ -160,10 +165,38 @@ func advance_technical_index_preview(delta: float) -> void:
 
 func setup(aircraft_node):
 	aircraft = aircraft_node
+	if aircraft.get_node_or_null("PartDamageModel") != null and not aircraft.has_node("RotorAssembly") and propeller is Node3D:
+		propeller_damage = preload("res://Aircraft/PropellerDamage.gd").new()
+		propeller_damage.name = "PropellerDamage"
+		add_child(propeller_damage)
+		propeller_damage.setup(self, aircraft, propeller)
 	request_update_interface()
+
+func reset_propeller_contact_history() -> void:
+	if is_instance_valid(propeller_damage): propeller_damage.reset_contact_history()
+
+func get_damage_smoke_global_position() -> Vector3:
+	if is_instance_valid(aircraft) and aircraft.has_node("RotorAssembly"):
+		var engine_region := aircraft.get_node_or_null("EngineDamageCollider") as Node3D
+		if engine_region != null: return engine_region.global_position
+	# Authored fixed-wing propellers point their local spin axis into the engine,
+	# including pushers. The pivot stays fixed as the blades rotate around it.
+	if is_instance_valid(propeller) and propeller is Node3D:
+		var mount_axis: Vector3 = propeller.global_basis * propeller_spin_axis_local
+		return propeller.global_position + mount_axis.normalized() * damage_smoke_inset_m
+	if is_instance_valid(aircraft):
+		var collider := aircraft.get_node_or_null("EngineDamageCollider") as Node3D
+		if collider != null:
+			return collider.global_position
+	return global_position
 
 
 func process_physic_frame(delta):
+	if is_instance_valid(propeller_damage): propeller_damage.check_contacts(delta)
+	if damage_disabled or propeller_broken:
+		current_power = 0.0
+		if is_engine_working:
+			engine_stop()
 	if aircraft and is_engine_working:
 		_update_power_response(delta)
 
@@ -215,7 +248,8 @@ func request_update_interface():
 
 
 func get_effective_power_factor() -> float:
-	return PowerFactor * _get_fixed_wing_flight_model_thrust_multiplier()
+	if propeller_broken: return 0.0
+	return PowerFactor * _get_fixed_wing_flight_model_thrust_multiplier() * damage_power_factor
 
 
 func _get_fixed_wing_flight_model_thrust_multiplier() -> float:
@@ -235,13 +269,16 @@ func power_to_pitch(value: float) -> float:
 	return 0.2 + value*0.8
 
 func engine_start():
-	if is_engine_changing_state:
+	if is_engine_changing_state or damage_disabled or propeller_broken:
 		return
 	
 	is_engine_changing_state = true
 
 	if startup_interlock_node != null and startup_interlock_node.has_method("prepare_for_engine_start"):
 		await startup_interlock_node.prepare_for_engine_start()
+		if damage_disabled or propeller_broken:
+			is_engine_changing_state = false
+			return
 	
 	if not is_engine_working:
 		if sfx_engine_loop:
@@ -262,7 +299,7 @@ func engine_start():
 	
 	await get_tree().create_timer(1.0).timeout
 	
-	is_engine_working = true
+	is_engine_working = not damage_disabled and not propeller_broken
 	request_update_interface()
 	
 	is_engine_changing_state = false
@@ -301,6 +338,17 @@ func engine_stop():
 	is_engine_changing_state = false
 
 func engine_set_power(value: float):
+	# Helicopter collective remains available when there is no engine torque.
+	if damage_disabled and is_instance_valid(aircraft) and aircraft.has_node("RotorAssembly"):
+		throttle_input = clampf(value, 0.0, 1.0)
+		target_power = throttle_input
+		current_power = 0.0
+		return
+	if propeller_broken:
+		current_power = 0.0
+		target_power = 0.0
+		throttle_input = 0.0
+		return
 	var requested_power: float = clamp(value, 0.0, 1.0)
 	target_power = requested_power
 	throttle_input = requested_power
@@ -498,6 +546,12 @@ func _update_propeller_blur_visuals(delta: float) -> void:
 	_apply_propeller_blur_t(_current_blur_t)
 
 func _apply_propeller_blur_t(blur_t: float) -> void:
+	var parts: Node = aircraft.get_node_or_null("PartDamageModel") if is_instance_valid(aircraft) and aircraft.has_node("RotorAssembly") else null
+	var tail_lost: bool = parts != null and (parts.is_zone_destroyed(&"tail") or parts.is_zone_destroyed(&"tail_rotor"))
+	if propeller_broken or tail_lost:
+		for mesh in _prop_blade_mesh_nodes + _prop_disc_mesh_nodes:
+			if is_instance_valid(mesh): mesh.hide()
+		return
 	var clamped_blur_t := clampf(blur_t, 0.0, 1.0)
 	var blade_alpha: float = lerpf(1.0, blade_min_alpha, clamped_blur_t)
 	if GovernPropellerVisualSpeed and _prop_disc_mesh_nodes.is_empty():

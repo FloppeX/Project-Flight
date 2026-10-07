@@ -177,6 +177,9 @@ func _get_transform_to_ancestor(node: Node3D, ancestor: Node) -> Transform3D:
 	return result
 
 func _update_pose(delta: float = -1.0) -> void:
+	if bool(get_meta("damage_detached", false)):
+		visible = false
+		return
 	var deploy_progress := _read_deploy_progress()
 	var stow_alpha := 1.0 - deploy_progress
 	var tuck_alpha := clampf(stow_alpha / maxf(stow_tuck_phase, 0.001), 0.0, 1.0)

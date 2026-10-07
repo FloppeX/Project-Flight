@@ -9,8 +9,7 @@ const POLL_INTERVAL_S := 0.5
 const LOS_SAMPLE_STEP_M := 100.0
 const LOS_TERRAIN_CLEARANCE_M := 4.0
 const STARTING_DISCOVERED_POI_COUNT := 3
-const STARTING_REVEAL_RETRY_COUNT := 12
-const STARTING_REVEAL_RETRY_INTERVAL_S := 0.25
+const STARTING_DISCOVERY_RADIUS_M := 3000.0
 const CAMPAIGN_SCENE_PATH := "res://Main_Scene.tscn"
 const WRECKED_SCOUT_CAR_EFFECT := "reveal_nearest_enemy_base"
 const WRECKED_SCOUT_CAR_REVEAL_RADIUS_M := 5000.0
@@ -43,7 +42,15 @@ var _placement_generation: int = 0
 var reveals_disabled: bool = false
 var _debug_card_index: int = 0
 var _starting_reveal_done: bool = false
-var _starting_reveal_attempts: int = 0
+var _legacy_starting_reveal_check_pending := false
+var _resource_field: Node
+
+func get_resource_field() -> Node:
+	if not is_instance_valid(_resource_field):
+		_resource_field = preload("res://POI/ResourceField.gd").new()
+		_resource_field.name = "ResourceField"
+		add_child(_resource_field)
+	return _resource_field
 
 signal poi_discovered(poi_id: int)
 signal poi_awaiting_orders(poi_id: int)
@@ -65,6 +72,7 @@ const _DEFINITIONS: Array = [
 ]
 
 func _ready() -> void:
+	get_resource_field()
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	add_to_group("origin_shifter")
 	_rng.randomize()
@@ -139,12 +147,18 @@ func _make_data(index: int) -> POIData:
 	return d
 
 func _process(delta: float) -> void:
-	if _active_card != null:
+	if _active_card != null or GameSession.has_pending_save_state():
 		return
 	_poll_timer -= delta
 	if _poll_timer > 0.0:
 		return
 	_poll_timer = POLL_INTERVAL_S
+	var carrier := get_tree().get_first_node_in_group("carrier")
+	if is_instance_valid(carrier) and carrier.has_method("is_initial_placement_complete") and not carrier.is_initial_placement_complete():
+		return
+	if _legacy_starting_reveal_check_pending:
+		_repair_legacy_starting_reveals()
+	_reveal_starting_pois()
 	_check_aircraft_discovery()
 	_check_ground_reveal()
 
@@ -171,23 +185,21 @@ func _check_aircraft_discovery() -> void:
 			break
 
 func _reveal_starting_pois() -> void:
-	if _starting_reveal_done:
+	if _starting_reveal_done or GameSession.has_pending_save_state() or not MapFogOfWar.is_initialized():
 		return
 	if _pois.is_empty():
 		return
 	var origin_node := _get_starting_reveal_origin_node()
 	if origin_node == null:
-		_starting_reveal_attempts += 1
-		if _starting_reveal_attempts <= STARTING_REVEAL_RETRY_COUNT:
-			await get_tree().create_timer(STARTING_REVEAL_RETRY_INTERVAL_S, false).timeout
-			_reveal_starting_pois()
+		# Carrier placement may take longer than a few seconds. The normal poll
+		# retries after placement; the temporary scene position is never intel.
 		return
 
 	var origin: Vector3 = origin_node.global_position
 	var revealed_count: int = 0
 	while revealed_count < STARTING_DISCOVERED_POI_COUNT:
 		var nearest: POIInstance = null
-		var nearest_dist_sq: float = INF
+		var nearest_dist_sq: float = STARTING_DISCOVERY_RADIUS_M * STARTING_DISCOVERY_RADIUS_M
 		for poi: POIInstance in _pois:
 			if poi.discovered:
 				continue
@@ -200,6 +212,7 @@ func _reveal_starting_pois() -> void:
 		if nearest == null:
 			break
 		nearest.discovered = true
+		MapFogOfWar.reveal_circle(nearest.world_pos, ABANDONED_OUTPOST_SITE_RADIUS_M)
 		poi_discovered.emit(nearest.id)
 		revealed_count += 1
 
@@ -208,11 +221,36 @@ func _reveal_starting_pois() -> void:
 func _get_starting_reveal_origin_node() -> Node3D:
 	var carrier := get_tree().get_first_node_in_group("carrier") as Node3D
 	if carrier and is_instance_valid(carrier):
+		if carrier.has_method("is_initial_placement_complete") and not carrier.is_initial_placement_complete():
+			return null
 		return carrier
 	for ac in get_tree().get_nodes_in_group("aircraft"):
 		if ac is Node3D and is_instance_valid(ac) and (ac as Node3D).is_in_group("friendlies"):
 			return ac as Node3D
 	return null
+
+func _repair_legacy_starting_reveals() -> void:
+	if GameSession.has_pending_save_state() or not MapFogOfWar.is_initialized():
+		return
+	_legacy_starting_reveal_check_pending = false
+	# Old saves can contain the three free POIs chosen from the carrier's
+	# temporary position. Repair only that exact, wholly unexplored pattern;
+	# visited sites and real scouting/intelligence remain authoritative.
+	var suspects: Array[POIInstance] = []
+	for poi in _pois:
+		if not poi.discovered:
+			continue
+		if poi.revealed or poi.awaiting_orders or poi.resolved_choice != -2 or MapFogOfWar.is_world_explored(poi.world_pos):
+			return
+		suspects.append(poi)
+	if suspects.size() != STARTING_DISCOVERED_POI_COUNT:
+		return
+	for poi in suspects:
+		poi.discovered = false
+		for source in get_resource_field().sources:
+			if str(source.get("site_key", "")) == "poi_%d" % poi.id and not MapFogOfWar.is_world_explored(source.position):
+				source.discovered = false
+	_starting_reveal_done = false
 
 func _has_terrain_line_of_sight(observer_pos: Vector3, target_pos: Vector3) -> bool:
 	var from_pos := observer_pos + Vector3.UP * 2.0  # observer eye height
@@ -545,11 +583,14 @@ func capture_save_state() -> Dictionary:
 		entries.append(entry)
 	return {
 		"pois": entries,
+		"discovery_version": 1,
 		"starting_reveal_done": _starting_reveal_done,
+		"harvest_sources": get_resource_field().capture_save_state(),
 	}
 
 
 func restore_save_state(state: Dictionary) -> bool:
+	get_resource_field().restore_save_state(state.get("harvest_sources", {}))
 	var entries_variant: Variant = state.get("pois", [])
 	if not (entries_variant is Array):
 		return false
@@ -572,18 +613,19 @@ func restore_save_state(state: Dictionary) -> bool:
 		_pois.append(inst)
 		_spawn_world_site(inst)
 	_starting_reveal_done = bool(state.get("starting_reveal_done", true))
-	_starting_reveal_attempts = 0
+	_legacy_starting_reveal_check_pending = not state.has("discovery_version")
 	call_deferred("_refresh_decision_notice")
 	return not _pois.is_empty()
 
 
 func start_new_campaign() -> void:
+	get_resource_field().reset()
 	_placement_generation += 1
 	_close_active_card()
 	_clear_world_sites()
 	_pois.clear()
 	_starting_reveal_done = false
-	_starting_reveal_attempts = 0
+	_legacy_starting_reveal_check_pending = false
 	_poll_timer = 0.0
 	_set_decision_notice_visible(false)
 	# The new scene rebakes TerrainNavGrid. Wait for that fresh geometry instead

@@ -181,6 +181,7 @@ enum MissionPhase {
 var outpost_patrol_mode: bool = false
 var _outpost_route: Array[Vector3] = []
 var _outpost_route_index: int = 0
+var flight_patrol_engagement := ""
 const AirAwareness = preload("res://AI/HelicopterAirAwareness.gd")
 var _air_awareness = AirAwareness.new()
 var _air_attack_return_destination := Vector3.INF
@@ -225,9 +226,52 @@ func set_outpost_patrol_route(route: Array[Vector3]) -> void:
 		mission_phase = MissionPhase.OUTBOUND
 		set_destination(_outpost_route[0], cruise_speed_mps)
 
+func command_flight_patrol(route: Array[Vector3], engagement: String = "ground") -> bool:
+	if route.is_empty() or not is_instance_valid(aircraft): return false
+	_cancel_attack_order("flight_patrol")
+	flight_patrol_engagement = engagement
+	mission_phase = MissionPhase.OUTBOUND
+	_landing_on_carrier = false
+	_carrier_approach_phase = CarrierApproachPhase.NONE
+	combat_enabled = true
+	atk_enabled = true
+	set_outpost_patrol_route(route)
+	if state == State.IDLE:
+		change_state(State.TAKEOFF)
+	elif state != State.TAKEOFF:
+		change_state(State.LOW_LEVEL_TRANSIT)
+	set_physics_process(true)
+	return true
+
+func get_operational_resources() -> Dictionary:
+	var resources := {"fuel": -1.0, "health": -1.0, "guns": 0, "bombs": 0, "rockets": 0, "weapons_known": true}
+	if not is_instance_valid(aircraft): return resources
+	var maximum: Variant = aircraft.get("max_health")
+	if maximum != null and float(maximum) > 0.0:
+		resources.health = float(aircraft.get("current_health")) / float(maximum)
+	var containers: Variant = aircraft.get("energy_containers_by_type")
+	if containers is Dictionary:
+		var current := 0.0
+		var capacity := 0.0
+		for tank in containers.get("fuel", []):
+			if not is_instance_valid(tank) or not bool(tank.get("ContainerActive")): continue
+			current += float(tank.get("current_level"))
+			capacity += float(tank.get("MaxCapacity"))
+		if capacity > 0.0: resources.fuel = clampf(current / capacity, 0.0, 1.0)
+	for station in aircraft.find_children("*", "Hardpoint", true, false):
+		var weapon: Variant = station.get("weapon_instance")
+		if not is_instance_valid(weapon): continue
+		var amount := maxi(int(weapon.get("ammo_count")), 0)
+		match str(weapon.get("weapon_name")):
+			"Bomb": resources.bombs += amount
+			"Rocket Pod": resources.rockets += amount
+			_: resources.guns += amount
+	return resources
+
 func _update_outpost_patrol_route() -> void:
 	if not outpost_patrol_mode or mission_phase != MissionPhase.OUTBOUND or _outpost_route.is_empty() or _atk_state != AtkState.SELECT:
 		return
+	if is_instance_valid(_commanded_attack_target): return
 	if not _has_destination or _flat_distance(aircraft.global_position, destination) < 200.0:
 		_outpost_route_index = (_outpost_route_index + 1) % _outpost_route.size()
 		set_destination(_outpost_route[_outpost_route_index], cruise_speed_mps)
@@ -1633,6 +1677,10 @@ func command_attack_target(target_node: Node3D) -> bool:
 
 
 func _cancel_attack_order(reason: String) -> void:
+	if not flight_patrol_engagement.is_empty():
+		flight_patrol_engagement = ""
+		outpost_patrol_mode = false
+		_outpost_route.clear()
 	_stop_pending_rocket_bursts()
 	_commanded_attack_target = null
 	set_combat_hunt_mode(false)
@@ -2016,6 +2064,9 @@ func _physics_process(delta: float) -> void:
 		FrameProfiler.end("HelicopterPilot.physics", _profiler_start)
 		return
 	_physics_delta = delta
+	if _try_engine_out_landing():
+		FrameProfiler.end("HelicopterPilot.physics", _profiler_start)
+		return
 	_record_surface_trace(delta)
 	_air_attack_cooldown_s = maxf(0.0, _air_attack_cooldown_s - delta)
 	if state == State.LOW_LEVEL_TRANSIT:
@@ -11750,8 +11801,10 @@ func _get_uncommanded_combat_target_candidates() -> Array:
 	var target_groups: Array = ["dummy_turrets"] if _combat_hunt_mode else [
 		"gun_emplacements", "ground_vehicles", "buildings", "enemies", "dummy_turrets"
 	]
-	if outpost_patrol_mode:
+	if outpost_patrol_mode and flight_patrol_engagement.is_empty():
 		target_groups = ["ground_vehicles", "carrier"]
+	elif outpost_patrol_mode and flight_patrol_engagement == "ground":
+		target_groups.append("carrier")
 	for helicopter: Node3D in _air_awareness.visible_helicopters():
 		if _is_valid_combat_target(helicopter):
 			out.append(helicopter)
@@ -11791,6 +11844,11 @@ func _is_valid_commanded_combat_target(target: Node3D) -> bool:
 func _is_valid_combat_target(target: Node3D) -> bool:
 	if target == aircraft:
 		return false
+	if not flight_patrol_engagement.is_empty():
+		if flight_patrol_engagement == "none": return false
+		var air_target := target.is_in_group("aircraft") or target.is_in_group("ai_aircraft")
+		if flight_patrol_engagement == "air" and not air_target: return false
+		if flight_patrol_engagement == "ground" and air_target: return false
 	if (target.is_in_group("aircraft") or target.is_in_group("ai_aircraft")) and not _can_engage_helicopter(target):
 		return false
 	if target.is_in_group("carrier") and not outpost_patrol_mode:
@@ -13037,6 +13095,41 @@ func _get_carrier_deck_y(carrier: Node3D = null) -> float:
 		return float(fdm.call("get_deck_height"))
 	return carrier_node.global_position.y
 
+
+func _try_engine_out_landing() -> bool:
+	if not is_instance_valid(engine) or not engine.get("damage_disabled") or not is_instance_valid(helicopter_flight):
+		return false
+	var parts := aircraft.get_node_or_null("PartDamageModel") as AircraftPartDamageModel
+	if parts == null: return false
+	_set_landing_gear_deployed(true)
+	var ground := _get_ground_height_at_position(aircraft.global_position)
+	var query := PhysicsRayQueryParameters3D.create(aircraft.global_position,aircraft.global_position+Vector3.DOWN*200.0)
+	query.exclude = [aircraft.get_rid()]
+	var hit := aircraft.get_world_3d().direct_space_state.intersect_ray(query)
+	if not hit.is_empty(): ground = maxf(ground,hit.position.y) if is_finite(ground) else hit.position.y
+	var height := aircraft.global_position.y-ground if is_finite(ground) else 200.0
+	var velocity := aircraft.linear_velocity
+	if not hit.is_empty() and aircraft._is_carrier_body(hit.collider):
+		# Preserve deck-relative motion during the descent. Braking to world
+		# zero leaves the skids meeting a moving deck at the carrier's speed.
+		velocity -= aircraft._get_carrier_contact_velocity(hit.collider)
+	var sink := maxf(-velocity.y,0.0)
+	var flare_height := clampf(sink*sink/8.0+3.0,4.0,24.0)
+	var collective := 0.10
+	if height < flare_height:
+		collective = clampf(helicopter_flight.hover_collective+sink*0.05,0.3,1.0)
+	var supported := parts.is_ground_supported()
+	if supported: collective = 0.0
+	# Engine power is unavailable, but collective and cyclic still move. Keep
+	# navigation from demanding a climb and consuming the remaining rotor energy.
+	_collective_cmd = collective
+	if is_instance_valid(control_engine): control_engine.set_target_power(collective)
+	engine.engine_set_power(collective)
+	var basis := aircraft.global_basis.orthonormalized()
+	helicopter_flight.pitch_input = 0.0 if supported else clampf(velocity.dot(basis.z)*0.045,-0.35,0.35)
+	helicopter_flight.roll_input = 0.0 if supported else clampf(-velocity.dot(basis.x)*0.045,-0.35,0.35)
+	helicopter_flight.yaw_input = 0.0
+	return true
 
 func _apply_collective(value: float) -> void:
 	var target := clampf(value, 0.0, 1.0)

@@ -70,6 +70,19 @@ var pitch_input: float = 0.0
 var roll_input: float = 0.0
 var yaw_input: float = 0.0
 var current_yaw_input: float = 0.0
+var rotor_energy := preload("res://Aircraft/HelicopterRotorEnergy.gd").new()
+var damage_rotor_lift := 1.0
+var damage_cyclic := 1.0
+var damage_engine_health := 1.0
+var damage_yaw_authority := 1.0
+var damage_yaw_damping := 1.0
+var damage_fin_stability := 1.0
+var damage_torque_imbalance := 0.0
+var damage_rotor_direction := 1.0
+var damage_vibration := 0.0
+var damage_drag := 1.0
+var _rotor_model_initialized := false
+var _rotor_inflow := 0.0
 
 var current_disc_tilt: Vector2 = Vector2.ZERO
 var target_disc_tilt: Vector2 = Vector2.ZERO
@@ -103,6 +116,7 @@ func _physics_process(delta: float) -> void:
 	if rb == null:
 		return
 
+	_update_rotor_energy(delta)
 	var collective: float = _get_collective()
 	_update_engine_stopped_brake()
 	var speed: float = get_air_relative_velocity().length()
@@ -125,8 +139,8 @@ func _physics_process(delta: float) -> void:
 
 func _update_disc_tilt(delta: float, speed_t: float) -> void:
 	var max_tilt: float = deg_to_rad(max_disc_tilt_deg)
-	var shaped_pitch: float = _shape_axis(pitch_input) * maxf(pitch_power, 0.0)
-	var shaped_roll: float = _shape_axis(roll_input) * maxf(roll_power, 0.0)
+	var shaped_pitch: float = _shape_axis(pitch_input) * maxf(pitch_power, 0.0) * damage_cyclic
+	var shaped_roll: float = _shape_axis(roll_input) * maxf(roll_power, 0.0) * damage_cyclic
 
 	# ControlSteering feeds pitch positive for stick-back and roll negative for stick-right.
 	target_disc_tilt = Vector2(
@@ -190,13 +204,9 @@ func _get_flight_basis() -> Basis:
 
 func _apply_rotor_lift(rotor_dir: Vector3, collective: float, speed_t: float) -> void:
 	var hover_thrust: float = get_reference_rotor_thrust_n()
-	var collective_ratio: float = collective / maxf(hover_collective, 0.01)
 	var translational_bonus: float = 1.0 + translational_lift_bonus * speed_t
-	var lift_multiplier: float = clampf(
-		collective_ratio * current_ground_effect * translational_bonus,
-		min_lift_multiplier,
-		max_lift_multiplier
-	)
+	var lift_multiplier: float = rotor_energy.lift_multiplier(hover_collective, current_ground_effect,
+		translational_bonus, max_lift_multiplier, damage_rotor_lift, _rotor_inflow)
 	var thrust_dir := _get_biased_thrust_direction(rotor_dir)
 	rb.apply_central_force(thrust_dir * hover_thrust * lift_multiplier)
 
@@ -220,14 +230,20 @@ func _apply_hanging_attitude(rotor_dir: Vector3, collective: float, speed_t: flo
 	if axis.length_squared() > 0.000001:
 		var angle: float = asin(clampf(axis.length(), -1.0, 1.0))
 		var follow_strength: float = body_follow_strength + body_follow_high_speed_bonus * speed_t
-		var power_t: float = clampf(collective / maxf(hover_collective, 0.01), 0.0, 1.35)
+		var power_t: float = _rotor_control_authority(collective, 1.35)
 		rb.apply_torque(axis.normalized() * angle * follow_strength * rb.mass * power_t)
 	_apply_fuselage_leveling(collective, speed_t)
 
 	var ang_vel: Vector3 = rb.angular_velocity
 	var yaw_axis: Vector3 = rb.global_transform.basis.y.normalized()
 	var pitch_roll_ang_vel: Vector3 = ang_vel - yaw_axis * ang_vel.dot(yaw_axis)
-	rb.apply_torque(-pitch_roll_ang_vel * angular_damping_strength * rb.mass)
+	var damping_scale := damage_cyclic * rotor_energy.rpm ** 2
+	var parts := rb.get_node_or_null("PartDamageModel") as AircraftPartDamageModel
+	if parts != null and parts.is_ground_supported():
+		# Contact still damps the fuselage after the rotor coasts to a stop.
+		# Removing all damping with RPM left light skid aircraft oscillating.
+		damping_scale = maxf(damping_scale,1.0)
+	rb.apply_torque(-pitch_roll_ang_vel * angular_damping_strength * rb.mass * damping_scale)
 
 
 func _apply_fuselage_leveling(collective: float, speed_t: float) -> void:
@@ -238,7 +254,7 @@ func _apply_fuselage_leveling(collective: float, speed_t: float) -> void:
 	if axis.length_squared() <= 0.000001:
 		return
 	var angle: float = asin(clampf(axis.length(), -1.0, 1.0))
-	var power_t: float = clampf(collective / maxf(hover_collective, 0.01), 0.0, 1.2)
+	var power_t: float = _rotor_control_authority(collective, 1.2)
 	var speed_scale: float = lerpf(1.0, 1.0 - clampf(fuselage_leveling_high_speed_loss, 0.0, 0.95), speed_t)
 	var torque := axis.normalized() * angle * fuselage_leveling_strength * rb.mass * power_t * speed_scale
 	var right := rb.global_transform.basis.x.normalized()
@@ -252,12 +268,16 @@ func _apply_yaw(collective: float, speed_t: float, delta: float) -> void:
 	var yaw_blend: float = 1.0 - exp(-maxf(yaw_response, 0.01) * delta)
 	current_yaw_input = lerpf(current_yaw_input, yaw_input, yaw_blend)
 
-	var yaw_authority: float = clampf(collective / maxf(hover_collective, 0.01), 0.0, 1.2)
+	var yaw_authority: float = _rotor_control_authority(collective, 1.2) * damage_yaw_authority
 	yaw_authority *= lerpf(1.0, 1.0 - high_speed_yaw_authority_loss, speed_t)
 	var yaw_axis: Vector3 = rb.global_transform.basis.y.normalized()
 	var yaw_rate: float = rb.angular_velocity.dot(yaw_axis)
 	rb.apply_torque(yaw_axis * current_yaw_input * yaw_power * rb.mass * yaw_authority)
-	rb.apply_torque(-yaw_axis * yaw_rate * yaw_damping_strength * rb.mass)
+	rb.apply_torque(-yaw_axis * yaw_rate * yaw_damping_strength * rb.mass * damage_yaw_damping * rotor_energy.rpm ** 2)
+	# Missing anti-torque produces a power-dependent yaw moment, not prescribed spin.
+	var reaction := damage_torque_imbalance * damage_rotor_direction * rotor_energy.drive * collective * 22.0
+	var cap := clampf(1.0 - absf(yaw_rate) / deg_to_rad(210.0), 0.0, 1.0)
+	rb.apply_torque(yaw_axis * reaction * rb.mass * cap)
 	_apply_vertical_stabilizer_yaw(yaw_axis, yaw_rate)
 
 
@@ -279,7 +299,7 @@ func _apply_vertical_stabilizer_yaw(yaw_axis: Vector3, yaw_rate: float) -> void:
 	var speed_t := _smoothstep(0.0, maxf(vertical_stabilizer_full_speed_mps, 0.1), speed)
 	var stabilizer_torque := yaw_error * vertical_stabilizer_strength * speed_t * rb.mass
 	var stabilizer_damping := yaw_rate * vertical_stabilizer_damping * speed_t * rb.mass
-	rb.apply_torque(yaw_axis * (stabilizer_torque - stabilizer_damping))
+	rb.apply_torque(yaw_axis * (stabilizer_torque - stabilizer_damping) * damage_fin_stability)
 
 
 func _apply_drag(speed: float) -> void:
@@ -301,7 +321,7 @@ func _apply_drag(speed: float) -> void:
 		var excess: float = absf(forward_speed) - max_forward_speed_mps
 		drag += -forward * signf(forward_speed) * excess * excess * high_speed_nose_drag_strength * rb.mass
 
-	rb.apply_central_force(drag)
+	rb.apply_central_force(drag * damage_drag)
 
 
 func has_wind_field() -> bool:
@@ -553,7 +573,49 @@ func _get_collective() -> float:
 	var power = engine.get("current_power") if engine.has_method("get") else null
 	if power == null:
 		return 0.0
-	return clampf(float(power), 0.0, 1.0)
+	return rotor_energy.collective if _rotor_model_initialized else clampf(float(power), 0.0, 1.0)
+
+func _rotor_control_authority(collective: float, maximum: float) -> float:
+	var loading := maxf(collective, 0.35) if rotor_energy.autorotating else collective
+	return clampf(loading / maxf(hover_collective,0.01),0.0,maximum) * rotor_energy.rpm ** 2 * damage_cyclic
+
+func _update_rotor_energy(delta: float) -> void:
+	if engine == null: return
+	var assembly := rb.get_node_or_null("RotorAssembly")
+	if assembly == null: return
+	if not _rotor_model_initialized:
+		rotor_energy.rpm = assembly.get_rotor_speed_ratio()
+		rotor_energy.collective = clampf(float(engine.current_power),0.0,1.0)
+		_rotor_model_initialized = true
+	var parts := rb.get_node_or_null("PartDamageModel") as AircraftPartDamageModel
+	var supported := parts != null and parts.is_ground_supported()
+	_rotor_inflow = maxf(-get_air_relative_velocity().dot(_get_rotor_direction()),0.0)
+	var running: bool = engine.is_engine_working and not engine.damage_disabled
+	var command: float = engine.current_power if running else engine.throttle_input
+	rotor_energy.step(delta,command,running,damage_engine_health,damage_rotor_lift,_rotor_inflow,supported,assembly._fold_t < 0.02)
+	rb.set_meta("helicopter_autorotating",rotor_energy.autorotating)
+
+func get_damage_state() -> Dictionary:
+	return {"rotor_energy":{"health":rotor_energy.rpm,"destroyed":false,"collective":rotor_energy.collective}}
+
+func prime_airborne_rotor() -> void:
+	# Used only when materializing an aircraft that was already in flight.
+	# Restored combat state is applied afterwards and takes precedence.
+	if engine == null or engine.damage_disabled or damage_rotor_lift <= 0.0: return
+	restore_damage_state({"rotor_energy":{"health":1.0,"collective":engine.current_power}})
+
+func restore_damage_state(state: Dictionary) -> void:
+	var saved: Dictionary = state.get("rotor_energy",{})
+	if saved.is_empty(): return
+	rotor_energy.rpm = clampf(float(saved.health),0.0,1.1)
+	rotor_energy.collective = clampf(float(saved.get("collective",0.0)),0.0,1.0)
+	_rotor_model_initialized = true
+	var assembly := rb.get_node_or_null("RotorAssembly")
+	if assembly != null and rotor_energy.rpm > 0.0:
+		assembly._fold_t = 0.0
+		assembly._fold_target = 0.0
+		assembly._power = rotor_energy.rpm
+		assembly._apply_fold_pose()
 
 
 func _get_ground_effect() -> float:

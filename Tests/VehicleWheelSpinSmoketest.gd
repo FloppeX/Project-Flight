@@ -36,7 +36,7 @@ func _run() -> void:
 	environment.environment.ambient_light_color = Color.WHITE
 	environment.environment.ambient_light_energy = 0.7
 	world.add_child(environment)
-	for scene_name in ["GroundVehicle", "vehicle_enemy_buggy", "vehicle_enemy_pickup", "vehicle_enemy_battle_bus", "vehicle_friendly_light"]:
+	for scene_name in ["GroundVehicle", "vehicle_enemy_buggy", "vehicle_enemy_pickup", "vehicle_enemy_battle_bus", "vehicle_friendly_light", "vehicle_friendly_2"]:
 		var host = load("res://GroundVehicle/%s.tscn" % scene_name).instantiate()
 		host.position = Vector3(0, 101, -100)
 		world.add_child(host)

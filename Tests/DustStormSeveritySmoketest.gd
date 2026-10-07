@@ -31,7 +31,7 @@ func _run() -> void:
 	front.automatic_start = false
 	scene.add_child(front)
 	front.set_physics_process(false)
-	front.start_at(Vector3.ZERO, Vector3.BACK)
+	front.start_at(Vector3.ZERO, Vector3.BACK, front.capture_appearance())
 	front.elapsed_s = 120.0
 	front.strength = 1.0
 	var core := Vector3(0, 500, 0)

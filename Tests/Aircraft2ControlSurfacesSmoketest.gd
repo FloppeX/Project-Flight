@@ -23,7 +23,16 @@ func model_transform(node: Node3D) -> Transform3D:
 
 func run() -> void:
 	var aircraft := (load("res://Aircraft/Aircraft_2.tscn") as PackedScene).instantiate() as RigidBody3D
-	var controls := aircraft.get_node("ControlSurfaces")
+	# The authored controller is currently named MovingParts2. Bind by script so
+	# renaming a helper does not invalidate the mesh/hinge regression.
+	var controls: Node = null
+	for child in aircraft.get_children():
+		if child.get_script() == preload("res://Aircraft/Aircraft2ControlSurfaces.gd"):
+			controls = child
+	if controls == null:
+		push_error("Aircraft 2 has no control-surface controller")
+		quit(1)
+		return
 	check(controls.bind_surfaces(), "Could not bind four controls")
 	var surfaces: Array[MeshInstance3D] = []
 	var rest: Array[Transform3D] = []

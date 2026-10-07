@@ -1,0 +1,128 @@
+{
+  "roots": [
+    {
+      "root": "D:\\Game audio",
+      "files": 9797,
+      "bytes": 8239542582,
+      "wav_metadata": 9797
+    },
+    {
+      "root": "D:\\Downloads\\Soniss",
+      "files": 5661,
+      "bytes": 216864835147,
+      "wav_metadata": 5585
+    },
+    {
+      "root": "C:\\Godot projects\\Project-Flight\\Audio",
+      "files": 1086,
+      "bytes": 409486763,
+      "wav_metadata": 605
+    }
+  ],
+  "errors": [],
+  "missing_references": [
+    {
+      "path": "res://Audio/flaps_deploy 2.wav",
+      "references": [
+        {
+          "file": "Aircraft/Aircraft_1.tscn",
+          "line": 75,
+          "text": "metadata/__load_path__ = \"res://Audio/flaps_deploy 2.wav\"",
+          "test": false
+        },
+        {
+          "file": "Aircraft/Aircraft_14.tscn",
+          "line": 76,
+          "text": "metadata/__load_path__ = \"res://Audio/flaps_deploy 2.wav\"",
+          "test": false
+        },
+        {
+          "file": "Aircraft/Aircraft_16.tscn",
+          "line": 74,
+          "text": "metadata/__load_path__ = \"res://Audio/flaps_deploy 2.wav\"",
+          "test": false
+        },
+        {
+          "file": "Aircraft/Aircraft_2.tscn",
+          "line": 72,
+          "text": "metadata/__load_path__ = \"res://Audio/flaps_deploy 2.wav\"",
+          "test": false
+        },
+        {
+          "file": "Aircraft/Aircraft_3.tscn",
+          "line": 71,
+          "text": "metadata/__load_path__ = \"res://Audio/flaps_deploy 2.wav\"",
+          "test": false
+        },
+        {
+          "file": "Aircraft/Aircraft_4.tscn",
+          "line": 75,
+          "text": "metadata/__load_path__ = \"res://Audio/flaps_deploy 2.wav\"",
+          "test": false
+        },
+        {
+          "file": "Aircraft/Aircraft_5.tscn",
+          "line": 76,
+          "text": "metadata/__load_path__ = \"res://Audio/flaps_deploy 2.wav\"",
+          "test": false
+        },
+        {
+          "file": "Aircraft/Aircraft_6.tscn",
+          "line": 74,
+          "text": "metadata/__load_path__ = \"res://Audio/flaps_deploy 2.wav\"",
+          "test": false
+        },
+        {
+          "file": "Aircraft/Aircraft_7.tscn",
+          "line": 77,
+          "text": "metadata/__load_path__ = \"res://Audio/flaps_deploy 2.wav\"",
+          "test": false
+        },
+        {
+          "file": "Aircraft/Aircraft_8.tscn",
+          "line": 77,
+          "text": "metadata/__load_path__ = \"res://Audio/flaps_deploy 2.wav\"",
+          "test": false
+        },
+        {
+          "file": "Aircraft/CompleteFighterJet.tscn",
+          "line": 54,
+          "text": "metadata/__load_path__ = \"res://Audio/flaps_deploy 2.wav\"",
+          "test": false
+        },
+        {
+          "file": "Enemies/EnemyFighter.tscn",
+          "line": 58,
+          "text": "metadata/__load_path__ = \"res://Audio/flaps_deploy 2.wav\"",
+          "test": false
+        }
+      ],
+      "metadata_only": true
+    }
+  ],
+  "dynamic_patterns": [
+    {
+      "path": "res://Audio/impacts/bullet_impact_metal_heavy_%02d.wav",
+      "references": [
+        {
+          "file": "Projectiles/ProjectileNew/projectile_new.gd",
+          "line": 72,
+          "text": "var metal := load(\"res://Audio/impacts/bullet_impact_metal_heavy_%02d.wav\" % i)",
+          "test": false
+        }
+      ]
+    },
+    {
+      "path": "res://Audio/impacts/bullet_impact_dirt_%02d.wav",
+      "references": [
+        {
+          "file": "Projectiles/ProjectileNew/projectile_new.gd",
+          "line": 75,
+          "text": "var dirt := load(\"res://Audio/impacts/bullet_impact_dirt_%02d.wav\" % i)",
+          "test": false
+        }
+      ]
+    }
+  ],
+  "scope": "Recursive scan of D:/Game audio, D:/Downloads/Soniss, and Project-Flight/Audio. Not a forensic scan of every drive/archive/cloud folder. No content hashing or deduplication; mono/stereo versions count separately."
+}

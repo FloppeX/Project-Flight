@@ -174,6 +174,8 @@ var _jam_pitch_input: float = 0.0
 var _jam_steering_module: Node = null
 var _jam_simple_aero: Node = null
 var _has_exploded: bool = false
+var _regional_ground_contact: RefCounted
+var _belly_scrape_audio: AudioStreamPlayer3D
 var _terrain_safety_cache_frame: int = -1000000
 var _terrain_safety_cache_pos: Vector3 = Vector3.INF
 var _terrain_safety_cache_center_ground_y: float = NAN
@@ -200,6 +202,7 @@ func _ready():
 	# a freshly-instantiated aircraft can miss the physics transform sync and snap
 	# back to its pre-shift position on the following physics tick.
 	add_to_group("origin_shifter")
+	_setup_belly_scrape_audio()
 	await get_tree().process_frame
 	
 	# Force-set health to maximum at startup to override any scene file issues
@@ -250,8 +253,15 @@ func _ready():
 	# Preserve the editor-authored non-missile loadout.
 	_ensure_cockpit_pilot()
 	
+	var regional_model := get_node_or_null("PartDamageModel")
+	if regional_model != null and regional_model.has_method("initialize"):
+		regional_model.initialize()
 	setup()
 	_cache_control_jam_targets()
+	if get_node_or_null("PartDamageModel") != null:
+		var ground_dust := preload("res://Effects/AircraftGroundDust.gd").new()
+		ground_dust.name = "GroundDust"
+		add_child(ground_dust)
 
 	# Apply team livery colors/insignia (player and enemies).
 	var livery_node: Node = get_node_or_null("/root/Livery")
@@ -265,7 +275,25 @@ func _ready():
 		_pending_combat_state.clear()
 
 
+func _setup_belly_scrape_audio() -> void:
+	if is_instance_valid(_belly_scrape_audio):
+		return
+	_belly_scrape_audio = preload("res://Audio/AircraftBellyScrape.gd").new()
+	_belly_scrape_audio.name = "BellyScrapeAudio"
+	add_child(_belly_scrape_audio)
+
+
 func apply_origin_shift(_offset: Vector3) -> void:
+	if is_instance_valid(_belly_scrape_audio):
+		_belly_scrape_audio.clear_contact()
+	var regional_model := get_node_or_null("PartDamageModel")
+	if regional_model != null and regional_model.has_method("reset_contact_history"):
+		regional_model.reset_contact_history()
+	for module in modules:
+		if module.has_method("reset_propeller_contact_history"):
+			module.reset_propeller_contact_history()
+	if _regional_ground_contact != null:
+		_regional_ground_contact.apply_origin_shift(_offset)
 	# FloatingOrigin sets our node global_position -= offset, but for a RigidBody3D the PHYSICS SERVER
 	# holds the authoritative transform. If we don't push the shifted transform into the physics server,
 	# the server keeps the pre-shift position and on the next physics step the body snaps back by ~offset
@@ -370,6 +398,9 @@ func _physics_process(delta):
 
 	var _profiler_start: int = FrameProfiler.begin("Aircraft.physics")
 	prepare_energy_system()
+	var regional_parts := get_node_or_null("PartDamageModel")
+	if regional_parts != null and is_instance_valid(regional_parts.systems):
+		regional_parts.systems.consume_fuel_leak(delta)
 	apply_shake_forces(delta)
 	calculate_flight_data(delta)
 	
@@ -385,6 +416,11 @@ func _physics_process(delta):
 			return
 	
 	# Safety: never allow aircraft below terrain height (fallback against streaming holes)
+	if _regional_ground_contact != null:
+		_regional_ground_contact.update(self, delta)
+		if _has_exploded:
+			FrameProfiler.end("Aircraft.physics", _profiler_start)
+			return
 	if prevent_below_terrain:
 		_enforce_above_terrain()
 	
@@ -406,6 +442,30 @@ func _process(delta):
 ##############################################################################
 #  COLLISION HANDLING
 # ----------------------------------------------------------------------------
+
+func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
+	# Audio also covers fixed-wing deck/runway contacts excluded by damage sampling.
+	if is_instance_valid(_belly_scrape_audio):
+		_belly_scrape_audio.sample_contacts(state)
+	if get_node_or_null("PartDamageModel") == null or freeze or _has_exploded:
+		return
+	if _regional_ground_contact == null:
+		_regional_ground_contact = preload("res://Aircraft/AircraftGroundContact.gd").new()
+	_regional_ground_contact.sample(self, state)
+
+func regional_gear_touchdown(impact: float, normal: Vector3, point: Vector3, collider: CollisionShape3D, surface: Node = null) -> void:
+	if surface != null and _is_carrier_body(surface) and _is_managed_by_carrier_deck_ops():
+		return
+	if _regional_ground_contact == null:
+		_regional_ground_contact = preload("res://Aircraft/AircraftGroundContact.gd").new()
+	var shape_index := -1
+	for owner_id in get_shape_owners():
+		if shape_owner_get_owner(owner_id) == collider and shape_owner_get_shape_count(owner_id) > 0:
+			shape_index = shape_owner_get_shape_index(owner_id, 0)
+			break
+	var on_carrier := surface != null and _is_carrier_body(surface)
+	var surface_velocity := _get_carrier_contact_velocity(surface) if on_carrier else VelocityFrame.get_node_velocity(surface)
+	_regional_ground_contact.suspension_touchdown(impact, normal, point, shape_index, _regional_ground_contact.is_dirt_surface(surface), "carrier" if on_carrier else "terrain", surface_velocity)
 
 func _on_Aircraft_body_shape_entered(body_rid, body, body_shape_index, local_shape_index):
 	# If the colliding body is a projectile, let the projectile's script handle the damage.
@@ -433,6 +493,10 @@ func _on_Aircraft_body_shape_entered(body_rid, body, body_shape_index, local_sha
 			_evaluate_terrain_impact()
 		return
 	if _is_carrier_body(body):
+		if bool(get_meta("is_helicopter", false)) and get_node_or_null("PartDamageModel") != null:
+			# Regional sampling owns the complete impact episode, including the
+			# transition from sheared gear to a belly slide on a moving deck.
+			return
 		if collider_shape in safe_colliders:
 			var carrier_velocity := _get_carrier_contact_velocity(body)
 			var relative_velocity := linear_velocity - carrier_velocity
@@ -443,6 +507,10 @@ func _on_Aircraft_body_shape_entered(body_rid, body, body_shape_index, local_sha
 		return
 	# Terrain-specific handling
 	if _is_ground_or_terrain(body):
+		if get_node_or_null("PartDamageModel") != null:
+			# Actual contact normals and pre-impact velocity are sampled in
+			# _integrate_forces; shape-entered has neither and may fire per wheel.
+			return
 		if collider_shape in safe_colliders and _handle_safe_gear_terrain_contact():
 			return
 		_evaluate_terrain_impact()
@@ -704,6 +772,10 @@ func _enforce_above_terrain():
 	if is_nan(ground_y):
 		return
 	var min_y: float = ground_y + ground_clearance
+	if get_node_or_null("PartDamageModel") != null:
+		# The body origin is not the aircraft's lowest point. Shallow contact and
+		# suspension penetration are resolved by physics, including belly slides.
+		min_y = ground_y - 1.0
 	if global_position.y < min_y:
 		if not _is_heightmap_ground_stable_for_safety(global_position, ground_y):
 			return
@@ -1081,6 +1153,8 @@ func take_damage(damage_amount: float, local_shape_index: int = -1):
 
 
 func kill_pilot_due_to_cockpit_damage() -> void:
+	if bool(get_meta("camera_replaced_by_ejected_pilot", false)):
+		return
 	if bool(get_meta("pilot_dead", false)):
 		return
 	set_meta("pilot_dead", true)
@@ -1119,6 +1193,9 @@ func explode():
 	if _has_exploded:
 		return
 	_has_exploded = true
+	# Ground-level wreckage can be recovered; an aerial explosion is not a deposit.
+	if get_effective_altitude_agl_m() <= 8.0:
+		_register_plasteel_salvage()
 	_critical_damage_active = false
 	emit_signal("destroyed")
 	_spawn_destruction_explosion()
@@ -1317,6 +1394,7 @@ func _spawn_wreck_and_free():
 	var wreck_root: Node3D = wreck_scene.instantiate()
 	parent.add_child(wreck_root)
 	wreck_root.global_transform = global_transform
+	_register_plasteel_salvage()
 
 	# Cache aircraft velocities
 	var aircraft_linear: Vector3 = linear_velocity
@@ -1354,6 +1432,18 @@ func _spawn_wreck_and_free():
 
 	# Remove original aircraft
 	queue_free()
+
+func _register_plasteel_salvage() -> void:
+	if has_meta("plasteel_salvage_registered"):
+		return
+	var scene := get_tree().current_scene
+	if scene == null or scene.scene_file_path != "res://Main_Scene.tscn":
+		return
+	set_meta("plasteel_salvage_registered", true)
+	var at := global_position
+	if TerrainNavGrid.is_ready():
+		at.y = TerrainNavGrid.sample_height(at.x, at.z)
+	POIManager.get_resource_field().add_source("Aircraft wreck salvage", at, "salvage", {"corium": 0.0, "plasteel": 65.0}, int(team) == 1)
 
 func _spawn_exploded_model() -> void:
 	if exploded_model_scene == null:

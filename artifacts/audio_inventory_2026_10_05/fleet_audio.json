@@ -1,0 +1,174 @@
+[
+  {
+    "aircraft": 1,
+    "scene": "Aircraft\\Aircraft_1.tscn",
+    "assignments": {
+      "EngineSoundLoop": "res://Audio/engine/fixed_wing/airplane_propeller 3.wav",
+      "EngineSoundStart": "res://Audio/engine/fixed_wing/prop startup 3.wav",
+      "cockpit_interior_sound": "res://Audio/cockpit/cockpit_interior_4.wav",
+      "FlapSoundLoop": "SubResource(\"Resource_qvmvr\")"
+    }
+  },
+  {
+    "aircraft": 2,
+    "scene": "Aircraft\\Aircraft_2.tscn",
+    "assignments": {
+      "EngineSoundLoop": "res://Audio/engine/fixed_wing/airplane_propeller 1.wav",
+      "EngineSoundStart": "res://Audio/engine/fixed_wing/prop startup 3.wav",
+      "cockpit_interior_sound": "res://Audio/cockpit/cockpit_interior_2.wav",
+      "FlapSoundLoop": "SubResource(\"Resource_qvmvr\")"
+    }
+  },
+  {
+    "aircraft": 3,
+    "scene": "Aircraft\\Aircraft_3.tscn",
+    "assignments": {
+      "EngineSoundLoop": "res://Audio/engine/fixed_wing/airplane_propeller 3.wav",
+      "EngineSoundStart": "res://Audio/engine/fixed_wing/prop startup 3.wav",
+      "cockpit_interior_sound": "res://Audio/cockpit/cockpit_interior_3.wav",
+      "FlapSoundLoop": "SubResource(\"Resource_qvmvr\")"
+    }
+  },
+  {
+    "aircraft": 4,
+    "scene": "Aircraft\\Aircraft_4.tscn",
+    "assignments": {
+      "EngineSoundLoop": "res://Audio/engine/fixed_wing/airplane_propeller 3.wav",
+      "EngineSoundStart": "res://Audio/engine/fixed_wing/prop startup 3.wav",
+      "cockpit_interior_sound": "res://Audio/cockpit/cockpit_interior_2.wav",
+      "FlapSoundLoop": "SubResource(\"Resource_qvmvr\")"
+    }
+  },
+  {
+    "aircraft": 5,
+    "scene": "Aircraft\\Aircraft_5.tscn",
+    "assignments": {
+      "EngineSoundLoop": "res://Audio/engine/fixed_wing/airplane_propeller 3.wav",
+      "EngineSoundStart": "res://Audio/engine/fixed_wing/prop startup 3.wav",
+      "cockpit_interior_sound": "res://Audio/cockpit/cockpit_interior_4.wav",
+      "FlapSoundLoop": "SubResource(\"Resource_qvmvr\")"
+    }
+  },
+  {
+    "aircraft": 6,
+    "scene": "Aircraft\\Aircraft_6.tscn",
+    "assignments": {
+      "EngineSoundLoop": "res://Audio/engine/fixed_wing/airplane_propeller 3.wav",
+      "EngineSoundStart": "res://Audio/engine/fixed_wing/prop startup 3.wav",
+      "cockpit_interior_sound": "res://Audio/cockpit/cockpit_interior_3.wav",
+      "FlapSoundLoop": "SubResource(\"Resource_qvmvr\")"
+    }
+  },
+  {
+    "aircraft": 7,
+    "scene": "Aircraft\\Aircraft_7.tscn",
+    "assignments": {
+      "EngineSoundLoop": "res://Audio/engine/fixed_wing/airplane_propeller 1.wav",
+      "EngineSoundStart": "res://Audio/engine/fixed_wing/prop startup 3.wav",
+      "cockpit_interior_sound": "res://Audio/cockpit/cockpit_interior_4.wav",
+      "FlapSoundLoop": "SubResource(\"Resource_qvmvr\")"
+    }
+  },
+  {
+    "aircraft": 8,
+    "scene": "Aircraft\\Aircraft_8.tscn",
+    "assignments": {
+      "EngineSoundLoop": "res://Audio/engine/fixed_wing/airplane_propeller 3.wav",
+      "EngineSoundStart": "res://Audio/engine/fixed_wing/prop startup 3.wav",
+      "cockpit_interior_sound": "res://Audio/cockpit/cockpit_interior_4.wav",
+      "FlapSoundLoop": "SubResource(\"Resource_qvmvr\")"
+    }
+  },
+  {
+    "aircraft": 9,
+    "scene": "Aircraft\\Aircraft_9.tscn",
+    "assignments": {
+      "EngineSoundLoop": "null",
+      "EngineSoundStart": "null",
+      "rotor_audio_slow_stream": "res://Audio/engine/helicopter/Helicopter3SlowExt.wav",
+      "rotor_audio_medium_stream": "res://Audio/engine/helicopter/Helicopter3MedExt.wav",
+      "rotor_audio_fast_stream": "res://Audio/engine/helicopter/Helicopter3FastExt.wav",
+      "cockpit_interior_sound": "res://Audio/cockpit/cockpit_interior_4.wav"
+    }
+  },
+  {
+    "aircraft": 10,
+    "scene": "Aircraft\\Aircraft_10.tscn",
+    "assignments": {
+      "EngineSoundLoop": "null",
+      "EngineSoundStart": "null",
+      "rotor_audio_slow_stream": "res://Audio/engine/helicopter/Helicopter3SlowExt.wav",
+      "rotor_audio_medium_stream": "res://Audio/engine/helicopter/Helicopter3MedExt.wav",
+      "rotor_audio_fast_stream": "res://Audio/engine/helicopter/Helicopter3FastExt.wav",
+      "cockpit_interior_sound": "res://Audio/cockpit/cockpit_interior_4.wav"
+    }
+  },
+  {
+    "aircraft": 11,
+    "scene": "Aircraft\\Aircraft_11.tscn",
+    "assignments": {
+      "EngineSoundLoop": "null",
+      "EngineSoundStart": "null",
+      "rotor_audio_slow_stream": "res://Audio/engine/helicopter/Helicopter3SlowExt.wav",
+      "rotor_audio_medium_stream": "res://Audio/engine/helicopter/Helicopter3MedExt.wav",
+      "rotor_audio_fast_stream": "res://Audio/engine/helicopter/Helicopter3FastExt.wav",
+      "cockpit_interior_sound": "res://Audio/cockpit/cockpit_interior_4.wav"
+    }
+  },
+  {
+    "aircraft": 12,
+    "scene": "Aircraft\\Aircraft_12.tscn",
+    "assignments": {
+      "EngineSoundLoop": "null",
+      "EngineSoundStart": "null",
+      "rotor_audio_slow_stream": "res://Audio/engine/helicopter/Helicopter3SlowExt.wav",
+      "rotor_audio_medium_stream": "res://Audio/engine/helicopter/Helicopter3MedExt.wav",
+      "rotor_audio_fast_stream": "res://Audio/engine/helicopter/Helicopter3FastExt.wav",
+      "cockpit_interior_sound": "res://Audio/cockpit/cockpit_interior_4.wav"
+    }
+  },
+  {
+    "aircraft": 13,
+    "scene": "Aircraft\\Aircraft_13.tscn",
+    "assignments": {
+      "EngineSoundLoop": "null",
+      "EngineSoundStart": "null",
+      "rotor_audio_slow_stream": "res://Audio/engine/helicopter/Helicopter3SlowExt.wav",
+      "rotor_audio_medium_stream": "res://Audio/engine/helicopter/Helicopter3MedExt.wav",
+      "rotor_audio_fast_stream": "res://Audio/engine/helicopter/Helicopter3FastExt.wav",
+      "cockpit_interior_sound": "res://Audio/cockpit/cockpit_interior_4.wav"
+    }
+  },
+  {
+    "aircraft": 14,
+    "scene": "Aircraft\\Aircraft_14.tscn",
+    "assignments": {
+      "EngineSoundLoop": "res://Audio/engine/fixed_wing/airplane_propeller 3.wav",
+      "EngineSoundStart": "res://Audio/engine/fixed_wing/prop startup 3.wav",
+      "cockpit_interior_sound": "res://Audio/cockpit/cockpit_interior_4.wav",
+      "FlapSoundLoop": "SubResource(\"Resource_qvmvr\")"
+    }
+  },
+  {
+    "aircraft": 15,
+    "scene": "Aircraft\\Aircraft_15.tscn",
+    "assignments": {
+      "EngineSoundLoop": "null",
+      "EngineSoundStart": "null",
+      "rotor_audio_slow_stream": "res://Audio/engine/helicopter/Helicopter3SlowExt.wav",
+      "rotor_audio_medium_stream": "res://Audio/engine/helicopter/Helicopter3MedExt.wav",
+      "rotor_audio_fast_stream": "res://Audio/engine/helicopter/Helicopter3FastExt.wav",
+      "cockpit_interior_sound": "res://Audio/cockpit/cockpit_interior_4.wav"
+    }
+  },
+  {
+    "aircraft": 16,
+    "scene": "Aircraft\\Aircraft_16.tscn",
+    "assignments": {
+      "EngineSoundLoop": "res://Audio/engine/fixed_wing/airplane_propeller 3.wav",
+      "EngineSoundStart": "res://Audio/engine/fixed_wing/prop startup 3.wav",
+      "cockpit_interior_sound": "res://Audio/cockpit/cockpit_interior_3.wav",
+      "FlapSoundLoop": "SubResource(\"Resource_qvmvr\")"
+    }
+  }
+]

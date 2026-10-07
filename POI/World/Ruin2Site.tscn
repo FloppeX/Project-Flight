@@ -1,0 +1,9 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://Buildings/BuildingWreck.gd" id="1_wreck"]
+[ext_resource type="PackedScene" path="res://Models/Ruins/ruin 2.blend" id="2_model"]
+
+[node name="Ruin2Site" type="StaticBody3D"]
+script = ExtResource("1_wreck")
+
+[node name="Model" parent="." instance=ExtResource("2_model")]

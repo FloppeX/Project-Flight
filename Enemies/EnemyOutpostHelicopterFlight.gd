@@ -55,6 +55,7 @@ func _configure_materialized_enemy_aircraft(ac: Node3D, loadout: String = "rocke
 		pilot.engine.set("is_engine_working", true)
 		pilot.engine.set("current_power", trim)
 		pilot.engine.set("target_power", trim)
+	ac.get_node("SimpleAero").prime_airborne_rotor()
 	pilot._collective_cmd = trim
 	if pilot.control_engine != null:
 		pilot.control_engine.set_target_power(trim)

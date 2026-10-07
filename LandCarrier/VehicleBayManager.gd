@@ -4,6 +4,7 @@ class_name VehicleBayManager
 ## Manages ground vehicle deployment and retrieval from the carrier's vehicle bay.
 
 signal vehicle_deployed(vehicle: Node3D)
+signal vehicle_spawned(vehicle: Node3D)
 signal platoon_deployed(platoon: GroundVehiclePlatoon)
 signal vehicle_retrieved(vehicle: Node3D)
 signal platoon_retrieved()
@@ -13,6 +14,8 @@ signal platoon_retrieved()
 @export var deploy_interval_s: float = 3.0
 @export var retrieve_interval_s: float = 3.0
 const PLATOON_SIZE: int = 4
+const EXPLORER_SCENE := "res://GroundVehicle/ground_vehicle_1.tscn"
+const SABRETOOTH_SCENE := "res://GroundVehicle/ground_vehicle_2.tscn"
 
 enum BayState { IDLE, DEPLOYING, RETRIEVING }
 var state: BayState = BayState.IDLE
@@ -32,6 +35,10 @@ var _retrieve_timer: float = 0.0
 
 # Bay storage
 var stored_vehicles: int = 0
+# Combat stock stays aggregate for existing UI/operations. The remainder is Explorer stock.
+var stored_sabretooths: int = 0
+var stored_harvesters: int = 0
+var _deploy_harvester := false
 
 func _unhandled_input(event: InputEvent) -> void:
 	return
@@ -67,9 +74,52 @@ func _ready() -> void:
 	call_deferred("_find_ramp")
 
 	if not vehicle_scene:
-		vehicle_scene = load("res://GroundVehicle/vehicle_friendly_light.tscn")
+		vehicle_scene = load(EXPLORER_SCENE)
 
-	stored_vehicles = max_bay_capacity
+	stored_harvesters = 1 if max_bay_capacity > 0 else 0
+	stored_vehicles = max_bay_capacity - stored_harvesters
+	stored_sabretooths = 0
+
+func stored_explorers() -> int:
+	return maxi(0, stored_vehicles - stored_sabretooths)
+
+func get_next_vehicle_scene() -> PackedScene:
+	return load(EXPLORER_SCENE if stored_explorers() > 0 else SABRETOOTH_SCENE)
+
+func accept_fabricated_vehicle(scene_path: String) -> bool:
+	if stored_total() >= max_bay_capacity:
+		return false
+	if scene_path == "res://GroundVehicle/Harvester.tscn":
+		stored_harvesters += 1
+	elif scene_path == EXPLORER_SCENE:
+		stored_vehicles += 1
+	elif scene_path == SABRETOOTH_SCENE:
+		stored_vehicles += 1
+		stored_sabretooths += 1
+	else:
+		return false
+	return true
+
+func deploy_harvester() -> bool:
+	if state != BayState.IDLE or stored_harvesters <= 0 or not is_instance_valid(_carrier):
+		return false
+	if _carrier.get_system_capability("vehicle_bay") <= 0.0:
+		return false
+	_find_ramp()
+	if not is_instance_valid(_ramp):
+		return false
+	if _ramp.is_stowed():
+		_ramp.deploy()
+	_deploy_harvester = true
+	_current_platoon = null
+	_deploy_queue = 1
+	_deploy_pending_vehicles = 0
+	_deploy_timer = 2.0
+	state = BayState.DEPLOYING
+	return true
+
+func stored_total() -> int:
+	return stored_vehicles + stored_harvesters
 
 func _find_ramp() -> void:
 	if _carrier:
@@ -101,6 +151,8 @@ func deploy_platoon() -> void:
 	deploy_platoon_for(p)
 
 func deploy_platoon_for(platoon: GroundVehiclePlatoon) -> void:
+	if state != BayState.IDLE:
+		return
 	if is_instance_valid(_carrier) and _carrier.has_method("get_system_capability"):
 		if float(_carrier.call("get_system_capability", "vehicle_bay")) <= 0.0:
 			return
@@ -118,6 +170,7 @@ func deploy_platoon_for(platoon: GroundVehiclePlatoon) -> void:
 		_ramp.deploy()
 
 	_current_platoon = platoon
+	_deploy_harvester = false
 	_deploy_queue = count
 	_deploy_pending_vehicles = 0
 	_deploy_timer = 2.0
@@ -136,11 +189,12 @@ func _spawn_next_vehicle() -> void:
 			_ramp.deploy()
 		_deploy_timer = 0.5
 		return
-	if stored_vehicles <= 0:
+	if (stored_harvesters if _deploy_harvester else stored_vehicles) <= 0:
 		_deploy_queue = 0
 		return
 
-	var vehicle: Node3D = vehicle_scene.instantiate()
+	var selected_scene: PackedScene = load("res://GroundVehicle/Harvester.tscn") if _deploy_harvester else get_next_vehicle_scene()
+	var vehicle: Node3D = selected_scene.instantiate()
 	get_tree().current_scene.add_child(vehicle)
 
 	# Assign to platoon immediately so the vehicle has an objective when deploy ends
@@ -153,17 +207,30 @@ func _spawn_next_vehicle() -> void:
 
 	if vehicle.has_signal("deploy_complete"):
 		vehicle.deploy_complete.connect(_on_vehicle_deployed, CONNECT_ONE_SHOT)
+	if vehicle.has_signal("destroyed"):
+		vehicle.destroyed.connect(_on_pending_vehicle_destroyed, CONNECT_ONE_SHOT)
 
 	_deploy_queue -= 1
 	_deploy_pending_vehicles += 1
 	_deploy_timer = deploy_interval_s
-	stored_vehicles -= 1
+	if _deploy_harvester:
+		stored_harvesters -= 1
+	else:
+		stored_vehicles -= 1
+		if selected_scene.resource_path == SABRETOOTH_SCENE:
+			stored_sabretooths = maxi(0, stored_sabretooths - 1)
+	vehicle_spawned.emit(vehicle)
 	print("[VehicleBay] Vehicle spawned, %d remaining in queue, %d in bay" % [_deploy_queue, stored_vehicles])
 
 func _on_vehicle_deployed(vehicle: Node3D) -> void:
-	_deploy_pending_vehicles -= 1
+	_deploy_pending_vehicles = maxi(0, _deploy_pending_vehicles - 1)
+	if vehicle.has_signal("destroyed") and vehicle.destroyed.is_connected(_on_pending_vehicle_destroyed):
+		vehicle.destroyed.disconnect(_on_pending_vehicle_destroyed)
 	emit_signal("vehicle_deployed", vehicle)
 	print("[VehicleBay] Vehicle deployed at %s" % str(vehicle.global_position))
+
+func _on_pending_vehicle_destroyed(_vehicle: Node3D) -> void:
+	_deploy_pending_vehicles = maxi(0, _deploy_pending_vehicles - 1)
 
 func _finish_deployment() -> void:
 	if _deploy_pending_vehicles > 0:
@@ -173,6 +240,7 @@ func _finish_deployment() -> void:
 		emit_signal("platoon_deployed", _current_platoon)
 		print("[VehicleBay] Platoon %s fully deployed" % _current_platoon.name)
 	_current_platoon = null
+	_deploy_harvester = false
 	_stow_ramp()
 
 # ── Retrieve ─────────────────────────────────────────────────────────────────
@@ -184,6 +252,8 @@ func can_retrieve_vehicles() -> bool:
 	return is_instance_valid(_ramp)
 
 func retrieve_vehicles(vehicles: Array[Node3D]) -> void:
+	if state != BayState.IDLE:
+		return
 	if vehicles.is_empty():
 		return
 	if not _ramp:
@@ -252,13 +322,22 @@ func _process_retrieval(delta: float) -> void:
 			v.begin_ramp_ascent()
 			_retrieve_timer = retrieve_interval_s
 			if v.has_signal("retrieve_complete"):
-				v.retrieve_complete.connect(_on_vehicle_retrieved.bind(v), CONNECT_ONE_SHOT)
+				v.retrieve_complete.connect(_on_vehicle_retrieved, CONNECT_ONE_SHOT)
 			print("[VehicleBay] Vehicle ascending ramp")
 			return
 
 func _on_vehicle_retrieved(vehicle: Node3D) -> void:
 	_retrieve_vehicles.erase(vehicle)
-	stored_vehicles += 1
+	if vehicle.is_in_group("harvesters"):
+		var manager := get_tree().get_first_node_in_group("carrier_manager")
+		if manager != null:
+			vehicle.unload_cargo(manager)
+		stored_harvesters += 1
+	else:
+		stored_vehicles += 1
+		if str(vehicle.get_meta("vehicle_id", "")) == "kmv_sabretooth" \
+				or vehicle.scene_file_path in [SABRETOOTH_SCENE, "res://GroundVehicle/vehicle_friendly_light.tscn"]:
+			stored_sabretooths += 1
 	emit_signal("vehicle_retrieved", vehicle)
 	print("[VehicleBay] Vehicle stored, %d in bay" % stored_vehicles)
 
@@ -269,13 +348,22 @@ func _stow_ramp() -> void:
 
 
 func capture_save_state() -> Dictionary:
-	return {"stored_vehicles": stored_vehicles}
+	return {"stored_vehicles": stored_vehicles, "stored_harvesters": stored_harvesters,
+		"stored_sabretooths": stored_sabretooths, "vehicle_inventory_version": 1}
 
 
 func restore_save_state(save_state: Dictionary) -> bool:
 	if save_state.is_empty():
 		return false
 	stored_vehicles = clampi(int(save_state.get("stored_vehicles", max_bay_capacity)), 0, max_bay_capacity)
+	# Upgrade an older bay with one utility vehicle, using an existing stored slot.
+	stored_harvesters = clampi(int(save_state.get("stored_harvesters", 1 if stored_vehicles > 0 else 0)), 0, max_bay_capacity)
+	if not save_state.has("stored_harvesters") and stored_harvesters > 0:
+		stored_vehicles -= 1
+	stored_vehicles = mini(stored_vehicles, max_bay_capacity - stored_harvesters)
+	# Before typed inventory every combat vehicle in storage was the six-wheel Sabretooth.
+	stored_sabretooths = clampi(int(save_state.get("stored_sabretooths", stored_vehicles)), 0, stored_vehicles)
+	_deploy_harvester = false
 	state = BayState.IDLE
 	_deploy_queue = 0
 	_deploy_pending_vehicles = 0

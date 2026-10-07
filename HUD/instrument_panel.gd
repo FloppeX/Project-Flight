@@ -1119,6 +1119,22 @@ func interact_from_camera(camera: Camera3D, max_distance_m: float = 2.5) -> bool
 	return interact_at_panel_point(point)
 
 
+func select_damage_page() -> bool:
+	for mfd in mfd_modules:
+		var index := mfd.available_modes.find("DAMAGE")
+		if index >= 0:
+			mfd.current_mode_index = index
+			mfd._apply_mode_visibility()
+			return true
+	return false
+
+
+func cycle_left_mfd(direction: int) -> bool:
+	if mfd_modules.is_empty(): return false
+	mfd_modules[0]._cycle_mode(direction)
+	return true
+
+
 func interact_from_ray(ray_origin: Vector3, ray_direction: Vector3, max_distance_m: float = 2.5) -> bool:
 	var point_variant: Variant = _project_ray_to_panel_point(ray_origin, ray_direction, max_distance_m)
 	if point_variant == null:

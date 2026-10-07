@@ -1,0 +1,822 @@
+[
+  {
+    "id": "N01",
+    "area": "Carrier ambience",
+    "sound": "Exterior deck machinery bed",
+    "status": "Wired; expand",
+    "priority": 2,
+    "detail": "A deck bed exists. Add localized vents, distant machinery and occasional hull settling; vary with carrier load and listener location.",
+    "hook": "LandCarrier/LandCarrier.gd:2254",
+    "candidates": [
+      "S19",
+      "S20"
+    ]
+  },
+  {
+    "id": "N02",
+    "area": "Carrier ambience",
+    "sound": "Bridge and corridor ventilation",
+    "status": "Wired; expand",
+    "priority": 2,
+    "detail": "interior_ventilation.ogg already blends room hum and fan. Add distinct bridge, corridor and enclosed-room profiles.",
+    "hook": "LandCarrier/Commander.gd:960",
+    "candidates": [
+      "S16",
+      "S17",
+      "S18"
+    ]
+  },
+  {
+    "id": "N03",
+    "area": "Carrier ambience",
+    "sound": "Hangar, vehicle bay and machinery-room ambience",
+    "status": "Missing dedicated cues",
+    "priority": 2,
+    "detail": "Use localized fans, electrical transformers, pumps and metal room reflections. Fade at openings instead of one constant everywhere.",
+    "hook": "LandCarrier/VehicleBayManager.gd",
+    "candidates": [
+      "S16",
+      "S19",
+      "S26"
+    ]
+  },
+  {
+    "id": "N04",
+    "area": "Carrier ambience",
+    "sound": "Exposed deck wind and sheltered transitions",
+    "status": "Partial",
+    "priority": 1,
+    "detail": "Wind already exists in flight/weather and commander mixes. Add dedicated open-deck wind driven by relative wind, height and shelter.",
+    "hook": "LandCarrier/Commander.gd; Weather/DustFrontVisuals.gd",
+    "candidates": [
+      "S21",
+      "S22"
+    ]
+  },
+  {
+    "id": "N05",
+    "area": "Carrier ambience",
+    "sound": "Hull creaks, loose panels and structural settling",
+    "status": "Missing dedicated cues",
+    "priority": 2,
+    "detail": "Sparse one-shots while turning, braking and crossing rough ground; avoid a repeating creak loop.",
+    "hook": "LandCarrier/LandCarrier.gd",
+    "candidates": [
+      "S43",
+      "S27"
+    ]
+  },
+  {
+    "id": "N06",
+    "area": "Carrier movement",
+    "sound": "Track-link rolling and clatter",
+    "status": "Wired; expand",
+    "priority": 1,
+    "detail": "track_links.ogg follows each tread. Review in-game audibility first; add load/terrain texture and different left/right speed response.",
+    "hook": "LandCarrier/CarrierTread.gd:641",
+    "candidates": [
+      "S31",
+      "S32",
+      "S34"
+    ]
+  },
+  {
+    "id": "N07",
+    "area": "Carrier movement",
+    "sound": "Track engagement, braking and skid turns",
+    "status": "Missing dedicated cues",
+    "priority": 1,
+    "detail": "Add start clunk, stop settling, tension squeak and hard-turn scrub. A moving loop alone does not communicate these transitions.",
+    "hook": "LandCarrier/CarrierTread.gd",
+    "candidates": [
+      "S33",
+      "S35",
+      "S43"
+    ]
+  },
+  {
+    "id": "N08",
+    "area": "Carrier movement",
+    "sound": "Carrier electric drive under load",
+    "status": "Partial",
+    "priority": 2,
+    "detail": "Generic deck bed exists; create a distinct load-sensitive electrical drive layer underneath track clatter.",
+    "hook": "LandCarrier/LandCarrier.gd",
+    "candidates": [
+      "S06",
+      "S19"
+    ]
+  },
+  {
+    "id": "N09",
+    "area": "Elevators and doors",
+    "sound": "Deck elevator motor travel",
+    "status": "Wired; verify",
+    "priority": 1,
+    "detail": "elevator_moving_mono.wav is wired. Current RuntimeAudio fills a zero-length loop range and elevator update restarts stopped playback. Historical silence is not proof of a current failure.",
+    "hook": "LandCarrier/CarrierElevator.gd:841; Audio/RuntimeAudio.gd:4",
+    "candidates": [
+      "S30",
+      "S24",
+      "S26"
+    ]
+  },
+  {
+    "id": "N10",
+    "area": "Elevators and doors",
+    "sound": "Island passenger lift motor",
+    "status": "Wired; differentiate",
+    "priority": 1,
+    "detail": "Currently shares the deck-elevator source. Give the smaller lift its own travel, braking and cabin perspective.",
+    "hook": "LandCarrier/CommanderWalkArea.gd:321",
+    "candidates": [
+      "S25",
+      "S30"
+    ]
+  },
+  {
+    "id": "N11",
+    "area": "Elevators and doors",
+    "sound": "Elevator locking pins, release and arrival thump",
+    "status": "Missing dedicated cues",
+    "priority": 1,
+    "detail": "Distinct unlock before travel, brake deceleration, then locking clunk only after actual stop/alignment. Different up/down arrivals may need different resonance.",
+    "hook": "LandCarrier/CarrierElevator.gd; LandCarrier/CommanderWalkArea.gd",
+    "candidates": [
+      "S28",
+      "S29",
+      "S27"
+    ]
+  },
+  {
+    "id": "N12",
+    "area": "Elevators and doors",
+    "sound": "Elevator covers: lift, slide, close and latch",
+    "status": "Partial",
+    "priority": 1,
+    "detail": "Cover movement already raises the shared motor layer. Add separate sliding weight and closing/latch transients.",
+    "hook": "LandCarrier/CarrierElevator.gd:859",
+    "candidates": [
+      "S26",
+      "S49",
+      "S28"
+    ]
+  },
+  {
+    "id": "N13",
+    "area": "Elevators and doors",
+    "sound": "Personnel doors: actuator and sealing latch",
+    "status": "Partial",
+    "priority": 2,
+    "detail": "door_slide.wav plays on movement/reversal; add final contact/seal only if useful, plus distinct heavy bay-door character.",
+    "hook": "LandCarrier/CarrierSlidingDoor.gd:21",
+    "candidates": [
+      "S28",
+      "S49"
+    ]
+  },
+  {
+    "id": "N14",
+    "area": "Deck operations",
+    "sound": "Catapult engagement, charging, release and reset",
+    "status": "Missing dedicated cues",
+    "priority": 1,
+    "detail": "Latch aircraft, tension/charge, launch stroke, release and shuttle return are separate events. Keep launch sound synchronized with the actual shared launch gate.",
+    "hook": "LandCarrier/Catapult.gd",
+    "candidates": [
+      "S27",
+      "S46",
+      "S47"
+    ]
+  },
+  {
+    "id": "N15",
+    "area": "Deck operations",
+    "sound": "Landing catch/arrest and release",
+    "status": "Missing dedicated cues",
+    "priority": 1,
+    "detail": "A catch transient, deceleration tension and final release should identify successful recovery. Tie to actual catch state rather than nearby flight.",
+    "hook": "LandCarrier/FlightDeckManager.gd",
+    "candidates": [
+      "S27",
+      "S28",
+      "S35"
+    ]
+  },
+  {
+    "id": "N16",
+    "area": "Deck operations",
+    "sound": "Recovery robots: drive, arms, clamps and towing",
+    "status": "Missing dedicated cues",
+    "priority": 1,
+    "detail": "Electric locomotion, arm servo, wheel clamp, tow strain and clamp release. Stop each layer when that mechanism stops.",
+    "hook": "LandCarrier/TractorBot.gd",
+    "candidates": [
+      "S03",
+      "S46",
+      "S28"
+    ]
+  },
+  {
+    "id": "N17",
+    "area": "Deck operations",
+    "sound": "Wing fold/unfold and lock",
+    "status": "Missing dedicated cues",
+    "priority": 2,
+    "detail": "Actuator while moving, endpoint latch, and optional obstruction/stall cue. Respect each authored aircraft mechanism.",
+    "hook": "Aircraft/Visuals; aircraft wing-fold controllers",
+    "candidates": [
+      "S46",
+      "S28"
+    ]
+  },
+  {
+    "id": "N18",
+    "area": "Deck operations",
+    "sound": "Rearming, repair and charging services",
+    "status": "Suggested extension",
+    "priority": 3,
+    "detail": "Short tool, connector and completion cues where service events are visible; do not create invisible ongoing workshop noise for abstract timers.",
+    "hook": "LandCarrier/FlightDeckManager.gd",
+    "candidates": [
+      "S46",
+      "S48",
+      "S28"
+    ]
+  },
+  {
+    "id": "N19",
+    "area": "Aircraft propulsion",
+    "sound": "Distinct electric motor identities",
+    "status": "Shared baseline",
+    "priority": 1,
+    "detail": "Eight numbered fixed-wing scenes use airplane_propeller 3.wav; two use airplane_propeller 1.wav. Add separate electrical tone plus aerodynamic layer with per-aircraft profiles.",
+    "hook": "addons/simplified_flightsim/aircraft_modules/Engine/Engine.gd:18",
+    "candidates": [
+      "S01",
+      "S02",
+      "S03",
+      "S07",
+      "S14"
+    ]
+  },
+  {
+    "id": "N20",
+    "area": "Aircraft propulsion",
+    "sound": "Motor start, contactor, acceleration and shutdown",
+    "status": "Partial",
+    "priority": 1,
+    "detail": "Startup assets are assigned; EngineSoundStop hook exists but no assignment was found in numbered aircraft scenes. Add contactor click, spool-up, load changes and coast-down.",
+    "hook": "addons/simplified_flightsim/aircraft_modules/Engine/Engine.gd:18",
+    "candidates": [
+      "S01",
+      "S05",
+      "S47"
+    ]
+  },
+  {
+    "id": "N21",
+    "area": "Aircraft propulsion",
+    "sound": "Propeller whirr and blade beating",
+    "status": "Shared baseline",
+    "priority": 1,
+    "detail": "Provide low/medium/high rotational beds plus blade-load pulse; vary with actual rotation/load and prop layout, not only a pitch shift of one motor loop.",
+    "hook": "addons/simplified_flightsim/aircraft_modules/Engine/Engine.gd",
+    "candidates": [
+      "S08",
+      "S09",
+      "S10",
+      "S11"
+    ]
+  },
+  {
+    "id": "N22",
+    "area": "Aircraft propulsion",
+    "sound": "Helicopter rotor identity, spool and loaded beating",
+    "status": "Wired; differentiate",
+    "priority": 1,
+    "detail": "Aircraft 9\u201313 and 15 share Helicopter3 slow/medium/fast exterior layers. Add distinct light/utility/heavy rotor balance and spool tails.",
+    "hook": "Aircraft/Visuals/CounterRotatingRotor.gd:29",
+    "candidates": [
+      "S12",
+      "S13",
+      "S15",
+      "S47"
+    ]
+  },
+  {
+    "id": "N23",
+    "area": "Aircraft propulsion",
+    "sound": "Exterior fly-by and distance perspective",
+    "status": "Partial",
+    "priority": 2,
+    "detail": "3D attenuation exists. Review Doppler/distance treatment and directional prop/rotor balance before adding prerecorded fly-bys that could double the engine.",
+    "hook": "Audio/AudioManager3D.gd; aircraft engine/rotor players",
+    "candidates": [
+      "S08",
+      "S12"
+    ]
+  },
+  {
+    "id": "N24",
+    "area": "Aircraft interior",
+    "sound": "Electrical systems and ventilation",
+    "status": "Wired; expand",
+    "priority": 2,
+    "detail": "cabin_systems.ogg and per-scene cockpit interiors exist. Distinguish quiet modern, rough older, and exposed-canopy cockpits without masking radio.",
+    "hook": "Audio/AudioManager3D.gd:17",
+    "candidates": [
+      "S16",
+      "S18",
+      "S13"
+    ]
+  },
+  {
+    "id": "N25",
+    "area": "Aircraft interior",
+    "sound": "Airspeed rush, dirty-flight drag and stall buffet",
+    "status": "Wired; review",
+    "priority": 2,
+    "detail": "AirflowFeedback and ContinuousTurbulence already supply wind/rush/buffet. Check overlap and mix before adding another wind bed.",
+    "hook": "Aircraft/AirflowFeedback.gd:4; Weather/ContinuousTurbulence.gd:231",
+    "candidates": [
+      "S23"
+    ]
+  },
+  {
+    "id": "N26",
+    "area": "Aircraft interior",
+    "sound": "Canopy open/close, latch and pressure seal",
+    "status": "Missing dedicated cues",
+    "priority": 2,
+    "detail": "Where canopy animation exists, tie actuator, latch and wind perspective to its actual position. Skip pressure hiss for unpressurized cabins.",
+    "hook": "Aircraft scenes / cockpit controls",
+    "candidates": [
+      "S49",
+      "S28"
+    ]
+  },
+  {
+    "id": "N27",
+    "area": "Aircraft interior",
+    "sound": "Control switches, throttle detents and seat/harness movement",
+    "status": "Missing dedicated cues",
+    "priority": 3,
+    "detail": "Quiet local interactions with restrained variation; trigger only on actions, not every frame of axis movement.",
+    "hook": "Aircraft cockpit interaction controllers",
+    "candidates": [
+      "S29"
+    ]
+  },
+  {
+    "id": "N28",
+    "area": "Aircraft interior",
+    "sound": "Landing gear and flap operation",
+    "status": "Partial",
+    "priority": 2,
+    "detail": "Gear deployment/stow have recordings. Fixed-wing FlapSoundLoop assignments resolve to Resource placeholders; flap_loop.ogg has no literal hookup found. Verify and supply a real stream.",
+    "hook": "addons/simplified_flightsim/aircraft_modules/LandingGear/LandingGear.gd; Flaps/Flaps.gd",
+    "candidates": [
+      "S49",
+      "S46"
+    ]
+  },
+  {
+    "id": "N29",
+    "area": "Aircraft interior",
+    "sound": "Gear lock and touchdown confirmation",
+    "status": "Missing dedicated cues",
+    "priority": 1,
+    "detail": "Add physical lock clunks and wheel/suspension touchdown thumps; avoid a UI success jingle for every landing.",
+    "hook": "addons/simplified_flightsim/aircraft_modules/LandingGear/LandingGear.gd",
+    "candidates": [
+      "S28",
+      "S45"
+    ]
+  },
+  {
+    "id": "N30",
+    "area": "Aircraft interior",
+    "sound": "Critical flight/system warnings",
+    "status": "Missing dedicated cues",
+    "priority": 1,
+    "detail": "Separate stall/overspeed/gear unsafe/power failure meanings where those states exist. Prioritize one urgent cue, with cooldowns and acknowledgement.",
+    "hook": "HUD/instrument_panel.gd; Aircraft/RegionalDamageSystems.gd",
+    "candidates": [
+      "S51"
+    ]
+  },
+  {
+    "id": "N31",
+    "area": "Aircraft damage",
+    "sound": "Part tear-off, spar snap and skin crumple",
+    "status": "Missing dedicated cues",
+    "priority": 1,
+    "detail": "Layer a short fracture transient, metallic strain and loose fragments; size by damaged part and emit once per actual detachment.",
+    "hook": "Aircraft/AircraftPartDamageModel.gd:538",
+    "candidates": [
+      "S37",
+      "S39",
+      "S38"
+    ]
+  },
+  {
+    "id": "N32",
+    "area": "Aircraft damage",
+    "sound": "Control-surface or gear breakaway",
+    "status": "Missing dedicated cues",
+    "priority": 1,
+    "detail": "Small, sharp variants for aileron/gear versus heavy wing/tail separation. Preserve spatial location as debris separates.",
+    "hook": "Aircraft/AircraftPartDamageModel.gd:610",
+    "candidates": [
+      "S37",
+      "S38",
+      "S43"
+    ]
+  },
+  {
+    "id": "N33",
+    "area": "Aircraft damage",
+    "sound": "Motor damage, arcing and dying bearings",
+    "status": "Missing dedicated cues",
+    "priority": 1,
+    "detail": "Damage-driven irregular whine/grind and electrical crackle; sound follows disabled/reduced-power state and stops on destruction.",
+    "hook": "Aircraft/RegionalDamageSystems.gd; Aircraft/DamageEffects.gd",
+    "candidates": [
+      "S44",
+      "S04",
+      "S47"
+    ]
+  },
+  {
+    "id": "N34",
+    "area": "Aircraft damage",
+    "sound": "Loose panel flutter and structural stress",
+    "status": "Missing dedicated cues",
+    "priority": 2,
+    "detail": "Airflow-dependent rattle for a damaged section; separate from healthy stall buffet. Avoid implying imminent failure unless the state supports it.",
+    "hook": "Aircraft/AircraftPartDamageModel.gd; Aircraft/AirflowFeedback.gd",
+    "candidates": [
+      "S43",
+      "S37"
+    ]
+  },
+  {
+    "id": "N35",
+    "area": "Aircraft damage",
+    "sound": "Canopy hits and cracking",
+    "status": "Partial",
+    "priority": 2,
+    "detail": "Bullet metal/dirt impacts exist; dedicated glass/canopy and cockpit transmission variants would make hit location clearer.",
+    "hook": "Projectiles/ProjectileNew/projectile_new.gd:652",
+    "candidates": [
+      "S39"
+    ]
+  },
+  {
+    "id": "N36",
+    "area": "Ground contact",
+    "sound": "Normal wheel touchdown, roll and brakes",
+    "status": "Missing dedicated cues",
+    "priority": 1,
+    "detail": "Contact thump, rolling texture and short brake chirp with speed/surface scaling; separate from gear deployment.",
+    "hook": "Aircraft/AircraftGroundContact.gd:15; LandingGear.gd",
+    "candidates": [
+      "S45",
+      "S41"
+    ]
+  },
+  {
+    "id": "N37",
+    "area": "Ground contact",
+    "sound": "Belly slide on dirt, gravel, rock and deck",
+    "status": "Missing dedicated cues",
+    "priority": 1,
+    "detail": "Initial impact + sustained friction + bumps/debris + settling. Use relative contact speed and surface; fade when airborne or stopped.",
+    "hook": "Aircraft/AircraftGroundContact.gd",
+    "candidates": [
+      "S35",
+      "S36",
+      "S40",
+      "S41",
+      "S42"
+    ]
+  },
+  {
+    "id": "N38",
+    "area": "Ground contact",
+    "sound": "Wingtip/propeller ground strike and cartwheel impacts",
+    "status": "Missing dedicated cues",
+    "priority": 1,
+    "detail": "Distinct short strikes with contact-episode cooldown, separate from sustained fuselage scrape; broken prop must no longer sound healthy.",
+    "hook": "Aircraft/AircraftGroundContact.gd; Aircraft/RegionalDamageSystems.gd",
+    "candidates": [
+      "S37",
+      "S39",
+      "S40"
+    ]
+  },
+  {
+    "id": "N39",
+    "area": "Ground contact",
+    "sound": "Detached debris bouncing and settling",
+    "status": "Missing dedicated cues",
+    "priority": 2,
+    "detail": "Bounded impact pool by material and mass; only the most audible nearby collisions, then silence at rest.",
+    "hook": "Aircraft/AircraftPartDamageModel.gd:650",
+    "candidates": [
+      "S38",
+      "S43"
+    ]
+  },
+  {
+    "id": "N40",
+    "area": "Escape and rescue",
+    "sound": "Canopy jettison, ejection seat and parachute",
+    "status": "Missing dedicated cues",
+    "priority": 1,
+    "detail": "Staged release, seat launch, wind transition, chute opening and cloth flutter; no engine interior hum after ejection.",
+    "hook": "Aircraft/EjectionSequence.gd",
+    "candidates": [
+      "S50",
+      "S23"
+    ]
+  },
+  {
+    "id": "N41",
+    "area": "Escape and rescue",
+    "sound": "Pilot landing, walking and rescue pickup",
+    "status": "Partial",
+    "priority": 2,
+    "detail": "Officer metal footsteps exist. Add appropriate ground/cloth sounds and a quiet rescue/boarding confirmation where animated.",
+    "hook": "Aircraft/EjectionSequence.gd; Audio/OfficerFootsteps.gd",
+    "candidates": [
+      "S41",
+      "S45"
+    ]
+  },
+  {
+    "id": "N42",
+    "area": "Ground vehicles",
+    "sound": "Electric drivetrains by vehicle weight",
+    "status": "Missing dedicated cues",
+    "priority": 1,
+    "detail": "Scout, armored carrier and harvester need start/load/coast/stop identity; current turret/weapon audio does not cover locomotion.",
+    "hook": "GroundVehicle/vehicle_friendly_light.gd; GroundVehicle/vehicle_enemy_light.gd",
+    "candidates": [
+      "S01",
+      "S06",
+      "S04"
+    ]
+  },
+  {
+    "id": "N43",
+    "area": "Ground vehicles",
+    "sound": "Tires, suspension, gravel and body rattle",
+    "status": "Missing dedicated cues",
+    "priority": 2,
+    "detail": "Drive surface texture, corner scrub, rough-ground suspension and limited cabin rattles. Do not use carrier treads for wheeled vehicles.",
+    "hook": "GroundVehicle/ReverseDrive.gd; vehicle movement scripts",
+    "candidates": [
+      "S41",
+      "S42",
+      "S43"
+    ]
+  },
+  {
+    "id": "N44",
+    "area": "Ground vehicles",
+    "sound": "Vehicle bay loading ramp, restraint and doors",
+    "status": "Missing dedicated cues",
+    "priority": 2,
+    "detail": "Motorized bay opening, ramp settling and release/load locks synced to deployment and recovery.",
+    "hook": "LandCarrier/VehicleBayManager.gd",
+    "candidates": [
+      "S49",
+      "S27",
+      "S28"
+    ]
+  },
+  {
+    "id": "N45",
+    "area": "Resources and production",
+    "sound": "Harvester arm deploy, extraction and retraction",
+    "status": "Missing dedicated cues",
+    "priority": 1,
+    "detail": "Servo articulation, sustained extraction/pump/grind, change of load and stow latch; distinguish corium extraction from plasteel salvage.",
+    "hook": "GroundVehicle/Harvester.gd; LandCarrier/HarvesterOps.gd",
+    "candidates": [
+      "S46",
+      "S48",
+      "S42"
+    ]
+  },
+  {
+    "id": "N46",
+    "area": "Resources and production",
+    "sound": "Cargo transfer, salvage pickup and unloading",
+    "status": "Missing dedicated cues",
+    "priority": 2,
+    "detail": "Mechanical handling at world pickup and carrier return; a quiet receipt cue when resources actually arrive.",
+    "hook": "LandCarrier/HarvesterOps.gd; POI/ResourceField.gd",
+    "candidates": [
+      "S28",
+      "S38",
+      "S46"
+    ]
+  },
+  {
+    "id": "N47",
+    "area": "Resources and production",
+    "sound": "Replicator assembly cycle",
+    "status": "Partial",
+    "priority": 2,
+    "detail": "ReplicatorChamber currently loops electrical_hum_2.wav. Add start, arm/tool activity, assembly phase change, completion and shutdown.",
+    "hook": "LandCarrier/ReplicatorChamber.gd:48; LandCarrier/ReplicatorArmMotion.gd",
+    "candidates": [
+      "S48",
+      "S07",
+      "S47"
+    ]
+  },
+  {
+    "id": "N48",
+    "area": "Weapons and combat",
+    "sound": "Machine guns and cannon families",
+    "status": "Wired; refine",
+    "priority": 2,
+    "detail": "Multiple shot banks already exist. Review caliber distinction, near/far tails and rates; prioritize missing actions before buying more gunshots.",
+    "hook": "Weapons/Autocannon/autocannon.gd:375",
+    "candidates": []
+  },
+  {
+    "id": "N49",
+    "area": "Weapons and combat",
+    "sound": "Reload, weapon mechanism, dry fire and jam",
+    "status": "Suggested extension",
+    "priority": 2,
+    "detail": "Only use reload/jam cues for states actually represented. Mechanical recoil/feeding can complement existing shot banks.",
+    "hook": "Weapons/Autocannon/autocannon.gd; Weapons/Guns/gun_profile.gd",
+    "candidates": [
+      "S29"
+    ]
+  },
+  {
+    "id": "N50",
+    "area": "Weapons and combat",
+    "sound": "Rocket launch, bomb release and ordnance flight",
+    "status": "Partial",
+    "priority": 2,
+    "detail": "rocket.wav is wired. Add rack release/door action and appropriate near-pass/flight cues where supported.",
+    "hook": "Projectiles/Rocket/rocket.gd; Weapons/hardpoint.gd",
+    "candidates": [
+      "S49"
+    ]
+  },
+  {
+    "id": "N51",
+    "area": "Weapons and combat",
+    "sound": "Impacts, ricochets and incoming near misses",
+    "status": "Partial",
+    "priority": 2,
+    "detail": "Metal/dirt impact banks exist. Add concrete/glass distinctions and sparse bullet crack/whizz feedback for nearby threats.",
+    "hook": "Projectiles/ProjectileNew/projectile_new.gd; Effects/BulletImpactBudget.gd",
+    "candidates": [
+      "S38",
+      "S39"
+    ]
+  },
+  {
+    "id": "N52",
+    "area": "Weapons and combat",
+    "sound": "Explosions, debris tails and burning wrecks",
+    "status": "Partial",
+    "priority": 2,
+    "detail": "Large explosion variants exist. Add restrained sustained wreck fire/electrical failure and mass-dependent debris tails.",
+    "hook": "Projectiles/Explosion/explosion.gd; GroundVehicle/VehicleWreck.gd",
+    "candidates": [
+      "S38",
+      "S44"
+    ]
+  },
+  {
+    "id": "N53",
+    "area": "Weapons and combat",
+    "sound": "Turret rotation and end stops",
+    "status": "Wired; expand",
+    "priority": 2,
+    "detail": "electric_servo.ogg follows turret motion. Differentiate heavy carrier mounts and small remote mounts; avoid spurious endpoint knocks.",
+    "hook": "Audio/TurretServoAudio.gd",
+    "candidates": [
+      "S04",
+      "S46"
+    ]
+  },
+  {
+    "id": "N54",
+    "area": "Weather and world",
+    "sound": "Storm wind and sand on canopy",
+    "status": "Wired; review",
+    "priority": 2,
+    "detail": "Dust-front wind, twister roar and synthetic canopy ticks/rattle exist. Add deck/body grit only where exposed; keep cockpit-only grains contained.",
+    "hook": "Weather/DustFrontVisuals.gd; Weather/TwisterVisuals.gd; Weather/CanopySandAudio.gd",
+    "candidates": [
+      "S21",
+      "S22"
+    ]
+  },
+  {
+    "id": "N55",
+    "area": "Weather and world",
+    "sound": "Electrical storm strike, crack and distant thunder",
+    "status": "Missing dedicated cues",
+    "priority": 2,
+    "detail": "Strike-local crack, low rolling tail and distance delay tied to the visible event; actual discharge need not always sound like ordinary rain thunder.",
+    "hook": "Weather/ElectricalStorm.gd",
+    "candidates": [
+      "S44"
+    ]
+  },
+  {
+    "id": "N56",
+    "area": "Weather and world",
+    "sound": "Wind turbines, outpost machinery and ruin creaks",
+    "status": "Missing dedicated cues",
+    "priority": 3,
+    "detail": "Localized rotor/transformer beds at active structures; wind openings and sparse metal movement at abandoned sites.",
+    "hook": "Buildings/WindTurbine.gd; POI/World/POIWorldSite.gd",
+    "candidates": [
+      "S19",
+      "S21",
+      "S43"
+    ]
+  },
+  {
+    "id": "N57",
+    "area": "Weather and world",
+    "sound": "Subtle biome and wildlife ambience",
+    "status": "Suggested extension",
+    "priority": 3,
+    "detail": "Sparse fauna/insects and distant environment appropriate to the authored biome; avoid generic birds everywhere.",
+    "hook": "Wildlife; Environment",
+    "candidates": []
+  },
+  {
+    "id": "N58",
+    "area": "Weather and world",
+    "sound": "Corium seep and salvage-site details",
+    "status": "Suggested extension",
+    "priority": 3,
+    "detail": "Quiet bubbling/venting for visible corium and loose-metal sounds while interacting with salvage; optional narrative ambience.",
+    "hook": "POI/World/CoriumSeepVisual.gd; POI/ResourceField.gd",
+    "candidates": [
+      "S44",
+      "S43"
+    ]
+  },
+  {
+    "id": "N59",
+    "area": "Interface and information",
+    "sound": "Button click, order confirmation and cancellation",
+    "status": "Wired; review",
+    "priority": 3,
+    "detail": "Three quiet UI cues exist with throttling. Keep hover silent and retain restrained feedback.",
+    "hook": "Audio/InterfaceAudio.gd:6",
+    "candidates": []
+  },
+  {
+    "id": "N60",
+    "area": "Interface and information",
+    "sound": "Contact, objective, damage and resource alerts",
+    "status": "Partial",
+    "priority": 2,
+    "detail": "Radio and UI feedback exist; use a small consistent cue vocabulary for new actionable information, with priority/stack limits.",
+    "hook": "Radio/RadioComms.gd; UI/CarrierConsole.gd; POI/POIManager.gd",
+    "candidates": [
+      "S51",
+      "S52"
+    ]
+  },
+  {
+    "id": "N61",
+    "area": "Interface and information",
+    "sound": "Radio squelch, static and distance degradation",
+    "status": "Wired; review",
+    "priority": 3,
+    "detail": "Voice queues, procedural static and Radio-bus effects already exist. Preserve intelligibility; new chatter should not block urgent calls.",
+    "hook": "Radio/RadioComms.gd:793",
+    "candidates": []
+  },
+  {
+    "id": "N62",
+    "area": "Interface and information",
+    "sound": "Target acquired / lost / weapon ready",
+    "status": "Suggested extension",
+    "priority": 2,
+    "detail": "Assign distinct tones only to existing meaningful targeting transitions; no constant beeping for ordinary selection changes.",
+    "hook": "HUD/instrument_panel.gd; targeting controllers",
+    "candidates": [
+      "S52"
+    ]
+  }
+]

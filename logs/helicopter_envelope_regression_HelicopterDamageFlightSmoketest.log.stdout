@@ -1,0 +1,64 @@
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+
+ERROR: Failed to read the root certificate store.
+   at: get_system_ca_certificates (platform/windows/os_windows.cpp:2582)
+[CockpitPilotPool] reserve_ready size=2 created=2 animation_prepare_ms=494.360 animation_prepare_max_ms=494.017
+[AirOpsManager] Ready — flights: Archer, Bulldog, Crimson, Dingo
+[CombatLog] [    0.0] SYS    Combat log online.
+[GroundOps] Ready — platoons: Ember, Ferret, Grizzly, Hammer
+[PerfHitch] Writing C:/Godot projects/Project-Flight/logs/helicopter_envelope_userdata/Godot/app_userdata/Land Carrier/perf_logs/hitch_events.csv threshold_ms=33.0 mark_action=flight_log_mark
+[FrameProfilerReportCapture] enabled (ambient_hitch_trace)
+[godot_ai game_helper] registered mcp capture (debugger active=false, logger=true)
+[Flight Archer] CAP  alt=800m
+[Flight Bulldog] CAP  alt=800m
+[Flight Crimson] CAP  alt=800m
+[Flight Dingo] CAP  alt=800m
+[Resolution] selected=(1920, 1080) window=(0, 0) root=(64, 64) screen=(0, 0) content=(1920, 1080) content_mode=2 content_aspect=1 content_factor=1.0 viewport=(1920.0, 1080.0) 3d_scale=1.0 mode=1
+[InstrumentPanelPool] render_warm panel=PooledInstrumentPanel1 elapsed_ms=229.989
+[InstrumentPanelPool] render_warm panel=PooledInstrumentPanel2 elapsed_ms=115.126
+HELICOPTER_YAW id=9 coaxial=true deg_s=0.0
+HELICOPTER_YAW id=10 coaxial=false deg_s=7.05721697406116
+HELICOPTER_YAW id=11 coaxial=false deg_s=13.9399345676595
+HELICOPTER_YAW id=12 coaxial=true deg_s=0.0
+HELICOPTER_YAW id=13 coaxial=false deg_s=199.417631762656
+HELICOPTER_YAW id=15 coaxial=false deg_s=194.650911042795
+HELI_AI change_state State.TAKEOFF craft=Aircraft_9 engine=true working=false power=0.00 is_deck_takeoff=false
+HELI_AI change_state State.TAKEOFF craft=Aircraft_10 engine=true working=false power=0.00 is_deck_takeoff=false
+HELI_AI change_state State.TAKEOFF craft=Aircraft_11 engine=true working=false power=0.00 is_deck_takeoff=false
+HELI_AI change_state State.TAKEOFF craft=Aircraft_12 engine=true working=false power=0.00 is_deck_takeoff=false
+HELI_AI change_state State.TAKEOFF craft=Aircraft_13 engine=true working=false power=0.00 is_deck_takeoff=false
+HELI_AI change_state State.TAKEOFF craft=Aircraft_15 engine=true working=false power=0.00 is_deck_takeoff=false
+[CombatLog] [    4.6] LAND   T1:Aircraft_11 terrain touchdown sink=4.2 m/s relative=4.2 m/s
+[CombatLog] [    4.6] LAND   T1:Aircraft_10 terrain touchdown sink=3.8 m/s relative=3.8 m/s
+[CombatLog] [    4.7] LAND   T1:Aircraft_15 terrain touchdown sink=3.6 m/s relative=3.6 m/s
+[CombatLog] [    4.7] LAND   T1:Aircraft_9 terrain touchdown sink=3.7 m/s relative=3.7 m/s
+[CombatLog] [    4.7] LAND   T1:Aircraft_12 terrain touchdown sink=3.4 m/s relative=3.4 m/s
+[CombatLog] [    4.8] LAND   T1:Aircraft_13 terrain touchdown sink=3.0 m/s relative=3.0 m/s
+[CombatLog] [    4.9] LAND   T1:Aircraft_11 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    5.0] LAND   T1:Aircraft_10 terrain touchdown sink=0.0 m/s relative=0.2 m/s
+[CombatLog] [    5.0] LAND   T1:Aircraft_15 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    5.0] LAND   T1:Aircraft_9 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    5.0] LAND   T1:Aircraft_12 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    5.2] LAND   T1:Aircraft_13 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    5.3] LAND   T1:Aircraft_11 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    5.4] LAND   T1:Aircraft_10 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    5.4] LAND   T1:Aircraft_15 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    5.4] LAND   T1:Aircraft_9 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    5.4] LAND   T1:Aircraft_12 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    5.5] LAND   T1:Aircraft_13 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    5.7] LAND   T1:Aircraft_11 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    5.7] LAND   T1:Aircraft_10 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    5.8] LAND   T1:Aircraft_15 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    5.8] LAND   T1:Aircraft_9 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    5.8] LAND   T1:Aircraft_12 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    5.9] LAND   T1:Aircraft_13 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    6.1] LAND   T1:Aircraft_11 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+HELICOPTER_AUTOROTATION id=9 y=1402.15344238281 velocity=(-0.0, -0.002039, -0.0) rpm=0.23735532418251 contact={ "surface": "terrain", "descent_speed_mps": 3.65734934806824, "relative_speed_mps": 3.65734934806824, "hard": false, "damaging": false, "belly": false, "position": (900.8, 1400.0, 3.2) }
+HELICOPTER_AUTOROTATION id=10 y=1401.83947753906 velocity=(-0.000026, 0.015694, 0.0) rpm=0.2143695252639 contact={ "surface": "terrain", "descent_speed_mps": 3.82214403152466, "relative_speed_mps": 3.82214403152466, "hard": false, "damaging": false, "belly": false, "position": (999.0086, 1400.0, -0.6) }
+HELICOPTER_AUTOROTATION id=11 y=1402.22570800781 velocity=(-0.000002, 0.000357, -0.0) rpm=0.20068777401768 contact={ "surface": "terrain", "descent_speed_mps": 4.20275354385376, "relative_speed_mps": 4.20275354385376, "hard": false, "damaging": false, "belly": false, "position": (1098.784, 1400.0, -0.78) }
+HELICOPTER_AUTOROTATION id=12 y=1402.32055664063 velocity=(0.0, 0.016331, -0.00001) rpm=0.2509481724745 contact={ "surface": "terrain", "descent_speed_mps": 3.44604134559631, "relative_speed_mps": 3.44604134559631, "hard": false, "damaging": false, "belly": false, "position": (1200.0, 1400.0, 3.473723) }
+HELICOPTER_AUTOROTATION id=13 y=1401.44763183594 velocity=(-0.007149, -0.039742, -0.007529) rpm=0.27449502304669 contact={ "surface": "terrain", "descent_speed_mps": 2.99837684631348, "relative_speed_mps": 2.99837684631348, "hard": false, "damaging": false, "belly": false, "position": (1299.07, 1400.0, -0.3) }
+HELICOPTER_AUTOROTATION id=15 y=1401.97033691406 velocity=(-0.000001, 0.00997, -0.0) rpm=0.24264016988336 contact={ "surface": "terrain", "descent_speed_mps": 3.6071183681488, "relative_speed_mps": 3.6071183681488, "hard": false, "damaging": false, "belly": false, "position": (1500.003, 1400.0, 2.397259) }
+HELICOPTER_DAMAGE_FLIGHT_PASS []
+WARNING: 1 ObjectDB instance was leaked at exit (run with `--verbose` for details).
+   at: cleanup (core/object/object.cpp:2536)

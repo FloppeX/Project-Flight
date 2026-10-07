@@ -135,12 +135,27 @@ func check_damage(number: int, zone: StringName, fraction: float) -> void:
 	for mesh: MeshInstance3D in visuals[zone]:
 		expect(mesh.is_visible_in_tree(), "sublethal damage detached a part")
 	var expected_transforms: Dictionary = {}
+	var attached_tail_transforms: Dictionary = {}
 	var affected := [zone]
 	if zone == &"vertical_stabilizer":
 		affected.append(&"horizontal_stabilizer")
 	for affected_zone: StringName in affected:
 		for mesh: MeshInstance3D in visuals[affected_zone]:
 			expected_transforms[String(mesh.name).to_pascal_case() + "Mesh"] = mesh.global_transform
+	# Losing both supported stabilizers also releases the newly separable rear
+	# fuselage. Its cap, pose, lifetime and idempotence use the same assertions.
+	if affected.size() == 2:
+		for path: NodePath in damage.tail_section_visual_paths:
+			var tail := damage.get_node(path) as MeshInstance3D
+			if tail != null:
+				expected_transforms[String(tail.name).to_pascal_case() + "Mesh"] = tail.global_transform
+		for path: NodePath in damage.tail_section_attached_visual_paths:
+			var attached := damage.get_node(path) as Node3D
+			var meshes: Array[Node] = [attached]
+			meshes.append_array(attached.find_children("*", "MeshInstance3D", true, false))
+			for mesh in meshes:
+				if mesh is MeshInstance3D and mesh.is_visible_in_tree():
+					attached_tail_transforms[String(mesh.name).to_pascal_case() + "Mesh"] = mesh.global_transform
 	var affected_decals: Array[Decal] = []
 	for decal in aircraft.find_children("*", "Decal", true, false):
 		if decal.has_method("get_follow_target"):
@@ -148,7 +163,15 @@ func check_damage(number: int, zone: StringName, fraction: float) -> void:
 			for affected_zone: StringName in affected:
 				if decal.call("get_follow_target") in visuals[affected_zone] and decal.visible:
 					affected_decals.append(decal)
-	var hit_zone: StringName = aircraft.call("take_damage_at", hp, coll.global_position, index)
+	# Surface geometry remains independently testable for old saved damage.
+	# Combat hits on either stabilizer now route to the shared full-tail region;
+	# RegionalAircraftDamageSmoketest covers that route and complete detachment.
+	var hit_zone: StringName
+	if zone in [&"horizontal_stabilizer", &"vertical_stabilizer"]:
+		hit_zone = damage.call("resolve_zone_from_hit", coll.global_position, index)
+		damage.call("damage_zone", zone, hp)
+	else:
+		hit_zone = aircraft.call("take_damage_at", hp, coll.global_position, index)
 	expect(hit_zone == zone, "shape-index routing failed")
 	var bodies: Array[RigidBody3D] = []
 	for child in host.get_children():
@@ -162,11 +185,14 @@ func check_damage(number: int, zone: StringName, fraction: float) -> void:
 		for mesh in body.get_children():
 			if mesh is MeshInstance3D:
 				count += 1
+				if attached_tail_transforms.has(String(mesh.name)):
+					expect(mesh.global_transform.is_equal_approx(attached_tail_transforms[String(mesh.name)]), "attached tail part jumped")
+					continue
 				expect(expected_transforms.has(String(mesh.name)), "unexpected debris mesh")
 				if expected_transforms.has(String(mesh.name)):
 					expect(mesh.global_transform.is_equal_approx(expected_transforms[String(mesh.name)]), "debris jumped when detached from folded panel")
 				expect(has_cap(mesh), "debris cap missing")
-		expect(count == 1, "independent parts are rigidly joined")
+		expect(count == 1 + (attached_tail_transforms.size() if body.name == "DetachedTailSection" else 0), "independent parts are rigidly joined: %s meshes=%d attached=%d" % [body.name, count, attached_tail_transforms.size()])
 	var copied_decals := 0
 	for body in bodies:
 		copied_decals += body.find_children("*", "Decal", true, false).size()

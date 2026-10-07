@@ -1,0 +1,1917 @@
+[
+  {
+    "file": "addons/.godot_ai_update/backup/3.2.5/handlers/audio_handler.gd",
+    "line": 6,
+    "text": "## Handles AudioStreamPlayer / 2D / 3D authoring — node creation, stream"
+  },
+  {
+    "file": "addons/.godot_ai_update/backup/3.2.5/handlers/audio_handler.gd",
+    "line": 9,
+    "text": "## Stream assignment loads a Godot-imported AudioStream resource from"
+  },
+  {
+    "file": "addons/.godot_ai_update/backup/3.2.5/handlers/audio_handler.gd",
+    "line": 11,
+    "text": "## streamable AudioStream subclass before we ever see it)."
+  },
+  {
+    "file": "addons/.godot_ai_update/backup/3.2.5/handlers/audio_handler.gd",
+    "line": 18,
+    "text": "\"1d\": \"AudioStreamPlayer\","
+  },
+  {
+    "file": "addons/.godot_ai_update/backup/3.2.5/handlers/audio_handler.gd",
+    "line": 19,
+    "text": "\"2d\": \"AudioStreamPlayer2D\","
+  },
+  {
+    "file": "addons/.godot_ai_update/backup/3.2.5/handlers/audio_handler.gd",
+    "line": 20,
+    "text": "\"3d\": \"AudioStreamPlayer3D\","
+  },
+  {
+    "file": "addons/.godot_ai_update/backup/3.2.5/handlers/audio_handler.gd",
+    "line": 46,
+    "text": "var node_name: String = params.get(\"name\", \"AudioStreamPlayer\")"
+  },
+  {
+    "file": "addons/.godot_ai_update/backup/3.2.5/handlers/audio_handler.gd",
+    "line": 114,
+    "text": "return ErrorCodes.make(ErrorCodes.RESOURCE_NOT_FOUND, \"AudioStream not found: %s\" % stream_path)"
+  },
+  {
+    "file": "addons/.godot_ai_update/backup/3.2.5/handlers/audio_handler.gd",
+    "line": 117,
+    "text": "return ErrorCodes.make(ErrorCodes.INTERNAL_ERROR, \"Failed to load AudioStream: %s\" % stream_path)"
+  },
+  {
+    "file": "addons/.godot_ai_update/backup/3.2.5/handlers/audio_handler.gd",
+    "line": 118,
+    "text": "if not (loaded is AudioStream):"
+  },
+  {
+    "file": "addons/.godot_ai_update/backup/3.2.5/handlers/audio_handler.gd",
+    "line": 121,
+    "text": "\"Resource at %s is not an AudioStream (got %s)\" % [stream_path, loaded.get_class()]"
+  },
+  {
+    "file": "addons/.godot_ai_update/backup/3.2.5/handlers/audio_handler.gd",
+    "line": 124,
+    "text": "var old_stream: AudioStream = player.stream"
+  },
+  {
+    "file": "addons/.godot_ai_update/backup/3.2.5/handlers/audio_handler.gd",
+    "line": 259,
+    "text": "# audio_list  (read — scan project for AudioStream resources)"
+  },
+  {
+    "file": "addons/.godot_ai_update/backup/3.2.5/handlers/audio_handler.gd",
+    "line": 298,
+    "text": "var is_audio := file_type == \"AudioStream\" or ClassDB.is_parent_class(file_type, \"AudioStream\")"
+  },
+  {
+    "file": "addons/.godot_ai_update/backup/3.2.5/handlers/audio_handler.gd",
+    "line": 307,
+    "text": "if res is AudioStream:"
+  },
+  {
+    "file": "addons/.godot_ai_update/backup/3.2.5/handlers/audio_handler.gd",
+    "line": 308,
+    "text": "entry[\"duration_seconds\"] = float((res as AudioStream).get_length())"
+  },
+  {
+    "file": "addons/.godot_ai_update/backup/3.2.5/handlers/audio_handler.gd",
+    "line": 323,
+    "text": "return AudioStreamPlayer.new()"
+  },
+  {
+    "file": "addons/.godot_ai_update/backup/3.2.5/handlers/audio_handler.gd",
+    "line": 325,
+    "text": "return AudioStreamPlayer2D.new()"
+  },
+  {
+    "file": "addons/.godot_ai_update/backup/3.2.5/handlers/audio_handler.gd",
+    "line": 327,
+    "text": "return AudioStreamPlayer3D.new()"
+  },
+  {
+    "file": "addons/.godot_ai_update/backup/3.2.5/handlers/audio_handler.gd",
+    "line": 336,
+    "text": "var is_player := node is AudioStreamPlayer \\"
+  },
+  {
+    "file": "addons/.godot_ai_update/backup/3.2.5/handlers/audio_handler.gd",
+    "line": 337,
+    "text": "or node is AudioStreamPlayer2D \\"
+  },
+  {
+    "file": "addons/.godot_ai_update/backup/3.2.5/handlers/audio_handler.gd",
+    "line": 338,
+    "text": "or node is AudioStreamPlayer3D"
+  },
+  {
+    "file": "addons/.godot_ai_update/backup/3.2.5/handlers/audio_handler.gd",
+    "line": 342,
+    "text": "\"Node at %s is not an AudioStreamPlayer/2D/3D (got %s)\" % [player_path, node.get_class()]"
+  },
+  {
+    "file": "addons/simplified_flightsim/aircraft_modules/Engine/Engine.gd",
+    "line": 17,
+    "text": "@export var EngineSoundLoop: AudioStream"
+  },
+  {
+    "file": "addons/simplified_flightsim/aircraft_modules/Engine/Engine.gd",
+    "line": 18,
+    "text": "@export var EngineSoundStart: AudioStream"
+  },
+  {
+    "file": "addons/simplified_flightsim/aircraft_modules/Engine/Engine.gd",
+    "line": 19,
+    "text": "@export var EngineSoundStop: AudioStream"
+  },
+  {
+    "file": "addons/simplified_flightsim/aircraft_modules/Engine/Engine.gd",
+    "line": 88,
+    "text": "sfx_engine_loop = AudioStreamPlayer3D.new()"
+  },
+  {
+    "file": "addons/simplified_flightsim/aircraft_modules/Engine/Engine.gd",
+    "line": 93,
+    "text": "sfx_engine_loop.attenuation_model = AudioStreamPlayer3D.ATTENUATION_INVERSE_DISTANCE"
+  },
+  {
+    "file": "addons/simplified_flightsim/aircraft_modules/Engine/Engine.gd",
+    "line": 97,
+    "text": "sfx_engine_start = AudioStreamPlayer3D.new()"
+  },
+  {
+    "file": "addons/simplified_flightsim/aircraft_modules/Engine/Engine.gd",
+    "line": 102,
+    "text": "sfx_engine_start.attenuation_model = AudioStreamPlayer3D.ATTENUATION_INVERSE_DISTANCE"
+  },
+  {
+    "file": "addons/simplified_flightsim/aircraft_modules/Engine/Engine.gd",
+    "line": 106,
+    "text": "sfx_engine_stop = AudioStreamPlayer3D.new()"
+  },
+  {
+    "file": "addons/simplified_flightsim/aircraft_modules/Engine/Engine.gd",
+    "line": 111,
+    "text": "sfx_engine_stop.attenuation_model = AudioStreamPlayer3D.ATTENUATION_INVERSE_DISTANCE"
+  },
+  {
+    "file": "addons/simplified_flightsim/aircraft_modules/Engine/Engine.gd",
+    "line": 364,
+    "text": "var player: AudioStreamPlayer3D = player_variant as AudioStreamPlayer3D"
+  },
+  {
+    "file": "addons/simplified_flightsim/aircraft_modules/Engine/Engine.tscn",
+    "line": 4,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://bouv88p2spjty\" path=\"res://Audio/engine/engine_start.wav\" id=\"2\"]"
+  },
+  {
+    "file": "addons/simplified_flightsim/aircraft_modules/Engine/Engine.tscn",
+    "line": 5,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://d113roojokjhb\" path=\"res://Audio/engine/engine.ogg\" id=\"3\"]"
+  },
+  {
+    "file": "addons/simplified_flightsim/aircraft_modules/Flaps/Flaps.gd",
+    "line": 23,
+    "text": "@export var FlapSoundLoop: AudioStream"
+  },
+  {
+    "file": "addons/simplified_flightsim/aircraft_modules/Flaps/Flaps.gd",
+    "line": 33,
+    "text": "sfx_player = AudioStreamPlayer.new()"
+  },
+  {
+    "file": "addons/simplified_flightsim/aircraft_modules/LandingGear/LandingGear.gd",
+    "line": 31,
+    "text": "@export var DeploySound: AudioStream"
+  },
+  {
+    "file": "addons/simplified_flightsim/aircraft_modules/LandingGear/LandingGear.gd",
+    "line": 32,
+    "text": "@export var StowSound: AudioStream"
+  },
+  {
+    "file": "addons/simplified_flightsim/aircraft_modules/LandingGear/LandingGear.gd",
+    "line": 101,
+    "text": "var audio_player: AudioStreamPlayer3D"
+  },
+  {
+    "file": "addons/simplified_flightsim/aircraft_modules/LandingGear/LandingGear.gd",
+    "line": 150,
+    "text": "audio_player = AudioStreamPlayer3D.new()"
+  },
+  {
+    "file": "addons/simplified_flightsim/aircraft_modules/LandingGear/LandingGear.gd",
+    "line": 1124,
+    "text": "func play_sound(sound: AudioStream):"
+  },
+  {
+    "file": "Aircraft/Aircraft_1.tscn",
+    "line": 12,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://c3k88yn1mcnfm\" path=\"res://Audio/engine/fixed_wing/airplane_propeller 3.wav\" id=\"11_btnkm\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_1.tscn",
+    "line": 13,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://dscm8ajwonvl5\" path=\"res://Audio/engine/fixed_wing/prop startup 3.wav\" id=\"12_sqfht\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_1.tscn",
+    "line": 17,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://cvxa8h3yftguj\" path=\"res://Audio/landing_gear/deploy.wav\" id=\"16_biq0k\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_1.tscn",
+    "line": 18,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://ch1k8klfyw0mq\" path=\"res://Audio/landing_gear/stow.wav\" id=\"17_1st6a\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_1.tscn",
+    "line": 39,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://o2xkkc5oyh4w\" path=\"res://Audio/cockpit/cockpit_interior_4.wav\" id=\"38_cpit\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_10.tscn",
+    "line": 15,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://cvxa8h3yftguj\" path=\"res://Audio/landing_gear/deploy.wav\" id=\"14_gear_deploy\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_10.tscn",
+    "line": 16,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://ch1k8klfyw0mq\" path=\"res://Audio/landing_gear/stow.wav\" id=\"15_gear_stow\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_10.tscn",
+    "line": 32,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://o2xkkc5oyh4w\" path=\"res://Audio/cockpit/cockpit_interior_4.wav\" id=\"31_cockpit\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_10.tscn",
+    "line": 40,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://hc5s8h1mbj2t\" path=\"res://Audio/engine/helicopter/Helicopter3SlowExt.wav\" id=\"101_rotor_slow\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_10.tscn",
+    "line": 41,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://b8qaayg6jjf6u\" path=\"res://Audio/engine/helicopter/Helicopter3MedExt.wav\" id=\"102_rotor_medium\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_10.tscn",
+    "line": 42,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://b63dtvvrs03bl\" path=\"res://Audio/engine/helicopter/Helicopter3FastExt.wav\" id=\"103_rotor_fast\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_11.tscn",
+    "line": 15,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://cvxa8h3yftguj\" path=\"res://Audio/landing_gear/deploy.wav\" id=\"14_gear_deploy\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_11.tscn",
+    "line": 16,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://ch1k8klfyw0mq\" path=\"res://Audio/landing_gear/stow.wav\" id=\"15_gear_stow\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_11.tscn",
+    "line": 32,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://o2xkkc5oyh4w\" path=\"res://Audio/cockpit/cockpit_interior_4.wav\" id=\"31_cockpit\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_11.tscn",
+    "line": 41,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://hc5s8h1mbj2t\" path=\"res://Audio/engine/helicopter/Helicopter3SlowExt.wav\" id=\"101_rotor_slow\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_11.tscn",
+    "line": 42,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://b8qaayg6jjf6u\" path=\"res://Audio/engine/helicopter/Helicopter3MedExt.wav\" id=\"102_rotor_medium\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_11.tscn",
+    "line": 43,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://b63dtvvrs03bl\" path=\"res://Audio/engine/helicopter/Helicopter3FastExt.wav\" id=\"103_rotor_fast\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_12.tscn",
+    "line": 16,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://cvxa8h3yftguj\" path=\"res://Audio/landing_gear/deploy.wav\" id=\"14_gear_deploy\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_12.tscn",
+    "line": 17,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://ch1k8klfyw0mq\" path=\"res://Audio/landing_gear/stow.wav\" id=\"15_gear_stow\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_12.tscn",
+    "line": 33,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://o2xkkc5oyh4w\" path=\"res://Audio/cockpit/cockpit_interior_4.wav\" id=\"31_cockpit\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_12.tscn",
+    "line": 40,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://hc5s8h1mbj2t\" path=\"res://Audio/engine/helicopter/Helicopter3SlowExt.wav\" id=\"101_rotor_slow\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_12.tscn",
+    "line": 41,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://b8qaayg6jjf6u\" path=\"res://Audio/engine/helicopter/Helicopter3MedExt.wav\" id=\"102_rotor_medium\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_12.tscn",
+    "line": 42,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://b63dtvvrs03bl\" path=\"res://Audio/engine/helicopter/Helicopter3FastExt.wav\" id=\"103_rotor_fast\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_13.tscn",
+    "line": 15,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://cvxa8h3yftguj\" path=\"res://Audio/landing_gear/deploy.wav\" id=\"14_gear_deploy\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_13.tscn",
+    "line": 16,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://ch1k8klfyw0mq\" path=\"res://Audio/landing_gear/stow.wav\" id=\"15_gear_stow\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_13.tscn",
+    "line": 32,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://o2xkkc5oyh4w\" path=\"res://Audio/cockpit/cockpit_interior_4.wav\" id=\"31_cockpit\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_13.tscn",
+    "line": 41,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://hc5s8h1mbj2t\" path=\"res://Audio/engine/helicopter/Helicopter3SlowExt.wav\" id=\"101_rotor_slow\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_13.tscn",
+    "line": 42,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://b8qaayg6jjf6u\" path=\"res://Audio/engine/helicopter/Helicopter3MedExt.wav\" id=\"102_rotor_medium\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_13.tscn",
+    "line": 43,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://b63dtvvrs03bl\" path=\"res://Audio/engine/helicopter/Helicopter3FastExt.wav\" id=\"103_rotor_fast\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_14.tscn",
+    "line": 12,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://c3k88yn1mcnfm\" path=\"res://Audio/engine/fixed_wing/airplane_propeller 3.wav\" id=\"11_btnkm\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_14.tscn",
+    "line": 13,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://dscm8ajwonvl5\" path=\"res://Audio/engine/fixed_wing/prop startup 3.wav\" id=\"12_sqfht\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_14.tscn",
+    "line": 17,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://cvxa8h3yftguj\" path=\"res://Audio/landing_gear/deploy.wav\" id=\"16_biq0k\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_14.tscn",
+    "line": 18,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://ch1k8klfyw0mq\" path=\"res://Audio/landing_gear/stow.wav\" id=\"17_1st6a\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_14.tscn",
+    "line": 39,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://o2xkkc5oyh4w\" path=\"res://Audio/cockpit/cockpit_interior_4.wav\" id=\"38_cpit\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_15.tscn",
+    "line": 15,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://cvxa8h3yftguj\" path=\"res://Audio/landing_gear/deploy.wav\" id=\"14_gear_deploy\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_15.tscn",
+    "line": 16,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://ch1k8klfyw0mq\" path=\"res://Audio/landing_gear/stow.wav\" id=\"15_gear_stow\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_15.tscn",
+    "line": 32,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://o2xkkc5oyh4w\" path=\"res://Audio/cockpit/cockpit_interior_4.wav\" id=\"31_cockpit\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_15.tscn",
+    "line": 42,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://hc5s8h1mbj2t\" path=\"res://Audio/engine/helicopter/Helicopter3SlowExt.wav\" id=\"101_rotor_slow\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_15.tscn",
+    "line": 43,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://b8qaayg6jjf6u\" path=\"res://Audio/engine/helicopter/Helicopter3MedExt.wav\" id=\"102_rotor_medium\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_15.tscn",
+    "line": 44,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://b63dtvvrs03bl\" path=\"res://Audio/engine/helicopter/Helicopter3FastExt.wav\" id=\"103_rotor_fast\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_16.tscn",
+    "line": 11,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://c3k88yn1mcnfm\" path=\"res://Audio/engine/fixed_wing/airplane_propeller 3.wav\" id=\"11_btnkm\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_16.tscn",
+    "line": 12,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://dscm8ajwonvl5\" path=\"res://Audio/engine/fixed_wing/prop startup 3.wav\" id=\"12_sqfht\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_16.tscn",
+    "line": 16,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://cvxa8h3yftguj\" path=\"res://Audio/landing_gear/deploy.wav\" id=\"16_biq0k\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_16.tscn",
+    "line": 17,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://ch1k8klfyw0mq\" path=\"res://Audio/landing_gear/stow.wav\" id=\"17_1st6a\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_16.tscn",
+    "line": 35,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://bbrf4t56r5uti\" path=\"res://Audio/cockpit/cockpit_interior_3.wav\" id=\"37_cpit\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_2.tscn",
+    "line": 11,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://dkgrtqcvax58r\" path=\"res://Audio/engine/fixed_wing/airplane_propeller 1.wav\" id=\"11_btnkm\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_2.tscn",
+    "line": 12,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://dscm8ajwonvl5\" path=\"res://Audio/engine/fixed_wing/prop startup 3.wav\" id=\"12_sqfht\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_2.tscn",
+    "line": 16,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://cvxa8h3yftguj\" path=\"res://Audio/landing_gear/deploy.wav\" id=\"16_biq0k\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_2.tscn",
+    "line": 17,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://ch1k8klfyw0mq\" path=\"res://Audio/landing_gear/stow.wav\" id=\"17_1st6a\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_2.tscn",
+    "line": 38,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://c0ax7nrniu8x3\" path=\"res://Audio/cockpit/cockpit_interior_2.wav\" id=\"37_cpit\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_3.tscn",
+    "line": 13,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://c3k88yn1mcnfm\" path=\"res://Audio/engine/fixed_wing/airplane_propeller 3.wav\" id=\"11_btnkm\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_3.tscn",
+    "line": 14,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://dscm8ajwonvl5\" path=\"res://Audio/engine/fixed_wing/prop startup 3.wav\" id=\"12_sqfht\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_3.tscn",
+    "line": 18,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://cvxa8h3yftguj\" path=\"res://Audio/landing_gear/deploy.wav\" id=\"16_biq0k\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_3.tscn",
+    "line": 19,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://ch1k8klfyw0mq\" path=\"res://Audio/landing_gear/stow.wav\" id=\"17_1st6a\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_3.tscn",
+    "line": 37,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://bbrf4t56r5uti\" path=\"res://Audio/cockpit/cockpit_interior_3.wav\" id=\"37_cpit\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_4.tscn",
+    "line": 11,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://c3k88yn1mcnfm\" path=\"res://Audio/engine/fixed_wing/airplane_propeller 3.wav\" id=\"11_btnkm\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_4.tscn",
+    "line": 12,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://dscm8ajwonvl5\" path=\"res://Audio/engine/fixed_wing/prop startup 3.wav\" id=\"12_sqfht\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_4.tscn",
+    "line": 16,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://cvxa8h3yftguj\" path=\"res://Audio/landing_gear/deploy.wav\" id=\"16_biq0k\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_4.tscn",
+    "line": 17,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://ch1k8klfyw0mq\" path=\"res://Audio/landing_gear/stow.wav\" id=\"17_1st6a\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_4.tscn",
+    "line": 38,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://c0ax7nrniu8x3\" path=\"res://Audio/cockpit/cockpit_interior_2.wav\" id=\"37_cpit\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_5.tscn",
+    "line": 12,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://c3k88yn1mcnfm\" path=\"res://Audio/engine/fixed_wing/airplane_propeller 3.wav\" id=\"11_btnkm\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_5.tscn",
+    "line": 13,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://dscm8ajwonvl5\" path=\"res://Audio/engine/fixed_wing/prop startup 3.wav\" id=\"12_sqfht\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_5.tscn",
+    "line": 17,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://cvxa8h3yftguj\" path=\"res://Audio/landing_gear/deploy.wav\" id=\"16_biq0k\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_5.tscn",
+    "line": 18,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://ch1k8klfyw0mq\" path=\"res://Audio/landing_gear/stow.wav\" id=\"17_1st6a\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_5.tscn",
+    "line": 40,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://o2xkkc5oyh4w\" path=\"res://Audio/cockpit/cockpit_interior_4.wav\" id=\"38_cpit\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_6.tscn",
+    "line": 13,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://c3k88yn1mcnfm\" path=\"res://Audio/engine/fixed_wing/airplane_propeller 3.wav\" id=\"11_btnkm\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_6.tscn",
+    "line": 14,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://dscm8ajwonvl5\" path=\"res://Audio/engine/fixed_wing/prop startup 3.wav\" id=\"12_sqfht\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_6.tscn",
+    "line": 18,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://cvxa8h3yftguj\" path=\"res://Audio/landing_gear/deploy.wav\" id=\"16_biq0k\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_6.tscn",
+    "line": 19,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://ch1k8klfyw0mq\" path=\"res://Audio/landing_gear/stow.wav\" id=\"17_1st6a\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_6.tscn",
+    "line": 37,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://bbrf4t56r5uti\" path=\"res://Audio/cockpit/cockpit_interior_3.wav\" id=\"37_cpit\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_7.tscn",
+    "line": 13,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://dkgrtqcvax58r\" path=\"res://Audio/engine/fixed_wing/airplane_propeller 1.wav\" id=\"11_btnkm\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_7.tscn",
+    "line": 14,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://dscm8ajwonvl5\" path=\"res://Audio/engine/fixed_wing/prop startup 3.wav\" id=\"12_sqfht\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_7.tscn",
+    "line": 18,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://cvxa8h3yftguj\" path=\"res://Audio/landing_gear/deploy.wav\" id=\"16_biq0k\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_7.tscn",
+    "line": 19,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://ch1k8klfyw0mq\" path=\"res://Audio/landing_gear/stow.wav\" id=\"17_1st6a\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_7.tscn",
+    "line": 39,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://o2xkkc5oyh4w\" path=\"res://Audio/cockpit/cockpit_interior_4.wav\" id=\"38_cpit\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_8.tscn",
+    "line": 13,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://c3k88yn1mcnfm\" path=\"res://Audio/engine/fixed_wing/airplane_propeller 3.wav\" id=\"11_btnkm\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_8.tscn",
+    "line": 14,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://dscm8ajwonvl5\" path=\"res://Audio/engine/fixed_wing/prop startup 3.wav\" id=\"12_sqfht\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_8.tscn",
+    "line": 18,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://cvxa8h3yftguj\" path=\"res://Audio/landing_gear/deploy.wav\" id=\"16_biq0k\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_8.tscn",
+    "line": 19,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://ch1k8klfyw0mq\" path=\"res://Audio/landing_gear/stow.wav\" id=\"17_1st6a\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_8.tscn",
+    "line": 40,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://o2xkkc5oyh4w\" path=\"res://Audio/cockpit/cockpit_interior_4.wav\" id=\"38_cpit\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_9.tscn",
+    "line": 18,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://cvxa8h3yftguj\" path=\"res://Audio/landing_gear/deploy.wav\" id=\"14_gear_deploy\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_9.tscn",
+    "line": 19,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://ch1k8klfyw0mq\" path=\"res://Audio/landing_gear/stow.wav\" id=\"15_gear_stow\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_9.tscn",
+    "line": 35,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://o2xkkc5oyh4w\" path=\"res://Audio/cockpit/cockpit_interior_4.wav\" id=\"31_cockpit\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_9.tscn",
+    "line": 46,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://hc5s8h1mbj2t\" path=\"res://Audio/engine/helicopter/Helicopter3SlowExt.wav\" id=\"101_rotor_slow\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_9.tscn",
+    "line": 47,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://b8qaayg6jjf6u\" path=\"res://Audio/engine/helicopter/Helicopter3MedExt.wav\" id=\"102_rotor_medium\"]"
+  },
+  {
+    "file": "Aircraft/Aircraft_9.tscn",
+    "line": 48,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://b63dtvvrs03bl\" path=\"res://Audio/engine/helicopter/Helicopter3FastExt.wav\" id=\"103_rotor_fast\"]"
+  },
+  {
+    "file": "Aircraft/AirflowFeedback.gd",
+    "line": 4,
+    "text": "@export var warning_audio_stream: AudioStream = preload(\"res://Audio/cockpit/stall buffet sound.wav\")"
+  },
+  {
+    "file": "Aircraft/AirflowFeedback.gd",
+    "line": 18,
+    "text": "@export var wind_audio_stream: AudioStream = preload(\"res://Audio/cockpit/wind_sound_cockpit.wav\")"
+  },
+  {
+    "file": "Aircraft/AirflowFeedback.gd",
+    "line": 28,
+    "text": "@export var drag_audio_stream: AudioStream = preload(\"res://Audio/cockpit/air rush sound.wav\")"
+  },
+  {
+    "file": "Aircraft/AirflowFeedback.gd",
+    "line": 61,
+    "text": "var _audio_player: AudioStreamPlayer = null"
+  },
+  {
+    "file": "Aircraft/AirflowFeedback.gd",
+    "line": 62,
+    "text": "var _wind_audio_player: AudioStreamPlayer = null"
+  },
+  {
+    "file": "Aircraft/AirflowFeedback.gd",
+    "line": 63,
+    "text": "var _drag_audio_player: AudioStreamPlayer = null"
+  },
+  {
+    "file": "Aircraft/AirflowFeedback.gd",
+    "line": 126,
+    "text": "_audio_player = AudioStreamPlayer.new()"
+  },
+  {
+    "file": "Aircraft/AirflowFeedback.gd",
+    "line": 135,
+    "text": "_wind_audio_player = AudioStreamPlayer.new()"
+  },
+  {
+    "file": "Aircraft/AirflowFeedback.gd",
+    "line": 144,
+    "text": "_drag_audio_player = AudioStreamPlayer.new()"
+  },
+  {
+    "file": "Aircraft/AirflowFeedback.gd",
+    "line": 153,
+    "text": "func _set_stream_looping(stream: AudioStream) -> void:"
+  },
+  {
+    "file": "Aircraft/CompleteFighterJet.tscn",
+    "line": 14,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://dkgrtqcvax58r\" path=\"res://Audio/engine/fixed_wing/airplane_propeller 1.wav\" id=\"11_btnkm\"]"
+  },
+  {
+    "file": "Aircraft/CompleteFighterJet.tscn",
+    "line": 15,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://dscm8ajwonvl5\" path=\"res://Audio/engine/fixed_wing/prop startup 3.wav\" id=\"12_sqfht\"]"
+  },
+  {
+    "file": "Aircraft/CompleteFighterJet.tscn",
+    "line": 19,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://cvxa8h3yftguj\" path=\"res://Audio/landing_gear/deploy.wav\" id=\"16_biq0k\"]"
+  },
+  {
+    "file": "Aircraft/CompleteFighterJet.tscn",
+    "line": 20,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://ch1k8klfyw0mq\" path=\"res://Audio/landing_gear/stow.wav\" id=\"17_1st6a\"]"
+  },
+  {
+    "file": "Aircraft/CompleteFighterJet.tscn",
+    "line": 39,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://dqbmuufyl5tn0\" path=\"res://Audio/cockpit/cockpit_interior_1.wav\" id=\"36_cpit\"]"
+  },
+  {
+    "file": "Aircraft/Visuals/CounterRotatingRotor.gd",
+    "line": 29,
+    "text": "@export var rotor_audio_stream: AudioStream = null"
+  },
+  {
+    "file": "Aircraft/Visuals/CounterRotatingRotor.gd",
+    "line": 30,
+    "text": "@export var rotor_audio_slow_stream: AudioStream = null"
+  },
+  {
+    "file": "Aircraft/Visuals/CounterRotatingRotor.gd",
+    "line": 31,
+    "text": "@export var rotor_audio_medium_stream: AudioStream = null"
+  },
+  {
+    "file": "Aircraft/Visuals/CounterRotatingRotor.gd",
+    "line": 32,
+    "text": "@export var rotor_audio_fast_stream: AudioStream = null"
+  },
+  {
+    "file": "Aircraft/Visuals/CounterRotatingRotor.gd",
+    "line": 65,
+    "text": "var _rotor_audio_player: AudioStreamPlayer3D = null"
+  },
+  {
+    "file": "Aircraft/Visuals/CounterRotatingRotor.gd",
+    "line": 66,
+    "text": "var _rotor_audio_slow_player: AudioStreamPlayer3D = null"
+  },
+  {
+    "file": "Aircraft/Visuals/CounterRotatingRotor.gd",
+    "line": 67,
+    "text": "var _rotor_audio_medium_player: AudioStreamPlayer3D = null"
+  },
+  {
+    "file": "Aircraft/Visuals/CounterRotatingRotor.gd",
+    "line": 68,
+    "text": "var _rotor_audio_fast_player: AudioStreamPlayer3D = null"
+  },
+  {
+    "file": "Aircraft/Visuals/CounterRotatingRotor.gd",
+    "line": 204,
+    "text": "func _create_rotor_audio_player(player_name: String, stream: AudioStream) -> AudioStreamPlayer3D:"
+  },
+  {
+    "file": "Aircraft/Visuals/CounterRotatingRotor.gd",
+    "line": 208,
+    "text": "var player := AudioStreamPlayer3D.new()"
+  },
+  {
+    "file": "Aircraft/Visuals/CounterRotatingRotor.gd",
+    "line": 215,
+    "text": "player.attenuation_model = AudioStreamPlayer3D.ATTENUATION_INVERSE_DISTANCE"
+  },
+  {
+    "file": "Aircraft/Visuals/CounterRotatingRotor.gd",
+    "line": 221,
+    "text": "func _make_stream_loop(stream: AudioStream) -> void:"
+  },
+  {
+    "file": "Aircraft/Visuals/CounterRotatingRotor.gd",
+    "line": 274,
+    "text": "func _update_rotor_audio_layer(player: AudioStreamPlayer3D, weight: float, envelope_db: float) -> void:"
+  },
+  {
+    "file": "AirOps/FlightDirector.gd",
+    "line": 202,
+    "text": "var _audio_test_player: AudioStreamPlayer = null"
+  },
+  {
+    "file": "AirOps/FlightDirector.gd",
+    "line": 2227,
+    "text": "# Print named players only (skip anonymous @AudioStreamPlayer3D@xxx)"
+  },
+  {
+    "file": "AirOps/FlightDirector.gd",
+    "line": 2229,
+    "text": "if player is AudioStreamPlayer3D:"
+  },
+  {
+    "file": "AirOps/FlightDirector.gd",
+    "line": 2230,
+    "text": "var p := player as AudioStreamPlayer3D"
+  },
+  {
+    "file": "AirOps/FlightDirector.gd",
+    "line": 2253,
+    "text": "var player_a = AudioStreamPlayer.new()"
+  },
+  {
+    "file": "AirOps/FlightDirector.gd",
+    "line": 2265,
+    "text": "var player_b = AudioStreamPlayer.new()"
+  },
+  {
+    "file": "Audio/AudioManager3D.gd",
+    "line": 12,
+    "text": "@export var cockpit_interior_sound: AudioStream"
+  },
+  {
+    "file": "Audio/AudioManager3D.gd",
+    "line": 17,
+    "text": "@export var cabin_systems_sound: AudioStream = preload(\"res://Audio/cockpit/cabin_systems.ogg\")"
+  },
+  {
+    "file": "Audio/AudioManager3D.gd",
+    "line": 19,
+    "text": "@export var bridge_interior_sound: AudioStream = preload(\"res://Audio/cockpit/wind_sound_cockpit.wav\")"
+  },
+  {
+    "file": "Audio/AudioManager3D.gd",
+    "line": 55,
+    "text": "var cockpit_interior_player: AudioStreamPlayer"
+  },
+  {
+    "file": "Audio/AudioManager3D.gd",
+    "line": 56,
+    "text": "var cabin_systems_player: AudioStreamPlayer"
+  },
+  {
+    "file": "Audio/AudioManager3D.gd",
+    "line": 57,
+    "text": "var bridge_interior_player: AudioStreamPlayer"
+  },
+  {
+    "file": "Audio/AudioManager3D.gd",
+    "line": 84,
+    "text": "cabin_systems_player = AudioStreamPlayer.new()"
+  },
+  {
+    "file": "Audio/AudioManager3D.gd",
+    "line": 119,
+    "text": "cockpit_interior_player = AudioStreamPlayer.new()"
+  },
+  {
+    "file": "Audio/AudioManager3D.gd",
+    "line": 135,
+    "text": "bridge_interior_player = AudioStreamPlayer.new()"
+  },
+  {
+    "file": "Audio/AudioManager3D.gd",
+    "line": 470,
+    "text": "# Find all AudioStreamPlayer3D nodes in the scene and switch their bus"
+  },
+  {
+    "file": "Audio/AudioManager3D.gd",
+    "line": 474,
+    "text": "if player is AudioStreamPlayer3D:"
+  },
+  {
+    "file": "Audio/AudioManager3D.gd",
+    "line": 488,
+    "text": "# Recursively find and switch all AudioStreamPlayer3D nodes"
+  },
+  {
+    "file": "Audio/AudioManager3D.gd",
+    "line": 490,
+    "text": "if child is AudioStreamPlayer3D:"
+  },
+  {
+    "file": "Audio/AudioManager3D.gd",
+    "line": 495,
+    "text": "func _apply_3d_audio_settings(player: AudioStreamPlayer3D, bus_name: String):"
+  },
+  {
+    "file": "Audio/InterfaceAudio.gd",
+    "line": 6,
+    "text": "var _player: AudioStreamPlayer"
+  },
+  {
+    "file": "Audio/InterfaceAudio.gd",
+    "line": 12,
+    "text": "_player = AudioStreamPlayer.new()"
+  },
+  {
+    "file": "Audio/OfficerFootsteps.gd",
+    "line": 12,
+    "text": "var _player: AudioStreamPlayer3D"
+  },
+  {
+    "file": "Audio/OfficerFootsteps.gd",
+    "line": 16,
+    "text": "_player = AudioStreamPlayer3D.new()"
+  },
+  {
+    "file": "Audio/RuntimeAudio.gd",
+    "line": 4,
+    "text": "static func loop_stream(source: AudioStream) -> AudioStream:"
+  },
+  {
+    "file": "Audio/RuntimeAudio.gd",
+    "line": 5,
+    "text": "var stream := source.duplicate() as AudioStream"
+  },
+  {
+    "file": "Audio/TurretServoAudio.gd",
+    "line": 4,
+    "text": "var _player: AudioStreamPlayer3D"
+  },
+  {
+    "file": "Audio/TurretServoAudio.gd",
+    "line": 19,
+    "text": "_player = AudioStreamPlayer3D.new()"
+  },
+  {
+    "file": "Effects/BulletImpactBudget.gd",
+    "line": 24,
+    "text": "var _audio_player_pool: Array[AudioStreamPlayer3D] = []"
+  },
+  {
+    "file": "Effects/BulletImpactBudget.gd",
+    "line": 149,
+    "text": "func should_play_impact_sound(world_position: Vector3) -> bool:"
+  },
+  {
+    "file": "Effects/BulletImpactBudget.gd",
+    "line": 160,
+    "text": "func play_impact_sound(stream: AudioStream, world_position: Vector3, volume_db: float = -5.0, pitch_scale: float = 1.0) -> bool:"
+  },
+  {
+    "file": "Effects/BulletImpactBudget.gd",
+    "line": 161,
+    "text": "if stream == null or not should_play_impact_sound(world_position):"
+  },
+  {
+    "file": "Effects/BulletImpactBudget.gd",
+    "line": 165,
+    "text": "var player: AudioStreamPlayer3D = _acquire_audio_player()"
+  },
+  {
+    "file": "Effects/BulletImpactBudget.gd",
+    "line": 189,
+    "text": "func _acquire_audio_player() -> AudioStreamPlayer3D:"
+  },
+  {
+    "file": "Effects/BulletImpactBudget.gd",
+    "line": 190,
+    "text": "var player: AudioStreamPlayer3D = null"
+  },
+  {
+    "file": "Effects/BulletImpactBudget.gd",
+    "line": 192,
+    "text": "var candidate: AudioStreamPlayer3D = _audio_player_pool.pop_back()"
+  },
+  {
+    "file": "Effects/BulletImpactBudget.gd",
+    "line": 196,
+    "text": "player = AudioStreamPlayer3D.new()"
+  },
+  {
+    "file": "Effects/BulletImpactBudget.gd",
+    "line": 199,
+    "text": "player.attenuation_model = AudioStreamPlayer3D.ATTENUATION_INVERSE_DISTANCE"
+  },
+  {
+    "file": "Effects/BulletImpactBudget.gd",
+    "line": 205,
+    "text": "func _release_audio_player(player: AudioStreamPlayer3D) -> void:"
+  },
+  {
+    "file": "Effects/EnemyVisualBudget.gd",
+    "line": 528,
+    "text": "if node is AudioStreamPlayer or node is AudioStreamPlayer3D:"
+  },
+  {
+    "file": "Effects/EnemyVisualBudget.gd",
+    "line": 693,
+    "text": "if node is AudioStreamPlayer:"
+  },
+  {
+    "file": "Effects/EnemyVisualBudget.gd",
+    "line": 694,
+    "text": "var audio_2d: AudioStreamPlayer = node as AudioStreamPlayer"
+  },
+  {
+    "file": "Effects/EnemyVisualBudget.gd",
+    "line": 697,
+    "text": "elif node is AudioStreamPlayer3D:"
+  },
+  {
+    "file": "Effects/EnemyVisualBudget.gd",
+    "line": 698,
+    "text": "var audio_3d: AudioStreamPlayer3D = node as AudioStreamPlayer3D"
+  },
+  {
+    "file": "Effects/EnemyVisualBudget.gd",
+    "line": 713,
+    "text": "if node is AudioStreamPlayer:"
+  },
+  {
+    "file": "Effects/EnemyVisualBudget.gd",
+    "line": 714,
+    "text": "var audio_2d: AudioStreamPlayer = node as AudioStreamPlayer"
+  },
+  {
+    "file": "Effects/EnemyVisualBudget.gd",
+    "line": 719,
+    "text": "elif node is AudioStreamPlayer3D:"
+  },
+  {
+    "file": "Effects/EnemyVisualBudget.gd",
+    "line": 720,
+    "text": "var audio_3d: AudioStreamPlayer3D = node as AudioStreamPlayer3D"
+  },
+  {
+    "file": "Effects/ParticleManager.gd",
+    "line": 37,
+    "text": "var _explosion_audio_pool: Array[AudioStreamPlayer3D] = []"
+  },
+  {
+    "file": "Effects/ParticleManager.gd",
+    "line": 51,
+    "text": "var player: AudioStreamPlayer3D = _create_explosion_audio_player()"
+  },
+  {
+    "file": "Effects/ParticleManager.gd",
+    "line": 383,
+    "text": "func should_play_explosion_sound(world_position: Vector3) -> bool:"
+  },
+  {
+    "file": "Effects/ParticleManager.gd",
+    "line": 397,
+    "text": "func play_explosion_sound(stream: AudioStream, world_position: Vector3, volume_db: float = 0.0, pitch_scale: float = 1.0) -> bool:"
+  },
+  {
+    "file": "Effects/ParticleManager.gd",
+    "line": 398,
+    "text": "if stream == null or not should_play_explosion_sound(world_position):"
+  },
+  {
+    "file": "Effects/ParticleManager.gd",
+    "line": 402,
+    "text": "var player: AudioStreamPlayer3D = _acquire_explosion_audio_player()"
+  },
+  {
+    "file": "Effects/ParticleManager.gd",
+    "line": 430,
+    "text": "func _acquire_explosion_audio_player() -> AudioStreamPlayer3D:"
+  },
+  {
+    "file": "Effects/ParticleManager.gd",
+    "line": 432,
+    "text": "var candidate: AudioStreamPlayer3D = _explosion_audio_pool.pop_back()"
+  },
+  {
+    "file": "Effects/ParticleManager.gd",
+    "line": 437,
+    "text": "func _create_explosion_audio_player() -> AudioStreamPlayer3D:"
+  },
+  {
+    "file": "Effects/ParticleManager.gd",
+    "line": 438,
+    "text": "var player := AudioStreamPlayer3D.new()"
+  },
+  {
+    "file": "Effects/ParticleManager.gd",
+    "line": 441,
+    "text": "player.attenuation_model = AudioStreamPlayer3D.ATTENUATION_INVERSE_DISTANCE"
+  },
+  {
+    "file": "Effects/ParticleManager.gd",
+    "line": 447,
+    "text": "func _release_explosion_audio_player(player: AudioStreamPlayer3D) -> void:"
+  },
+  {
+    "file": "Enemies/EnemyAircraftSpawner.gd",
+    "line": 1060,
+    "text": "for child_variant in aircraft.find_children(\"*\", \"AudioStreamPlayer\", true, false):"
+  },
+  {
+    "file": "Enemies/EnemyAircraftSpawner.gd",
+    "line": 1063,
+    "text": "for child_variant in aircraft.find_children(\"*\", \"AudioStreamPlayer3D\", true, false):"
+  },
+  {
+    "file": "Enemies/EnemyAircraftSpawner.gd",
+    "line": 1100,
+    "text": "if node is AudioStreamPlayer:"
+  },
+  {
+    "file": "Enemies/EnemyAircraftSpawner.gd",
+    "line": 1101,
+    "text": "var audio_2d: AudioStreamPlayer = node as AudioStreamPlayer"
+  },
+  {
+    "file": "Enemies/EnemyAircraftSpawner.gd",
+    "line": 1104,
+    "text": "elif node is AudioStreamPlayer3D:"
+  },
+  {
+    "file": "Enemies/EnemyAircraftSpawner.gd",
+    "line": 1105,
+    "text": "var audio_3d: AudioStreamPlayer3D = node as AudioStreamPlayer3D"
+  },
+  {
+    "file": "Enemies/EnemyFighter.tscn",
+    "line": 14,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://dkgrtqcvax58r\" path=\"res://Audio/engine/fixed_wing/airplane_propeller 1.wav\" id=\"11_btnkm\"]"
+  },
+  {
+    "file": "Enemies/EnemyFighter.tscn",
+    "line": 15,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://dscm8ajwonvl5\" path=\"res://Audio/engine/fixed_wing/prop startup 3.wav\" id=\"12_sqfht\"]"
+  },
+  {
+    "file": "Enemies/EnemyFighter.tscn",
+    "line": 19,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://cvxa8h3yftguj\" path=\"res://Audio/landing_gear/deploy.wav\" id=\"16_biq0k\"]"
+  },
+  {
+    "file": "Enemies/EnemyFighter.tscn",
+    "line": 20,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://ch1k8klfyw0mq\" path=\"res://Audio/landing_gear/stow.wav\" id=\"17_1st6a\"]"
+  },
+  {
+    "file": "Enemies/EnemyFighter.tscn",
+    "line": 39,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://dqbmuufyl5tn0\" path=\"res://Audio/cockpit/cockpit_interior_1.wav\" id=\"36_cpit\"]"
+  },
+  {
+    "file": "LandCarrier/CarrierElevator.gd",
+    "line": 57,
+    "text": "@export var moving_sound: AudioStream = preload(\"res://Audio/Carrier/elevator_moving_mono.wav\")"
+  },
+  {
+    "file": "LandCarrier/CarrierElevator.gd",
+    "line": 96,
+    "text": "var _moving_audio_player: AudioStreamPlayer3D"
+  },
+  {
+    "file": "LandCarrier/CarrierElevator.gd",
+    "line": 844,
+    "text": "_moving_audio_player = AudioStreamPlayer3D.new()"
+  },
+  {
+    "file": "LandCarrier/CarrierElevator.gd",
+    "line": 850,
+    "text": "_moving_audio_player.attenuation_model = AudioStreamPlayer3D.ATTENUATION_INVERSE_SQUARE_DISTANCE"
+  },
+  {
+    "file": "LandCarrier/CarrierSlidingDoor.gd",
+    "line": 18,
+    "text": "var _motion_audio: AudioStreamPlayer3D"
+  },
+  {
+    "file": "LandCarrier/CarrierSlidingDoor.gd",
+    "line": 22,
+    "text": "_motion_audio = AudioStreamPlayer3D.new()"
+  },
+  {
+    "file": "LandCarrier/CarrierTread.gd",
+    "line": 56,
+    "text": "@export var rolling_sound: AudioStream = preload(\"res://Audio/Carrier/track_links.ogg\")"
+  },
+  {
+    "file": "LandCarrier/CarrierTread.gd",
+    "line": 87,
+    "text": "var _rolling_audio_player: AudioStreamPlayer3D = null"
+  },
+  {
+    "file": "LandCarrier/CarrierTread.gd",
+    "line": 646,
+    "text": "_rolling_audio_player = AudioStreamPlayer3D.new()"
+  },
+  {
+    "file": "LandCarrier/CarrierTread.gd",
+    "line": 652,
+    "text": "_rolling_audio_player.attenuation_model = AudioStreamPlayer3D.ATTENUATION_INVERSE_SQUARE_DISTANCE"
+  },
+  {
+    "file": "LandCarrier/Commander.gd",
+    "line": 41,
+    "text": "@export var control_room_ambience: AudioStream = preload(\"res://Audio/Carrier/interior_ventilation.ogg\")"
+  },
+  {
+    "file": "LandCarrier/Commander.gd",
+    "line": 47,
+    "text": "@export var control_room_wind: AudioStream = preload(\"res://Audio/cockpit/wind_sound_cockpit.wav\")"
+  },
+  {
+    "file": "LandCarrier/Commander.gd",
+    "line": 78,
+    "text": "var _control_room_audio_player: AudioStreamPlayer"
+  },
+  {
+    "file": "LandCarrier/Commander.gd",
+    "line": 79,
+    "text": "var _control_room_wind_player: AudioStreamPlayer"
+  },
+  {
+    "file": "LandCarrier/Commander.gd",
+    "line": 965,
+    "text": "_control_room_audio_player = AudioStreamPlayer.new()"
+  },
+  {
+    "file": "LandCarrier/Commander.gd",
+    "line": 990,
+    "text": "_control_room_wind_player = AudioStreamPlayer.new()"
+  },
+  {
+    "file": "LandCarrier/CommanderWalkArea.gd",
+    "line": 14,
+    "text": "@export var elevator_motor_sound: AudioStream = preload(\"res://Audio/Carrier/elevator_moving_mono.wav\")"
+  },
+  {
+    "file": "LandCarrier/CommanderWalkArea.gd",
+    "line": 25,
+    "text": "var _elevator_audio_player: AudioStreamPlayer3D"
+  },
+  {
+    "file": "LandCarrier/CommanderWalkArea.gd",
+    "line": 323,
+    "text": "_elevator_audio_player = AudioStreamPlayer3D.new()"
+  },
+  {
+    "file": "LandCarrier/FlightDeckManager.gd",
+    "line": 5735,
+    "text": "if engine_loop_variant is AudioStreamPlayer3D:"
+  },
+  {
+    "file": "LandCarrier/FlightDeckManager.gd",
+    "line": 5736,
+    "text": "var engine_loop := engine_loop_variant as AudioStreamPlayer3D"
+  },
+  {
+    "file": "LandCarrier/LandCarrier.gd",
+    "line": 131,
+    "text": "@export var deck_sound: AudioStream = preload(\"res://Audio/Carrier/carrier_deck_sound_mono.wav\")"
+  },
+  {
+    "file": "LandCarrier/LandCarrier.gd",
+    "line": 194,
+    "text": "var _deck_audio_player: AudioStreamPlayer3D"
+  },
+  {
+    "file": "LandCarrier/LandCarrier.gd",
+    "line": 2260,
+    "text": "_deck_audio_player = AudioStreamPlayer3D.new()"
+  },
+  {
+    "file": "LandCarrier/LandCarrier.gd",
+    "line": 2266,
+    "text": "_deck_audio_player.attenuation_model = AudioStreamPlayer3D.ATTENUATION_INVERSE_SQUARE_DISTANCE"
+  },
+  {
+    "file": "LandCarrier/ReplicatorChamber.gd",
+    "line": 23,
+    "text": "var _hum: AudioStreamPlayer"
+  },
+  {
+    "file": "LandCarrier/ReplicatorChamber.gd",
+    "line": 48,
+    "text": "_hum = AudioStreamPlayer.new()"
+  },
+  {
+    "file": "Projectiles/Explosion/explosion.gd",
+    "line": 20,
+    "text": "@export var explosion_sounds: Array[AudioStream] = []"
+  },
+  {
+    "file": "Projectiles/Explosion/explosion.gd",
+    "line": 40,
+    "text": "var sfx_explosion: AudioStreamPlayer3D = null"
+  },
+  {
+    "file": "Projectiles/Explosion/explosion.gd",
+    "line": 214,
+    "text": "var selected_sound: AudioStream = null"
+  },
+  {
+    "file": "Projectiles/Explosion/explosion.gd",
+    "line": 225,
+    "text": "sfx_explosion = AudioStreamPlayer3D.new()"
+  },
+  {
+    "file": "Projectiles/Explosion/explosion.gd",
+    "line": 230,
+    "text": "sfx_explosion.attenuation_model = AudioStreamPlayer3D.ATTENUATION_INVERSE_DISTANCE"
+  },
+  {
+    "file": "Projectiles/Explosion/explosion.tscn",
+    "line": 4,
+    "text": "[ext_resource type=\"AudioStream\" path=\"res://Audio/explosion/explosion_large_01.wav\" id=\"2_sound1\"]"
+  },
+  {
+    "file": "Projectiles/Explosion/explosion.tscn",
+    "line": 5,
+    "text": "[ext_resource type=\"AudioStream\" path=\"res://Audio/explosion/explosion_large_02.wav\" id=\"3_sound2\"]"
+  },
+  {
+    "file": "Projectiles/Explosion/explosion.tscn",
+    "line": 6,
+    "text": "[ext_resource type=\"AudioStream\" path=\"res://Audio/explosion/explosion_large_03.wav\" id=\"4_sound3\"]"
+  },
+  {
+    "file": "Projectiles/Explosion/explosion.tscn",
+    "line": 7,
+    "text": "[ext_resource type=\"AudioStream\" path=\"res://Audio/explosion/explosion_large_04.wav\" id=\"5_sound4\"]"
+  },
+  {
+    "file": "Projectiles/Explosion/explosion.tscn",
+    "line": 8,
+    "text": "[ext_resource type=\"AudioStream\" path=\"res://Audio/explosion/explosion_large_05.wav\" id=\"6_sound5\"]"
+  },
+  {
+    "file": "Projectiles/Explosion/explosion.tscn",
+    "line": 12,
+    "text": "explosion_sounds = Array[AudioStream]([ExtResource(\"2_sound1\"), ExtResource(\"3_sound2\"), ExtResource(\"4_sound3\"), ExtResource(\"5_sound4\"), ExtResource(\"6_sound5\")])"
+  },
+  {
+    "file": "Projectiles/ProjectileNew/projectile_new.gd",
+    "line": 26,
+    "text": "static var _metal_sounds: Array[AudioStream] = []"
+  },
+  {
+    "file": "Projectiles/ProjectileNew/projectile_new.gd",
+    "line": 27,
+    "text": "static var _dirt_sounds: Array[AudioStream] = []"
+  },
+  {
+    "file": "Projectiles/ProjectileNew/projectile_new.gd",
+    "line": 655,
+    "text": "var sound: AudioStream = null"
+  },
+  {
+    "file": "Projectiles/ProjectileNew/projectile_new.gd",
+    "line": 671,
+    "text": "if impact_budget and not bool(impact_budget.call(\"should_play_impact_sound\", global_position)):"
+  },
+  {
+    "file": "Projectiles/ProjectileNew/projectile_new.gd",
+    "line": 674,
+    "text": "var audio_player = AudioStreamPlayer3D.new()"
+  },
+  {
+    "file": "Projectiles/Rocket/rocket.gd",
+    "line": 7,
+    "text": "const DEFAULT_ROCKET_LOOP: AudioStream = preload(\"res://Audio/rockets/rocket.wav\")"
+  },
+  {
+    "file": "Projectiles/Rocket/rocket.gd",
+    "line": 34,
+    "text": "@export var rocket_loop_sound: AudioStream = DEFAULT_ROCKET_LOOP"
+  },
+  {
+    "file": "Projectiles/Rocket/rocket.gd",
+    "line": 44,
+    "text": "var _rocket_audio_player: AudioStreamPlayer3D = null"
+  },
+  {
+    "file": "Projectiles/Rocket/rocket.gd",
+    "line": 87,
+    "text": "_rocket_audio_player = AudioStreamPlayer3D.new()"
+  },
+  {
+    "file": "Projectiles/Rocket/rocket.gd",
+    "line": 92,
+    "text": "_rocket_audio_player.attenuation_model = AudioStreamPlayer3D.ATTENUATION_INVERSE_DISTANCE"
+  },
+  {
+    "file": "Radio/RadioComms.gd",
+    "line": 69,
+    "text": "var _radio_voice_player: AudioStreamPlayer"
+  },
+  {
+    "file": "Radio/RadioComms.gd",
+    "line": 70,
+    "text": "var _radio_static_player: AudioStreamPlayer"
+  },
+  {
+    "file": "Radio/RadioComms.gd",
+    "line": 72,
+    "text": "var _radio_test_stream: AudioStream"
+  },
+  {
+    "file": "Radio/RadioComms.gd",
+    "line": 271,
+    "text": "var stream := load(resource_path) as AudioStream"
+  },
+  {
+    "file": "Radio/RadioComms.gd",
+    "line": 303,
+    "text": "var stream := load(resource_path) as AudioStream"
+  },
+  {
+    "file": "Radio/RadioComms.gd",
+    "line": 336,
+    "text": "var stream: AudioStream = null"
+  },
+  {
+    "file": "Radio/RadioComms.gd",
+    "line": 346,
+    "text": "func _find_citadel_voice_stream(recipient: String, body: String) -> AudioStream:"
+  },
+  {
+    "file": "Radio/RadioComms.gd",
+    "line": 349,
+    "text": "return _citadel_voice_streams[key] as AudioStream"
+  },
+  {
+    "file": "Radio/RadioComms.gd",
+    "line": 357,
+    "text": "return _citadel_voice_streams[key] as AudioStream"
+  },
+  {
+    "file": "Radio/RadioComms.gd",
+    "line": 365,
+    "text": "return _citadel_voice_streams[key] as AudioStream"
+  },
+  {
+    "file": "Radio/RadioComms.gd",
+    "line": 369,
+    "text": "func _find_pilot_voice_stream(sender: String, body: String) -> AudioStream:"
+  },
+  {
+    "file": "Radio/RadioComms.gd",
+    "line": 383,
+    "text": "func _pick_pilot_voice_stream(sender: String, key: String) -> AudioStream:"
+  },
+  {
+    "file": "Radio/RadioComms.gd",
+    "line": 392,
+    "text": "return locked_streams[randi() % locked_streams.size()] as AudioStream"
+  },
+  {
+    "file": "Radio/RadioComms.gd",
+    "line": 400,
+    "text": "return streams_for_prefix[randi() % streams_for_prefix.size()] as AudioStream"
+  },
+  {
+    "file": "Radio/RadioComms.gd",
+    "line": 408,
+    "text": "return streams[randi() % streams.size()] as AudioStream"
+  },
+  {
+    "file": "Radio/RadioComms.gd",
+    "line": 639,
+    "text": "func _enqueue_radio_voice_stream(stream: AudioStream, cooldown_key: String = \"\") -> void:"
+  },
+  {
+    "file": "Radio/RadioComms.gd",
+    "line": 664,
+    "text": "if not entry.has(\"stream\") or not (entry.stream is AudioStream):"
+  },
+  {
+    "file": "Radio/RadioComms.gd",
+    "line": 717,
+    "text": "var stream: AudioStream = entry.stream as AudioStream"
+  },
+  {
+    "file": "Radio/RadioComms.gd",
+    "line": 797,
+    "text": "_radio_voice_player = AudioStreamPlayer.new()"
+  },
+  {
+    "file": "Radio/RadioComms.gd",
+    "line": 807,
+    "text": "_radio_static_player = AudioStreamPlayer.new()"
+  },
+  {
+    "file": "Tests/AircraftAudioBudgetSmoketest.gd",
+    "line": 15,
+    "text": "var players: Array = [AudioStreamPlayer.new(), AudioStreamPlayer3D.new()]"
+  },
+  {
+    "file": "Tests/CarrierSoundscapeSmoketest.gd",
+    "line": 30,
+    "text": "var island_motor := island_lift._elevator_audio_player as AudioStreamPlayer3D"
+  },
+  {
+    "file": "Tests/CarrierSoundscapeSmoketest.gd",
+    "line": 45,
+    "text": "var deck_motors: Array[AudioStreamPlayer3D] = []"
+  },
+  {
+    "file": "Tests/CarrierSoundscapeSmoketest.gd",
+    "line": 48,
+    "text": "var motor := lift._moving_audio_player as AudioStreamPlayer3D"
+  },
+  {
+    "file": "Tests/CommanderAudioRoutingSmoketest.gd",
+    "line": 32,
+    "text": "var footsteps := commander.get_node(\"OfficerFootsteps\")._player as AudioStreamPlayer3D"
+  },
+  {
+    "file": "Tests/CommanderAudioRoutingSmoketest.gd",
+    "line": 33,
+    "text": "var local_sound := AudioStreamPlayer3D.new()"
+  },
+  {
+    "file": "Tests/CommanderAudioRoutingSmoketest.gd",
+    "line": 37,
+    "text": "var exterior_sound := AudioStreamPlayer3D.new()"
+  },
+  {
+    "file": "Tests/DirectVideoAudioSmoketest.gd",
+    "line": 23,
+    "text": "var player := AudioStreamPlayer.new()"
+  },
+  {
+    "file": "Tests/DirectVideoCaptureSmoketest.gd",
+    "line": 87,
+    "text": "var audio := AudioStreamPlayer.new()"
+  },
+  {
+    "file": "Tests/EnvironmentAudioSmoketest.gd",
+    "line": 33,
+    "text": "manager.cabin_systems_player = AudioStreamPlayer.new()"
+  },
+  {
+    "file": "Tests/FixedWingControlEnvelopeSmoketest.gd",
+    "line": 170,
+    "text": "if audio_child is AudioStreamPlayer:"
+  },
+  {
+    "file": "Tests/FixedWingControlEnvelopeSmoketest.gd",
+    "line": 172,
+    "text": "(audio_child as AudioStreamPlayer).bus == \"Master\","
+  },
+  {
+    "file": "Tests/HelicopterAudioSmoketest.gd",
+    "line": 66,
+    "text": "_expect(load(representative_asset) is AudioStream, \"organized audio asset did not load: %s\" % representative_asset)"
+  },
+  {
+    "file": "Tests/HelicopterAudioSmoketest.gd",
+    "line": 126,
+    "text": "var slow := rotor.get_node_or_null(\"RotorAudioSlow\") as AudioStreamPlayer3D"
+  },
+  {
+    "file": "Tests/HelicopterAudioSmoketest.gd",
+    "line": 127,
+    "text": "var medium := rotor.get_node_or_null(\"RotorAudioMedium\") as AudioStreamPlayer3D"
+  },
+  {
+    "file": "Tests/HelicopterAudioSmoketest.gd",
+    "line": 128,
+    "text": "var fast := rotor.get_node_or_null(\"RotorAudioFast\") as AudioStreamPlayer3D"
+  },
+  {
+    "file": "Tests/HelicopterAudioSmoketest.gd",
+    "line": 160,
+    "text": "var player := rotor.get_node_or_null(player_name) as AudioStreamPlayer3D"
+  },
+  {
+    "file": "Tests/RecordingTakePreview.gd",
+    "line": 124,
+    "text": "if node is AudioStreamPlayer or node is AudioStreamPlayer3D: node.autoplay = false"
+  },
+  {
+    "file": "Tests/ReplicatorPageRenderedProbe.gd",
+    "line": 41,
+    "text": "(chamber.get(\"_hum\") as AudioStreamPlayer).bus = \"ReplicatorProbe\""
+  },
+  {
+    "file": "Tests/StartupMusicSmoketest.gd",
+    "line": 13,
+    "text": "var music := main_menu.get_node_or_null(\"StartupMusic\") as AudioStreamPlayer"
+  },
+  {
+    "file": "tools/aircraft_activity_budget_smoketest.gd",
+    "line": 287,
+    "text": "var detached_audio := AudioStreamPlayer.new()"
+  },
+  {
+    "file": "UI/CarrierWireframeView.gd",
+    "line": 833,
+    "text": "if node is AudioStreamPlayer:"
+  },
+  {
+    "file": "UI/CarrierWireframeView.gd",
+    "line": 834,
+    "text": "(node as AudioStreamPlayer).stop()"
+  },
+  {
+    "file": "UI/CarrierWireframeView.gd",
+    "line": 835,
+    "text": "if node is AudioStreamPlayer2D:"
+  },
+  {
+    "file": "UI/CarrierWireframeView.gd",
+    "line": 836,
+    "text": "(node as AudioStreamPlayer2D).stop()"
+  },
+  {
+    "file": "UI/CarrierWireframeView.gd",
+    "line": 837,
+    "text": "if node is AudioStreamPlayer3D:"
+  },
+  {
+    "file": "UI/CarrierWireframeView.gd",
+    "line": 838,
+    "text": "(node as AudioStreamPlayer3D).stop()"
+  },
+  {
+    "file": "UI/LoadingScreen.gd",
+    "line": 57,
+    "text": "var _carried_music: AudioStreamPlayer = null"
+  },
+  {
+    "file": "UI/LoadingScreen.gd",
+    "line": 82,
+    "text": "func continue_music_through_next_load(music: AudioStreamPlayer) -> bool:"
+  },
+  {
+    "file": "UI/MainMenu.gd",
+    "line": 100,
+    "text": "var _startup_music: AudioStreamPlayer"
+  },
+  {
+    "file": "UI/MainMenu.gd",
+    "line": 146,
+    "text": "_startup_music = get_node_or_null(\"StartupMusic\") as AudioStreamPlayer"
+  },
+  {
+    "file": "UI/MainMenu.tscn",
+    "line": 4,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://cjc2v825wbicr\" path=\"res://Audio/Music/Static Horizon.wav\" id=\"2_music\"]"
+  },
+  {
+    "file": "UI/MainMenu.tscn",
+    "line": 9,
+    "text": "[node name=\"StartupMusic\" type=\"AudioStreamPlayer\" parent=\".\"]"
+  },
+  {
+    "file": "UI/TechnicalIndexView.gd",
+    "line": 967,
+    "text": "if node is AudioStreamPlayer:"
+  },
+  {
+    "file": "UI/TechnicalIndexView.gd",
+    "line": 968,
+    "text": "(node as AudioStreamPlayer).stop()"
+  },
+  {
+    "file": "UI/TechnicalIndexView.gd",
+    "line": 969,
+    "text": "if node is AudioStreamPlayer2D:"
+  },
+  {
+    "file": "UI/TechnicalIndexView.gd",
+    "line": 970,
+    "text": "(node as AudioStreamPlayer2D).stop()"
+  },
+  {
+    "file": "UI/TechnicalIndexView.gd",
+    "line": 971,
+    "text": "if node is AudioStreamPlayer3D:"
+  },
+  {
+    "file": "UI/TechnicalIndexView.gd",
+    "line": 972,
+    "text": "(node as AudioStreamPlayer3D).stop()"
+  },
+  {
+    "file": "Weapons/Autocannon/autocannon.gd",
+    "line": 60,
+    "text": "@export var cannon_sound: AudioStream"
+  },
+  {
+    "file": "Weapons/Autocannon/autocannon.gd",
+    "line": 71,
+    "text": "var sfx_cannon_players: Array[AudioStreamPlayer3D] = []"
+  },
+  {
+    "file": "Weapons/Autocannon/autocannon.gd",
+    "line": 154,
+    "text": "_play_cannon_sound()"
+  },
+  {
+    "file": "Weapons/Autocannon/autocannon.gd",
+    "line": 241,
+    "text": "_play_cannon_sound()"
+  },
+  {
+    "file": "Weapons/Autocannon/autocannon.gd",
+    "line": 380,
+    "text": "var player := AudioStreamPlayer3D.new()"
+  },
+  {
+    "file": "Weapons/Autocannon/autocannon.gd",
+    "line": 384,
+    "text": "player.attenuation_model = AudioStreamPlayer3D.ATTENUATION_INVERSE_DISTANCE"
+  },
+  {
+    "file": "Weapons/Autocannon/autocannon.gd",
+    "line": 385,
+    "text": "player.doppler_tracking = AudioStreamPlayer3D.DOPPLER_TRACKING_DISABLED"
+  },
+  {
+    "file": "Weapons/Autocannon/autocannon.gd",
+    "line": 389,
+    "text": "func _play_cannon_sound() -> void:"
+  },
+  {
+    "file": "Weapons/Autocannon/autocannon.gd",
+    "line": 393,
+    "text": "var stream: AudioStream = _pick_random_shot_sound()"
+  },
+  {
+    "file": "Weapons/Autocannon/autocannon.gd",
+    "line": 397,
+    "text": "var player: AudioStreamPlayer3D = sfx_cannon_players[_sfx_player_index]"
+  },
+  {
+    "file": "Weapons/Autocannon/autocannon.gd",
+    "line": 417,
+    "text": "func _pick_random_shot_sound() -> AudioStream:"
+  },
+  {
+    "file": "Weapons/Autocannon/autocannon.gd",
+    "line": 426,
+    "text": "return sound_bank[index] as AudioStream"
+  },
+  {
+    "file": "Weapons/Autocannon/Autocannon.tscn",
+    "line": 6,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://dqxot06c6ine2\" path=\"res://Audio/guns/Heavy machine gun.wav\" id=\"3_8ku1u\"]"
+  },
+  {
+    "file": "Weapons/Turrets/bullet_weapon.gd",
+    "line": 74,
+    "text": "var _sfx_players: Array[AudioStreamPlayer3D] = []"
+  },
+  {
+    "file": "Weapons/Turrets/bullet_weapon.gd",
+    "line": 182,
+    "text": "_play_shot_sound(spawn_transform.origin)"
+  },
+  {
+    "file": "Weapons/Turrets/bullet_weapon.gd",
+    "line": 249,
+    "text": "_play_shot_sound(tracer_origin)"
+  },
+  {
+    "file": "Weapons/Turrets/bullet_weapon.gd",
+    "line": 495,
+    "text": "var player := AudioStreamPlayer3D.new()"
+  },
+  {
+    "file": "Weapons/Turrets/bullet_weapon.gd",
+    "line": 499,
+    "text": "player.attenuation_model = AudioStreamPlayer3D.ATTENUATION_INVERSE_DISTANCE"
+  },
+  {
+    "file": "Weapons/Turrets/bullet_weapon.gd",
+    "line": 500,
+    "text": "player.doppler_tracking = AudioStreamPlayer3D.DOPPLER_TRACKING_DISABLED"
+  },
+  {
+    "file": "Weapons/Turrets/bullet_weapon.gd",
+    "line": 504,
+    "text": "func _play_shot_sound(world_pos: Vector3) -> void:"
+  },
+  {
+    "file": "Weapons/Turrets/bullet_weapon.gd",
+    "line": 508,
+    "text": "var stream: AudioStream = _pick_random_shot_sound()"
+  },
+  {
+    "file": "Weapons/Turrets/bullet_weapon.gd",
+    "line": 512,
+    "text": "var player: AudioStreamPlayer3D = _sfx_players[_sfx_player_index]"
+  },
+  {
+    "file": "Weapons/Turrets/bullet_weapon.gd",
+    "line": 530,
+    "text": "func _pick_random_shot_sound() -> AudioStream:"
+  },
+  {
+    "file": "Weapons/Turrets/bullet_weapon.gd",
+    "line": 539,
+    "text": "return sound_bank[index] as AudioStream"
+  },
+  {
+    "file": "Weather/CanopySandAudio.gd",
+    "line": 5,
+    "text": "var _ticks: AudioStreamPlayer"
+  },
+  {
+    "file": "Weather/CanopySandAudio.gd",
+    "line": 6,
+    "text": "var _rattle: AudioStreamPlayer"
+  },
+  {
+    "file": "Weather/CanopySandAudio.gd",
+    "line": 12,
+    "text": "func _make_player(player_name: String, stream: AudioStream) -> AudioStreamPlayer:"
+  },
+  {
+    "file": "Weather/CanopySandAudio.gd",
+    "line": 13,
+    "text": "var player := AudioStreamPlayer.new()"
+  },
+  {
+    "file": "Weather/ContinuousTurbulence.gd",
+    "line": 28,
+    "text": "@export var wind_sound: AudioStream = preload(\"res://Audio/cockpit/wind_sound_cockpit.wav\")"
+  },
+  {
+    "file": "Weather/ContinuousTurbulence.gd",
+    "line": 29,
+    "text": "@export var air_rush_sound: AudioStream = preload(\"res://Audio/cockpit/air rush sound.wav\")"
+  },
+  {
+    "file": "Weather/ContinuousTurbulence.gd",
+    "line": 30,
+    "text": "@export var stall_buffet_sound: AudioStream = preload(\"res://Audio/cockpit/stall buffet sound.wav\")"
+  },
+  {
+    "file": "Weather/ContinuousTurbulence.gd",
+    "line": 243,
+    "text": "if player is AudioStreamPlayer3D:"
+  },
+  {
+    "file": "Weather/ContinuousTurbulence.gd",
+    "line": 265,
+    "text": "player_set.get(\"gust\") as AudioStreamPlayer3D,"
+  },
+  {
+    "file": "Weather/ContinuousTurbulence.gd",
+    "line": 274,
+    "text": "player_set.get(\"air_rush\") as AudioStreamPlayer3D,"
+  },
+  {
+    "file": "Weather/ContinuousTurbulence.gd",
+    "line": 285,
+    "text": "player_set.get(\"stall_buffet\") as AudioStreamPlayer3D,"
+  },
+  {
+    "file": "Weather/ContinuousTurbulence.gd",
+    "line": 317,
+    "text": "func _create_audio_layer_player(stream: AudioStream) -> AudioStreamPlayer3D:"
+  },
+  {
+    "file": "Weather/ContinuousTurbulence.gd",
+    "line": 324,
+    "text": "var audio_player := AudioStreamPlayer3D.new()"
+  },
+  {
+    "file": "Weather/ContinuousTurbulence.gd",
+    "line": 330,
+    "text": "audio_player.attenuation_model = AudioStreamPlayer3D.ATTENUATION_INVERSE_DISTANCE"
+  },
+  {
+    "file": "Weather/ContinuousTurbulence.gd",
+    "line": 336,
+    "text": "func _update_layer(audio_player: AudioStreamPlayer3D, min_db: float, max_db: float, min_pitch: float, max_pitch: float, factor: float, audible_threshold: float = 0.0, volume_curve: float = 0.75, pitch_curve: float = 0.75) -> void:"
+  },
+  {
+    "file": "Weather/ContinuousTurbulence.gd",
+    "line": 396,
+    "text": "if player is AudioStreamPlayer3D and player.playing:"
+  },
+  {
+    "file": "Weather/ContinuousTurbulence.gd",
+    "line": 404,
+    "text": "if player is AudioStreamPlayer3D and is_instance_valid(player):"
+  },
+  {
+    "file": "Weather/ContinuousTurbulence.tscn",
+    "line": 4,
+    "text": "[ext_resource type=\"AudioStream\" uid=\"uid://fw6styeqfphy\" path=\"res://Audio/cockpit/wind_sound_cockpit.wav\" id=\"2_uuof8\"]"
+  },
+  {
+    "file": "Weather/DustFrontVisuals.gd",
+    "line": 14,
+    "text": "var _audio: AudioStreamPlayer"
+  },
+  {
+    "file": "Weather/DustFrontVisuals.gd",
+    "line": 51,
+    "text": "_audio = AudioStreamPlayer.new()"
+  },
+  {
+    "file": "Weather/TurbulenceVolume.tscn",
+    "line": 13,
+    "text": "@export var wind_sound: AudioStream"
+  },
+  {
+    "file": "Weather/TurbulenceVolume.tscn",
+    "line": 19,
+    "text": "var audio_player: AudioStreamPlayer3D"
+  },
+  {
+    "file": "Weather/TurbulenceVolume.tscn",
+    "line": 35,
+    "text": "audio_player = AudioStreamPlayer3D.new()"
+  },
+  {
+    "file": "Weather/TwisterVisuals.gd",
+    "line": 8,
+    "text": "var _audio: AudioStreamPlayer3D"
+  },
+  {
+    "file": "Weather/TwisterVisuals.gd",
+    "line": 47,
+    "text": "_audio = AudioStreamPlayer3D.new()"
+  }
+]

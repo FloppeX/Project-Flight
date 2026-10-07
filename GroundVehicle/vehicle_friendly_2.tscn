@@ -1,0 +1,6 @@
+[gd_scene format=3]
+
+; Legacy save/reference alias: the old four-wheel variant is now vehicle 1.
+[ext_resource type="PackedScene" path="res://GroundVehicle/ground_vehicle_1.tscn" id="1"]
+
+[node name="GroundVehicle1KMVExplorer" instance=ExtResource("1")]

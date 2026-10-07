@@ -2,7 +2,7 @@
 
 [ext_resource type="Script" uid="uid://c4ltq2v6fji05" path="res://Aircraft/aircraft.gd" id="1_e8t1h"]
 [ext_resource type="PackedScene" uid="uid://cadi81fcpvmuc" path="res://Projectiles/Explosion/explosion.tscn" id="2_x73up"]
-[ext_resource type="PackedScene" uid="uid://87lf8k4vvvdq" path="res://Models/Aircraft_8/aircraft_8.glb" id="3_kq7no"]
+[ext_resource type="PackedScene" path="res://Models/Aircraft_8/aircraft_8_damage.glb" id="3_kq7no"]
 [ext_resource type="PackedScene" uid="uid://djtbinx1svo2u" path="res://Aircraft/Aircraft wreck/aircraft_1_wreck.tscn" id="3_x73up"]
 [ext_resource type="PackedScene" uid="uid://p831mbxhqubt" path="res://Models/Aircraft_1/aircraft 2 propeller.glb" id="4_ii5ys"]
 [ext_resource type="Script" uid="uid://cyxrx2cid1gt" path="res://Aircraft/SimpleAero.gd" id="5_8vbcf"]
@@ -76,6 +76,12 @@ radius = 0.3
 [sub_resource type="Resource" id="Resource_qvmvr"]
 metadata/__load_path__ = "res://Audio/flaps_deploy 2.wav"
 
+[sub_resource type="BoxShape3D" id="BoxShape3D_engine_damage"]
+size = Vector3(1.5, 1.6, 1.5)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_tail_core_damage"]
+size = Vector3(1.3, 1.1, 1.5)
+
 [node name="Aircraft_8" type="RigidBody3D" unique_id=941783978]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -0.591083)
 collision_layer = 513
@@ -99,6 +105,14 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.123306, -0.231455)
 
 [node name="Aircraft 2 propeller" parent="aircraft_8" unique_id=2130889238 instance=ExtResource("4_ii5ys")]
 transform = Transform3D(1.6, 0, 4.76837e-08, 0, 1.6, 0, -4.76837e-08, 0, 1.6, -2.00808e-09, 0.412803, -4.04907)
+
+[node name="EngineDamageCollider" type="CollisionShape3D" parent="."]
+position = Vector3(0, 0, 4.9)
+shape = SubResource("BoxShape3D_engine_damage")
+
+[node name="TailDamageCollider" type="CollisionShape3D" parent="."]
+position = Vector3(0, 0, -3.9)
+shape = SubResource("BoxShape3D_tail_core_damage")
 
 [node name="FuselageDamageCollider" type="CollisionShape3D" parent="." unique_id=2083576305]
 transform = Transform3D(1, 0, 0, 0, -4.37114e-08, -1, 0, 1, -4.37114e-08, 0, 0, 0.51845)
@@ -358,6 +372,12 @@ script = ExtResource("33_aitgl")
 [node name="PartDamageModel" type="Node" parent="."]
 script = ExtResource("94_part_damage")
 cockpit_visual_paths = Array[NodePath]([NodePath("../aircraft_8/world/canopy glass")])
+tail_section_visual_paths = Array[NodePath]([NodePath("../aircraft_8/world/fuselage_001/TailBreakaway")])
+tail_section_attached_visual_paths = Array[NodePath]([])
+tail_cut_local_z = -3.25
+left_wing_visual_paths = Array[NodePath]([NodePath("../aircraft_8/world/fuselage_001/WingBreakawayLeft")])
+right_wing_visual_paths = Array[NodePath]([NodePath("../aircraft_8/world/fuselage_001/WingBreakawayRight")])
+
 
 [node name="DamageEffects" type="Node" parent="." unique_id=1786410101]
 script = ExtResource("36_dmgfx")

@@ -53,6 +53,7 @@ func _apply_door_pose() -> void:
 
 func _destroy() -> void:
 	if is_destroyed: return
+	_register_plasteel_salvage("Vehicle bay ruin salvage", 220.0)
 	set_destroyed_state()
 	EnemyOpsManager.report_asset_loss(global_position, "building")
 	destroyed.emit(self)

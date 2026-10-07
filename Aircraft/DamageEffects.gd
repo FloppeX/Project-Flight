@@ -107,6 +107,10 @@ func _cache_modules() -> void:
 
 
 func _on_aircraft_damaged(_damage_amount: float, current_health: float) -> void:
+	# RegionalSystems owns partial failures. Retain only the legacy terminal
+	# fire presentation here for aircraft using regional damage.
+	if _aircraft.get_node_or_null("PartDamageModel") != null and current_health > 0.0:
+		return
 	var health_fraction: float = current_health / _aircraft.max_health
 
 	# Fire phase: health at or below zero
@@ -367,17 +371,29 @@ func _update_smoke_trail(delta: float) -> void:
 				_spawn_damage_smoke(puff_scale)
 
 
+func _get_smoke_spawn_position(fire: bool) -> Vector3:
+	if _aircraft.get_node_or_null("PartDamageModel") != null:
+		# The deferred legacy cache can run before Aircraft's startup-frame await
+		# finishes. Resolve the engine on first emission if that cache was empty.
+		if not is_instance_valid(_engine_module):
+			var engines := _aircraft.find_modules_by_type("engine")
+			if not engines.is_empty(): _engine_module = engines[0]
+		if is_instance_valid(_engine_module):
+			return _engine_module.get_damage_smoke_global_position() + _aircraft.global_basis * Vector3(
+				randf_range(-0.2, 0.2), randf_range(0.0, 0.2), randf_range(-0.2, 0.2))
+	# Retain the legacy placement for aircraft outside the fixed-wing damage system.
+	var offset := _aircraft.global_basis.z * randf_range(1.5 if fire else 2.0, 5.0)
+	var spread := 1.5 if fire else 1.0
+	return _aircraft.global_position - offset + Vector3(
+		randf_range(-spread, spread),
+		randf_range(-0.5, 1.0 if fire else 0.5),
+		randf_range(-spread, spread)
+	)
+
 func _spawn_damage_smoke(base_scale: float) -> void:
 	var puff := MeshInstance3D.new()
 	get_tree().current_scene.add_child(puff)
-
-	# Spawn behind aircraft
-	var offset := _aircraft.global_transform.basis.z * randf_range(2.0, 5.0)
-	puff.global_position = _aircraft.global_position - offset + Vector3(
-		randf_range(-1.0, 1.0),
-		randf_range(-0.5, 0.5),
-		randf_range(-1.0, 1.0)
-	)
+	puff.global_position = _get_smoke_spawn_position(false)
 
 	var sphere := SphereMesh.new()
 	sphere.radial_segments = 6
@@ -404,12 +420,7 @@ func _spawn_fire_puff(base_scale: float) -> void:
 	var puff := MeshInstance3D.new()
 	get_tree().current_scene.add_child(puff)
 
-	var offset := _aircraft.global_transform.basis.z * randf_range(1.5, 5.0)
-	puff.global_position = _aircraft.global_position - offset + Vector3(
-		randf_range(-1.5, 1.5),
-		randf_range(-0.5, 1.0),
-		randf_range(-1.5, 1.5)
-	)
+	puff.global_position = _get_smoke_spawn_position(true)
 
 	var sphere := SphereMesh.new()
 	sphere.radial_segments = 6

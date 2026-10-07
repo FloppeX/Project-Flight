@@ -130,6 +130,7 @@ func _destroy() -> void:
 	if is_destroyed:
 		return
 	is_destroyed = true
+	Building.register_plasteel_salvage(self, "Gun emplacement wreck salvage", 65.0, team == 1)
 	_set_turret_active(false)
 	if team != 1 and not bool(get_meta("suppress_enemy_ops_on_destroy", false)):
 		EnemyOpsManager.report_asset_loss(global_position, "gun emplacement")

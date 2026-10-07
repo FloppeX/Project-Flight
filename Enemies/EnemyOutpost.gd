@@ -152,6 +152,7 @@ func _service_reports(delta: float) -> void:
 func _destroy() -> void:
 	if is_destroyed:
 		return
+	_register_plasteel_salvage("Observation outpost ruin salvage", 300.0)
 	_set_destroyed_state()
 	EnemyOpsManager.report_asset_loss(global_position, "outpost")
 	destroyed.emit(self)

@@ -1,8 +1,10 @@
 shader_type spatial;
 render_mode unshaded, cull_disabled, depth_draw_never;
+#include "res://Weather/storm_shape.gdshaderinc"
 
 uniform sampler2D depth_texture : hint_depth_texture, repeat_disable, filter_nearest;
 uniform vec3 dimensions;
+uniform vec4 outline = vec4(5.0, 0.035, 0.0, 0.0);
 uniform float elapsed = 0.0;
 uniform float strength = 0.0;
 uniform float shell = 1.0;
@@ -14,9 +16,7 @@ varying vec3 local_camera;
 
 void vertex() {
 	VERTEX.xz *= shell;
-	float top = 0.86 + 0.09 * sin(VERTEX.x / 280.0 + elapsed * 0.045)
-		+ 0.045 * sin(VERTEX.z / 350.0 - VERTEX.x / 1050.0 + elapsed * 0.03)
-		+ 0.035 * sin(VERTEX.x / 93.0 + VERTEX.z / 137.0 + elapsed * 0.08);
+	float top = dust_top(VERTEX, dimensions, elapsed, outline);
 	VERTEX.y *= top * shell;
 	local_position = VERTEX;
 	local_camera = (inverse(MODEL_MATRIX) * vec4(CAMERA_POSITION_WORLD, 1.0)).xyz;
@@ -24,8 +24,9 @@ void vertex() {
 }
 
 void fragment() {
-	float radial = length(local_camera.xz / dimensions.xz);
-	float height = max(local_camera.y, 0.0) / (dimensions.y * 0.88);
+	vec2 normalized_camera = local_camera.xz / dimensions.xz;
+	float radial = length(normalized_camera) / storm_edge(atan(normalized_camera.y, normalized_camera.x), outline);
+	float height = max(local_camera.y, 0.0) / (dimensions.y * dust_top(local_camera, dimensions, elapsed, outline));
 	float camera_boundary = sqrt(radial * radial + pow(height, 8.0));
 	// The local fog takes over near the shell, including cockpit and bridge views.
 	float exterior = smoothstep(0.96, 1.16, camera_boundary);

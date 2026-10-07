@@ -62,7 +62,7 @@ func _physics_process(delta: float) -> void:
 
 	# A manual cold-start gesture starts at idle. Release and press again to
 	# choose collective, instead of accumulating full power during unfolding.
-	if RequireThrottleReleaseAfterManualStart and previous_power <= 0.01 and target_power > 0.01 and not _any_engine_working():
+	if RequireThrottleReleaseAfterManualStart and previous_power <= 0.01 and target_power > 0.01 and not _any_engine_working() and not _all_engines_failed():
 		target_power = 0.02
 		_manual_start_throttle_latched = true
 
@@ -75,6 +75,10 @@ func _physics_process(delta: float) -> void:
 
 func handle_automatic_engine_control(previous_power: float):
 	"""Automatically start/stop engines based on throttle position"""
+	if _all_engines_failed():
+		_auto_start_power_limited = false
+		_manual_start_throttle_latched = false
+		return
 	# Check if any engine is currently working
 	var any_engine_working := _any_engine_working()
 	
@@ -130,3 +134,9 @@ func _any_engine_working() -> bool:
 		if engine.is_engine_working:
 			return true
 	return false
+
+func _all_engines_failed() -> bool:
+	if engine_modules.is_empty(): return false
+	for engine in engine_modules:
+		if not "damage_disabled" in engine or not engine.damage_disabled: return false
+	return true

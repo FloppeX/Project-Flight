@@ -144,6 +144,12 @@ func _get_fuel_percent() -> float:
 func _get_health_percent() -> float:
 	if aircraft == null or not is_instance_valid(aircraft):
 		return 0.0
+	var parts := aircraft.get_node_or_null("PartDamageModel") as AircraftPartDamageModel
+	if parts != null:
+		var weakest := 1.0
+		for zone: StringName in parts.get_structural_zones():
+			weakest = minf(weakest, parts.get_zone_health(zone) / maxf(parts.get_zone_max_health(zone), .001))
+		return weakest * 100.0
 	if not ("current_health" in aircraft) or not ("max_health" in aircraft):
 		return 100.0
 	var max_health := maxf(float(aircraft.get("max_health")), 0.001)

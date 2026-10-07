@@ -1,0 +1,2 @@
+=== Combat log started 2026-10-05T20:34:31 ===
+[    0.0] SYS    Combat log online.

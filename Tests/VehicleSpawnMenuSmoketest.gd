@@ -17,7 +17,7 @@ func _run() -> void:
 		return
 	if not _has_scene(entries, "res://Aircraft/Aircraft_1.tscn") \
 			or not _has_scene(entries, "res://Aircraft/Aircraft_11.tscn") \
-			or not _has_scene(entries, "res://GroundVehicle/vehicle_friendly_light.tscn"):
+			or not _has_scene(entries, "res://GroundVehicle/ground_vehicle_1.tscn"):
 		_fail("spawn catalog omitted a canonical airplane, helicopter, or ground vehicle")
 		return
 	if ResourceLoader.exists("res://Aircraft/Aircraft_14.tscn") \
@@ -49,6 +49,9 @@ func _run() -> void:
 		{"kind": "enemy_flight", "role": "bomber", "scene": "res://Aircraft/Aircraft_4.tscn"},
 		{"kind": "enemy_flight", "role": "fighter", "scene": "res://Aircraft/Aircraft_3.tscn"},
 		{"kind": "enemy_flight", "role": "attack", "scene": "res://Aircraft/Aircraft_6.tscn"},
+		{"kind": "enemy_flight", "role": "fighter_bomber", "scene": "res://Aircraft/Aircraft_16.tscn"},
+		{"kind": "enemy_flight", "role": "scout_helicopter", "scene": "res://Aircraft/Aircraft_13.tscn"},
+		{"kind": "enemy_flight", "role": "attack_helicopter", "scene": "res://Aircraft/Aircraft_15.tscn"},
 		{"kind": "enemy_platoon", "role": "", "scene": ""},
 	]:
 		var preset := _enemy_preset_for(
@@ -154,7 +157,7 @@ func _run() -> void:
 		_fail("repeated electrical storm spawn did not reposition the existing cell")
 		return
 
-	var ground_entry := _entry_for(entries, "res://GroundVehicle/vehicle_friendly_light.tscn")
+	var ground_entry := _entry_for(entries, "res://GroundVehicle/ground_vehicle_1.tscn")
 	var ground_vehicle := menu.call("spawn_entry", ground_entry) as Node3D
 	if ground_vehicle == null or ground_vehicle.get_parent() != root \
 			or not bool(ground_vehicle.get_meta("spawned_from_vehicle_menu", false)) \
@@ -186,7 +189,7 @@ func _run() -> void:
 		_fail("spawned aircraft was not finalized as friendly AI")
 		return
 
-	print("[VehicleSpawnMenuSmoketest] PASS entries=%d pause_restore=true ground_spawn=true wildlife_spawn=true storm_spawn=true storm_reposition=true electrical_spawn=true electrical_reposition=true aircraft_spawn=true player_presentation_retained=true enemy_presets=4 aircraft14_named=%s land_carrier_excluded=true" % [
+	print("[VehicleSpawnMenuSmoketest] PASS entries=%d pause_restore=true ground_spawn=true wildlife_spawn=true storm_spawn=true storm_reposition=true electrical_spawn=true electrical_reposition=true aircraft_spawn=true player_presentation_retained=true enemy_presets=7 aircraft14_named=%s land_carrier_excluded=true" % [
 		entries.size(),
 		str(not spitewing_entry.is_empty()),
 	])

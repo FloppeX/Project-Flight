@@ -134,6 +134,14 @@ func interact_from_camera(camera: Camera3D, max_distance_m: float = 2.5) -> bool
 		and live_panel.has_method("interact_from_camera") \
 		and bool(live_panel.call("interact_from_camera", camera, max_distance_m))
 
+func select_damage_page() -> bool:
+	var live_panel := get_live_panel()
+	return is_instance_valid(live_panel) and bool(live_panel.call("select_damage_page"))
+
+func cycle_left_mfd(direction: int) -> bool:
+	var live_panel := get_live_panel()
+	return is_instance_valid(live_panel) and bool(live_panel.call("cycle_left_mfd", direction))
+
 
 func interact_from_ray(ray_origin: Vector3, ray_direction: Vector3, max_distance_m: float = 2.5) -> bool:
 	var live_panel := get_live_panel()

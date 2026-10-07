@@ -128,6 +128,13 @@ func _input(event: InputEvent) -> void:
 
 	if not _is_open:
 		return
+	if _current_page == PAGE_REPLICATOR and event is InputEventKey:
+		var key: int = event.keycode if event.keycode != 0 else event.physical_keycode
+		if key in [KEY_PAGEUP, KEY_PAGEDOWN]:
+			if event.pressed:
+				_replicator_page.adjust_shield_opacity(0.05 if key == KEY_PAGEUP else -0.05)
+			get_viewport().set_input_as_handled()
+			return
 	if event is InputEventJoypadMotion:
 		var motion := event as InputEventJoypadMotion
 		if motion.axis == JOY_AXIS_LEFT_X or motion.axis == JOY_AXIS_LEFT_Y:

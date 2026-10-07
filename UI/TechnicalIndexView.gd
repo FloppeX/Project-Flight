@@ -578,6 +578,7 @@ func _select_entry(entry: Dictionary) -> void:
 
 
 func _prepare_generated_preview_visuals(root: Node, scene_path: String) -> void:
+	_prepare_static_turret_barrels(root)
 	if scene_path != LAND_CARRIER_SCENE_PATH:
 		return
 	if root.get_node_or_null("VehicleRamp") == null:
@@ -597,6 +598,29 @@ func _prepare_generated_preview_visuals(root: Node, scene_path: String) -> void:
 			_build_static_track_plates(node)
 		for child in node.get_children():
 			stack.append(child as Node)
+
+
+func _prepare_static_turret_barrels(root: Node) -> void:
+	# Runtime mounting runs in _ready, which previews deliberately never call.
+	# Use the authored insertion locator in local space before stripping scripts.
+	for node in root.find_children("*", "Node3D", true, false):
+		if not node.has_method("mount_weapon") or not "weapon_scene" in node: continue
+		var controller: Node = node
+		var attachment := controller.find_child("barrel position", true, false) as Node3D
+		var weapon_scene: PackedScene = controller.get("weapon_scene")
+		if attachment == null or weapon_scene == null: continue
+		var weapon := weapon_scene.instantiate()
+		var profile: Resource = controller.get("gun_profile_override")
+		if profile == null and "gun_profile" in weapon: profile = weapon.get("gun_profile")
+		var caliber := int(profile.get("caliber_mm")) if profile != null else 0
+		weapon.free()
+		var barrel_scene := preload("res://Weapons/Turrets/TurretGunCatalog.gd").get_barrel_scene(caliber)
+		if barrel_scene == null: continue
+		var barrel := barrel_scene.instantiate() as Node3D
+		barrel.name = "PreviewBarrel%dmm" % caliber
+		attachment.get_parent().add_child(barrel)
+		barrel.transform = Transform3D(attachment.basis.orthonormalized() * Basis(Vector3.RIGHT, -PI / 2), attachment.position)
+		attachment.hide()
 
 
 func _apply_preview_player_livery(root: Node, entry: Dictionary, scene_path: String) -> void:

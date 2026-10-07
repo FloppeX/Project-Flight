@@ -60,6 +60,7 @@ class_name AircraftModule_ControlSteering
 @export var helicopter_rudder_assist_full_forward_speed: float = 32.0
 
 var steering_module: Node = null
+var landing_gear: AircraftModule_LandingGear = null
 var simple_aero: Node = null
 var aero_has_cmds := false
 var _is_helicopter_controls: bool = false
@@ -109,11 +110,20 @@ func setup(aircraft_node: Node) -> void:
 	_simple_aero_has_control_envelope = simple_aero != null \
 		and _node_has_properties(simple_aero, ["current_high_speed_stiffening"])
 	_is_helicopter_controls = _detect_helicopter_controls()
+	landing_gear = aircraft.find_child("LandingGear", true, false) as AircraftModule_LandingGear
 
 func _physics_process(delta: float) -> void:
 	if (not ControlActive) or (steering_module == null):
+		if is_instance_valid(landing_gear):
+			landing_gear.set_wheel_brake_input(0.0)
 		_reset_rudder_assist_state()
 		return
+
+	if is_instance_valid(landing_gear) and not _is_helicopter_controls:
+		# Shared trigger pressure brakes; their difference remains the rudder input.
+		# Use raw pressure so braking is linear in both flight-model modes.
+		var shared_pressure := minf(Input.get_action_raw_strength("yaw_left"), Input.get_action_raw_strength("yaw_right"))
+		landing_gear.set_wheel_brake_input(clampf((shared_pressure - 0.05) / 0.95, 0.0, 1.0))
 
 	var advanced_fixed_wing := not _is_helicopter_controls and _is_advanced_fixed_wing_model()
 	# Pitch/roll use Godot's configured Input Map deadzone. Advanced rudder reads

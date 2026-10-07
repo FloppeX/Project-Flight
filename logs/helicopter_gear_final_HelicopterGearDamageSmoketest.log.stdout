@@ -1,0 +1,219 @@
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+
+ERROR: Failed to read the root certificate store.
+   at: get_system_ca_certificates (platform/windows/os_windows.cpp:2582)
+[CockpitPilotPool] reserve_ready size=2 created=2 animation_prepare_ms=538.083 animation_prepare_max_ms=537.748
+[AirOpsManager] Ready — flights: Archer, Bulldog, Crimson, Dingo
+[CombatLog] [    0.0] SYS    Combat log online.
+[GroundOps] Ready — platoons: Ember, Ferret, Grizzly, Hammer
+[PerfHitch] Writing C:/Godot projects/Project-Flight/logs/helicopter_gear_userdata/Godot/app_userdata/Land Carrier/perf_logs/hitch_events.csv threshold_ms=33.0 mark_action=flight_log_mark
+[FrameProfilerReportCapture] enabled (ambient_hitch_trace)
+[godot_ai game_helper] registered mcp capture (debugger active=false, logger=true)
+[Flight Archer] CAP  alt=800m
+[Flight Bulldog] CAP  alt=800m
+[Flight Crimson] CAP  alt=800m
+[Flight Dingo] CAP  alt=800m
+[Resolution] selected=(1920, 1080) window=(0, 0) root=(64, 64) screen=(0, 0) content=(1920, 1080) content_mode=2 content_aspect=1 content_factor=1.0 viewport=(1920.0, 1080.0) 3d_scale=1.0 mode=1
+[InstrumentPanelPool] render_warm panel=PooledInstrumentPanel1 elapsed_ms=90.183
+HELICOPTER_GEAR_GEOMETRY id=9 debris=4
+[InstrumentPanelPool] render_warm panel=PooledInstrumentPanel2 elapsed_ms=26.250
+HELICOPTER_GEAR_GEOMETRY id=10 debris=1
+HELICOPTER_GEAR_GEOMETRY id=11 debris=1
+HELICOPTER_GEAR_GEOMETRY id=12 debris=3
+HELICOPTER_GEAR_GEOMETRY id=13 debris=1
+HELICOPTER_GEAR_GEOMETRY id=15 debris=10
+[CombatLog] [    3.3] LAND   T1:Aircraft_9 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    3.3] LAND   T1:Aircraft_12 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    3.3] LAND   T1:Aircraft_13 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    3.3] LAND   T1:Aircraft_15 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    3.3] LAND   T1:Aircraft_10 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    3.3] LAND   T1:Aircraft_11 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    3.9] LAND   T1:Aircraft_9 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    3.9] LAND   T1:Aircraft_12 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    3.9] LAND   T1:Aircraft_13 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    3.9] LAND   T1:Aircraft_15 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    3.9] LAND   T1:Aircraft_10 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    3.9] LAND   T1:Aircraft_11 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    4.5] LAND   T1:Aircraft_9 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    4.5] LAND   T1:Aircraft_12 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    4.5] LAND   T1:Aircraft_13 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    4.5] LAND   T1:Aircraft_15 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    4.5] LAND   T1:Aircraft_10 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    4.5] LAND   T1:Aircraft_11 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    5.0] LAND   T1:Aircraft_9 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    5.0] LAND   T1:Aircraft_12 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    5.0] LAND   T1:Aircraft_13 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    5.0] LAND   T1:Aircraft_15 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    5.0] LAND   T1:Aircraft_10 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    5.0] LAND   T1:Aircraft_11 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    5.5] LAND   T1:Aircraft_9 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    5.5] LAND   T1:Aircraft_12 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    5.5] LAND   T1:Aircraft_13 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    5.5] LAND   T1:Aircraft_15 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    5.5] LAND   T1:Aircraft_10 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    5.5] LAND   T1:Aircraft_11 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    5.9] LAND   T1:Aircraft_9 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    5.9] LAND   T1:Aircraft_12 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    5.9] LAND   T1:Aircraft_13 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    5.9] LAND   T1:Aircraft_15 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    5.9] LAND   T1:Aircraft_10 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    5.9] LAND   T1:Aircraft_11 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+HELICOPTER_GEAR_LANDING 9 terrain gentle sheared=false belly=false survived=true speed=0.00165802962147 touchdown={ "surface": "terrain", "descent_speed_mps": 3.70413184165955, "relative_speed_mps": 3.70413184165955, "hard": false, "damaging": false, "belly": false, "position": (900.8, 1400.0, 3.2) }
+HELICOPTER_GEAR_LANDING 10 terrain gentle sheared=false belly=false survived=true speed=0.01089558098465 touchdown={ "surface": "terrain", "descent_speed_mps": 3.85583710670471, "relative_speed_mps": 3.85583710670471, "hard": false, "damaging": false, "belly": false, "position": (999.0086, 1400.0, -0.6) }
+HELICOPTER_GEAR_LANDING 11 terrain gentle sheared=false belly=false survived=true speed=0.01295519433916 touchdown={ "surface": "terrain", "descent_speed_mps": 3.85337376594543, "relative_speed_mps": 3.85337376594543, "hard": false, "damaging": false, "belly": false, "position": (1098.784, 1400.0, -0.78) }
+HELICOPTER_GEAR_LANDING 12 terrain gentle sheared=false belly=false survived=true speed=0.02322096005082 touchdown={ "surface": "terrain", "descent_speed_mps": 3.69644856452942, "relative_speed_mps": 3.69644856452942, "hard": false, "damaging": false, "belly": false, "position": (1200.0, 1400.0, 3.473723) }
+HELICOPTER_GEAR_LANDING 13 terrain gentle sheared=false belly=false survived=true speed=0.03002984263003 touchdown={ "surface": "terrain", "descent_speed_mps": 3.6925847530365, "relative_speed_mps": 3.6925847530365, "hard": false, "damaging": false, "belly": false, "position": (1299.07, 1400.0, -0.3) }
+HELICOPTER_GEAR_LANDING 15 terrain gentle sheared=false belly=false survived=true speed=0.00557839777321 touchdown={ "surface": "terrain", "descent_speed_mps": 3.69142270088196, "relative_speed_mps": 3.69142270088196, "hard": false, "damaging": false, "belly": false, "position": (1500.003, 1400.0, 2.397259) }
+[CombatLog] [    6.6] CRASH  T1:Aircraft_15 crashed @9.2 m/s
+[CombatLog] [    6.6] CRASH  T1:Aircraft_12 crashed @9.6 m/s
+[CombatLog] [    6.6] CRASH  T1:Aircraft_11 crashed @7.2 m/s
+[CombatLog] [    6.6] CRASH  T1:Aircraft_10 crashed @4.7 m/s
+[CombatLog] [    7.0] LAND   T1:Aircraft_9 terrain touchdown sink=0.2 m/s relative=0.0 m/s
+[CombatLog] [    7.0] LAND   T1:Aircraft_10 terrain touchdown sink=0.2 m/s relative=0.0 m/s
+[CombatLog] [    7.0] LAND   T1:Aircraft_11 terrain touchdown sink=0.2 m/s relative=0.0 m/s
+[CombatLog] [    7.0] LAND   T1:Aircraft_12 terrain touchdown sink=0.2 m/s relative=0.0 m/s
+[CombatLog] [    7.0] LAND   T1:Aircraft_13 terrain touchdown sink=0.2 m/s relative=0.0 m/s
+[CombatLog] [    7.0] LAND   T1:Aircraft_15 terrain touchdown sink=0.2 m/s relative=0.0 m/s
+[CombatLog] [    7.4] LAND   T1:Aircraft_9 terrain touchdown sink=0.2 m/s relative=0.0 m/s
+[CombatLog] [    7.4] LAND   T1:Aircraft_10 terrain touchdown sink=0.2 m/s relative=0.0 m/s
+[CombatLog] [    7.4] LAND   T1:Aircraft_11 terrain touchdown sink=0.2 m/s relative=0.0 m/s
+[CombatLog] [    7.4] LAND   T1:Aircraft_12 terrain touchdown sink=0.2 m/s relative=0.0 m/s
+[CombatLog] [    7.4] LAND   T1:Aircraft_13 terrain touchdown sink=0.2 m/s relative=0.0 m/s
+[CombatLog] [    7.4] LAND   T1:Aircraft_15 terrain touchdown sink=0.2 m/s relative=0.0 m/s
+[CombatLog] [    7.9] LAND   T1:Aircraft_9 terrain touchdown sink=0.2 m/s relative=0.0 m/s
+[CombatLog] [    7.9] LAND   T1:Aircraft_10 terrain touchdown sink=0.2 m/s relative=0.0 m/s
+[CombatLog] [    7.9] LAND   T1:Aircraft_11 terrain touchdown sink=0.2 m/s relative=0.0 m/s
+[CombatLog] [    7.9] LAND   T1:Aircraft_12 terrain touchdown sink=0.2 m/s relative=0.0 m/s
+[CombatLog] [    7.9] LAND   T1:Aircraft_13 terrain touchdown sink=0.2 m/s relative=0.0 m/s
+[CombatLog] [    7.9] LAND   T1:Aircraft_15 terrain touchdown sink=0.2 m/s relative=0.0 m/s
+[CombatLog] [    8.2] LAND   T1:Aircraft_9 terrain touchdown sink=0.2 m/s relative=0.0 m/s
+[CombatLog] [    8.2] LAND   T1:Aircraft_10 terrain touchdown sink=0.2 m/s relative=0.0 m/s
+[CombatLog] [    8.2] LAND   T1:Aircraft_11 terrain touchdown sink=0.2 m/s relative=0.0 m/s
+[CombatLog] [    8.2] LAND   T1:Aircraft_12 terrain touchdown sink=0.2 m/s relative=0.0 m/s
+[CombatLog] [    8.2] LAND   T1:Aircraft_13 terrain touchdown sink=0.2 m/s relative=0.0 m/s
+[CombatLog] [    8.2] LAND   T1:Aircraft_15 terrain touchdown sink=0.2 m/s relative=0.0 m/s
+[CombatLog] [    8.5] LAND   T1:Aircraft_9 terrain touchdown sink=0.2 m/s relative=0.0 m/s
+[CombatLog] [    8.5] LAND   T1:Aircraft_10 terrain touchdown sink=0.2 m/s relative=0.0 m/s
+[CombatLog] [    8.5] LAND   T1:Aircraft_11 terrain touchdown sink=0.2 m/s relative=0.0 m/s
+[CombatLog] [    8.5] LAND   T1:Aircraft_12 terrain touchdown sink=0.2 m/s relative=0.0 m/s
+[CombatLog] [    8.5] LAND   T1:Aircraft_13 terrain touchdown sink=0.2 m/s relative=0.0 m/s
+[CombatLog] [    8.5] LAND   T1:Aircraft_15 terrain touchdown sink=0.2 m/s relative=0.0 m/s
+[CombatLog] [    8.8] LAND   T1:Aircraft_9 terrain touchdown sink=0.2 m/s relative=0.0 m/s
+[CombatLog] [    8.8] LAND   T1:Aircraft_10 terrain touchdown sink=0.2 m/s relative=0.0 m/s
+[CombatLog] [    8.8] LAND   T1:Aircraft_11 terrain touchdown sink=0.2 m/s relative=0.0 m/s
+[CombatLog] [    8.8] LAND   T1:Aircraft_12 terrain touchdown sink=0.2 m/s relative=0.0 m/s
+[CombatLog] [    8.8] LAND   T1:Aircraft_13 terrain touchdown sink=0.2 m/s relative=0.0 m/s
+[CombatLog] [    8.8] LAND   T1:Aircraft_15 terrain touchdown sink=0.2 m/s relative=0.0 m/s
+HELICOPTER_GEAR_LANDING 9 terrain heavy sheared=true belly=true survived=true speed=0.00000000000184 touchdown={ "surface": "terrain", "descent_speed_mps": 11.4076614379883, "relative_speed_mps": 12.8754005432129, "hard": true, "damaging": true, "belly": false, "position": (900.8, 1400.0, 3.499) }
+HELICOPTER_GEAR_LANDING 10 terrain heavy sheared=true belly=true survived=true speed=0.00394340511411 touchdown={ "surface": "terrain", "descent_speed_mps": 11.4072933197021, "relative_speed_mps": 12.8750057220459, "hard": true, "damaging": true, "belly": false, "position": (999.0086, 1400.0, -0.301005) }
+HELICOPTER_GEAR_LANDING 11 terrain heavy sheared=true belly=true survived=true speed=0.00320156454109 touchdown={ "surface": "terrain", "descent_speed_mps": 11.4081315994263, "relative_speed_mps": 12.8756999969482, "hard": true, "damaging": true, "belly": false, "position": (1098.784, 1400.0, -0.481008) }
+HELICOPTER_GEAR_LANDING 12 terrain heavy sheared=true belly=true survived=true speed=0.00000000139764 touchdown={ "surface": "terrain", "descent_speed_mps": 11.4063596725464, "relative_speed_mps": 12.87424659729, "hard": true, "damaging": true, "belly": false, "position": (1200.0, 1400.0, 3.772724) }
+HELICOPTER_GEAR_LANDING 13 terrain heavy sheared=true belly=true survived=true speed=0.00000000296835 touchdown={ "surface": "terrain", "descent_speed_mps": 11.4034843444824, "relative_speed_mps": 12.8714380264282, "hard": true, "damaging": true, "belly": false, "position": (1299.07, 1400.0, -0.001019) }
+HELICOPTER_GEAR_LANDING 15 terrain heavy sheared=true belly=true survived=true speed=0.00159415276721 touchdown={ "surface": "terrain", "descent_speed_mps": 11.4055585861206, "relative_speed_mps": 12.8734674453735, "hard": true, "damaging": true, "belly": false, "position": (1500.003, 1400.0, 2.696254) }
+[CombatLog] [    9.4] HARD   T1:Aircraft_9 carrier touchdown sink=3.7 m/s relative=3.7 m/s
+[CombatLog] [    9.4] HARD   T1:Aircraft_12 carrier touchdown sink=3.7 m/s relative=3.7 m/s
+[CombatLog] [    9.4] HARD   T1:Aircraft_13 carrier touchdown sink=3.7 m/s relative=3.7 m/s
+[CombatLog] [    9.4] HARD   T1:Aircraft_15 carrier touchdown sink=3.7 m/s relative=3.7 m/s
+[CombatLog] [    9.4] HARD   T1:Aircraft_10 carrier touchdown sink=3.9 m/s relative=3.9 m/s
+[CombatLog] [    9.4] HARD   T1:Aircraft_11 carrier touchdown sink=3.9 m/s relative=3.9 m/s
+[CombatLog] [    9.9] LAND   T1:Aircraft_9 carrier touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    9.9] LAND   T1:Aircraft_12 carrier touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    9.9] LAND   T1:Aircraft_13 carrier touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    9.9] LAND   T1:Aircraft_15 carrier touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    9.9] LAND   T1:Aircraft_10 carrier touchdown sink=0.1 m/s relative=0.1 m/s
+[CombatLog] [    9.9] LAND   T1:Aircraft_11 carrier touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [   10.5] LAND   T1:Aircraft_9 carrier touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [   10.5] LAND   T1:Aircraft_12 carrier touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [   10.5] LAND   T1:Aircraft_13 carrier touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [   10.5] LAND   T1:Aircraft_15 carrier touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [   10.5] LAND   T1:Aircraft_10 carrier touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [   10.5] LAND   T1:Aircraft_11 carrier touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [   11.0] LAND   T1:Aircraft_9 carrier touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [   11.0] LAND   T1:Aircraft_12 carrier touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [   11.0] LAND   T1:Aircraft_13 carrier touchdown sink=0.0 m/s relative=0.1 m/s
+[CombatLog] [   11.0] LAND   T1:Aircraft_15 carrier touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [   11.0] LAND   T1:Aircraft_10 carrier touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [   11.0] LAND   T1:Aircraft_11 carrier touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [   11.6] LAND   T1:Aircraft_9 carrier touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [   11.6] LAND   T1:Aircraft_12 carrier touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [   11.6] LAND   T1:Aircraft_13 carrier touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [   11.6] LAND   T1:Aircraft_15 carrier touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [   11.6] LAND   T1:Aircraft_10 carrier touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [   11.6] LAND   T1:Aircraft_11 carrier touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [   12.0] LAND   T1:Aircraft_9 carrier touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [   12.0] LAND   T1:Aircraft_12 carrier touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [   12.0] LAND   T1:Aircraft_13 carrier touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [   12.0] LAND   T1:Aircraft_15 carrier touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [   12.0] LAND   T1:Aircraft_10 carrier touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [   12.0] LAND   T1:Aircraft_11 carrier touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [   12.5] LAND   T1:Aircraft_9 carrier touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [   12.5] LAND   T1:Aircraft_12 carrier touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [   12.5] LAND   T1:Aircraft_13 carrier touchdown sink=0.0 m/s relative=0.1 m/s
+[CombatLog] [   12.5] LAND   T1:Aircraft_15 carrier touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [   12.5] LAND   T1:Aircraft_10 carrier touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [   12.5] LAND   T1:Aircraft_11 carrier touchdown sink=0.0 m/s relative=0.0 m/s
+HELICOPTER_GEAR_LANDING 9 deck gentle sheared=false belly=false survived=true speed=0.01374070625752 touchdown={ "surface": "carrier", "descent_speed_mps": 3.70400547981262, "relative_speed_mps": 3.70402884483337, "hard": true, "damaging": false, "belly": false, "position": (900.8, 1400.0, 4.654274) }
+HELICOPTER_GEAR_LANDING 10 deck gentle sheared=false belly=false survived=true speed=0.01157163735479 touchdown={ "surface": "carrier", "descent_speed_mps": 3.85575413703918, "relative_speed_mps": 3.8557767868042, "hard": true, "damaging": false, "belly": false, "position": (999.0086, 1400.0, 0.985084) }
+HELICOPTER_GEAR_LANDING 11 deck gentle sheared=false belly=false survived=true speed=0.01167041715235 touchdown={ "surface": "carrier", "descent_speed_mps": 3.85328483581543, "relative_speed_mps": 3.85330772399902, "hard": true, "damaging": false, "belly": false, "position": (1098.784, 1400.0, 0.805016) }
+HELICOPTER_GEAR_LANDING 12 deck gentle sheared=false belly=false survived=true speed=0.02069208212197 touchdown={ "surface": "carrier", "descent_speed_mps": 3.69632053375244, "relative_speed_mps": 3.69634389877319, "hard": true, "damaging": false, "belly": false, "position": (1200.0, 1400.0, 4.927996) }
+HELICOPTER_GEAR_LANDING 13 deck gentle sheared=false belly=false survived=true speed=0.05077907443047 touchdown={ "surface": "carrier", "descent_speed_mps": 3.6925036907196, "relative_speed_mps": 3.69551753997803, "hard": true, "damaging": false, "belly": false, "position": (1299.07, 1400.0, 1.151701) }
+HELICOPTER_GEAR_LANDING 15 deck gentle sheared=false belly=false survived=true speed=0.01345846522599 touchdown={ "surface": "carrier", "descent_speed_mps": 3.69125151634216, "relative_speed_mps": 3.69127511978149, "hard": true, "damaging": false, "belly": false, "position": (1500.003, 1400.0, 3.85145) }
+[CombatLog] [   13.2] CRASH  T1:Aircraft_9 crashed @11.4 m/s
+[CombatLog] [   13.2] HARD   T1:Aircraft_9 carrier touchdown damaging sink=11.4 m/s relative=12.9 m/s
+[CombatLog] [   13.2] CRASH  T1:Aircraft_10 crashed @11.4 m/s
+[CombatLog] [   13.2] HARD   T1:Aircraft_10 carrier touchdown damaging sink=11.4 m/s relative=12.9 m/s
+[CombatLog] [   13.2] CRASH  T1:Aircraft_11 crashed @11.4 m/s
+[CombatLog] [   13.2] HARD   T1:Aircraft_11 carrier touchdown damaging sink=11.4 m/s relative=12.9 m/s
+[CombatLog] [   13.2] CRASH  T1:Aircraft_12 crashed @11.4 m/s
+[CombatLog] [   13.3] HARD   T1:Aircraft_12 carrier touchdown damaging sink=11.4 m/s relative=12.9 m/s
+[CombatLog] [   13.3] CRASH  T1:Aircraft_13 crashed @11.4 m/s
+[CombatLog] [   13.3] HARD   T1:Aircraft_13 carrier touchdown damaging sink=11.4 m/s relative=12.9 m/s
+[CombatLog] [   13.6] LAND   T1:Aircraft_9 carrier touchdown sink=0.2 m/s relative=0.0 m/s
+[CombatLog] [   13.6] LAND   T1:Aircraft_10 carrier touchdown sink=0.2 m/s relative=0.0 m/s
+[CombatLog] [   13.6] LAND   T1:Aircraft_11 carrier touchdown sink=0.2 m/s relative=0.0 m/s
+[CombatLog] [   13.6] LAND   T1:Aircraft_12 carrier touchdown sink=0.2 m/s relative=0.0 m/s
+[CombatLog] [   13.6] LAND   T1:Aircraft_13 carrier touchdown sink=0.2 m/s relative=0.0 m/s
+[CombatLog] [   13.6] LAND   T1:Aircraft_15 carrier touchdown sink=0.2 m/s relative=0.0 m/s
+WARNING: [Physics interpolation] Interpolated Camera3D triggered from outside physics process: "/root/HelicopterGearDamageSmoketest/@Node3D@877/Aircraft_9/CameraCockpit/Camera3D" (possibly benign).
+   at: _notification (scene/3d/camera_3d.cpp:218)
+[CombatLog] [   14.1] LAND   T1:Aircraft_9 carrier touchdown sink=0.2 m/s relative=0.0 m/s
+[CombatLog] [   14.1] LAND   T1:Aircraft_10 carrier touchdown sink=0.2 m/s relative=0.0 m/s
+[CombatLog] [   14.1] LAND   T1:Aircraft_11 carrier touchdown sink=0.2 m/s relative=0.0 m/s
+[CombatLog] [   14.1] LAND   T1:Aircraft_12 carrier touchdown sink=0.2 m/s relative=0.0 m/s
+[CombatLog] [   14.2] LAND   T1:Aircraft_13 carrier touchdown sink=0.2 m/s relative=0.0 m/s
+[CombatLog] [   14.2] LAND   T1:Aircraft_15 carrier touchdown sink=0.2 m/s relative=0.0 m/s
+[CombatLog] [   14.6] LAND   T1:Aircraft_9 carrier touchdown sink=0.2 m/s relative=0.0 m/s
+[CombatLog] [   14.6] LAND   T1:Aircraft_10 carrier touchdown sink=0.2 m/s relative=0.0 m/s
+[CombatLog] [   14.6] LAND   T1:Aircraft_11 carrier touchdown sink=0.2 m/s relative=0.0 m/s
+[CombatLog] [   14.6] LAND   T1:Aircraft_12 carrier touchdown sink=0.2 m/s relative=0.0 m/s
+[CombatLog] [   14.6] LAND   T1:Aircraft_13 carrier touchdown sink=0.2 m/s relative=0.0 m/s
+[CombatLog] [   14.6] LAND   T1:Aircraft_15 carrier touchdown sink=0.2 m/s relative=0.0 m/s
+[CombatLog] [   15.0] LAND   T1:Aircraft_9 carrier touchdown sink=0.2 m/s relative=0.0 m/s
+[CombatLog] [   15.0] LAND   T1:Aircraft_10 carrier touchdown sink=0.2 m/s relative=0.0 m/s
+[CombatLog] [   15.0] LAND   T1:Aircraft_11 carrier touchdown sink=0.2 m/s relative=0.0 m/s
+[CombatLog] [   15.0] LAND   T1:Aircraft_12 carrier touchdown sink=0.2 m/s relative=0.0 m/s
+[CombatLog] [   15.0] LAND   T1:Aircraft_13 carrier touchdown sink=0.2 m/s relative=0.0 m/s
+[CombatLog] [   15.0] LAND   T1:Aircraft_15 carrier touchdown sink=0.2 m/s relative=0.0 m/s
+[CombatLog] [   15.4] LAND   T1:Aircraft_9 carrier touchdown sink=0.2 m/s relative=0.0 m/s
+[CombatLog] [   15.4] LAND   T1:Aircraft_10 carrier touchdown sink=0.2 m/s relative=0.0 m/s
+[CombatLog] [   15.4] LAND   T1:Aircraft_11 carrier touchdown sink=0.2 m/s relative=0.0 m/s
+[CombatLog] [   15.4] LAND   T1:Aircraft_12 carrier touchdown sink=0.2 m/s relative=0.0 m/s
+[CombatLog] [   15.4] LAND   T1:Aircraft_13 carrier touchdown sink=0.2 m/s relative=0.0 m/s
+[CombatLog] [   15.4] LAND   T1:Aircraft_15 carrier touchdown sink=0.2 m/s relative=0.0 m/s
+[CombatLog] [   15.7] LAND   T1:Aircraft_9 carrier touchdown sink=0.2 m/s relative=0.0 m/s
+[CombatLog] [   15.7] LAND   T1:Aircraft_10 carrier touchdown sink=0.2 m/s relative=0.0 m/s
+[CombatLog] [   15.7] LAND   T1:Aircraft_11 carrier touchdown sink=0.2 m/s relative=0.0 m/s
+[CombatLog] [   15.7] LAND   T1:Aircraft_12 carrier touchdown sink=0.2 m/s relative=0.0 m/s
+[CombatLog] [   15.7] LAND   T1:Aircraft_13 carrier touchdown sink=0.2 m/s relative=0.0 m/s
+[CombatLog] [   15.7] LAND   T1:Aircraft_15 carrier touchdown sink=0.2 m/s relative=0.0 m/s
+HELICOPTER_GEAR_LANDING 9 deck heavy sheared=true belly=true survived=true speed=0.00012254714966 touchdown={ "surface": "carrier", "descent_speed_mps": 11.4075698852539, "relative_speed_mps": 12.8568029403687, "hard": true, "damaging": true, "belly": false, "position": (900.8, 1400.0, 3.897665) }
+HELICOPTER_GEAR_LANDING 10 deck heavy sheared=true belly=true survived=true speed=0.00012254714966 touchdown={ "surface": "carrier", "descent_speed_mps": 11.4072360992432, "relative_speed_mps": 12.8561344146729, "hard": true, "damaging": true, "belly": false, "position": (999.0086, 1400.0, 0.097638) }
+HELICOPTER_GEAR_LANDING 11 deck heavy sheared=true belly=true survived=true speed=0.0017357195029 touchdown={ "surface": "carrier", "descent_speed_mps": 11.4080696105957, "relative_speed_mps": 12.8566150665283, "hard": true, "damaging": true, "belly": false, "position": (1098.784, 1400.0, -0.082381) }
+HELICOPTER_GEAR_LANDING 12 deck heavy sheared=true belly=true survived=true speed=0.00012254714966 touchdown={ "surface": "carrier", "descent_speed_mps": 11.4062671661377, "relative_speed_mps": 12.855640411377, "hard": true, "damaging": true, "belly": false, "position": (1200.0, 1400.0, 4.171388) }
+HELICOPTER_GEAR_LANDING 13 deck heavy sheared=true belly=true survived=true speed=0.00012302417599 touchdown={ "surface": "carrier", "descent_speed_mps": 11.4034252166748, "relative_speed_mps": 12.8517045974731, "hard": true, "damaging": true, "belly": false, "position": (1299.07, 1400.0, 0.397562) }
+HELICOPTER_GEAR_LANDING 15 deck heavy sheared=true belly=true survived=true speed=0.00012735073688 touchdown={ "surface": "carrier", "descent_speed_mps": 11.4054374694824, "relative_speed_mps": 12.8545331954956, "hard": true, "damaging": true, "belly": false, "position": (1500.003, 1400.0, 3.094896) }
+HELICOPTER_GEAR_EDGE id=9 sheared=true
+HELICOPTER_GEAR_EDGE id=10 sheared=true
+HELICOPTER_GEAR_DAMAGE_PASS fleet=6 landings=24 deck_edge=2 geometry+save=true failures=[]
+WARNING: 1 ObjectDB instance was leaked at exit (run with `--verbose` for details).
+   at: cleanup (core/object/object.cpp:2536)

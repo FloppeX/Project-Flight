@@ -126,6 +126,10 @@ func _build_mfd() -> void:
 	content_label.add_theme_font_size_override("font_size", 14)
 	custom_view_root.add_child(content_label)
 	content_label.set_anchors_preset(Control.PRESET_FULL_RECT)
+	if available_modes.has("DAMAGE"):
+		var diagram := preload("res://HUD/Instruments/AircraftDamageDiagram.gd").new()
+		diagram.source_mfd = self
+		add_mode_view("DAMAGE", diagram)
 
 
 func _cycle_mode(direction: int) -> void:

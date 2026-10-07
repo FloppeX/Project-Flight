@@ -4,6 +4,7 @@ const MenuTypography = preload("res://UI/MenuTypography.gd")
 const MenuTheme = preload("res://UI/MenuTheme.gd")
 const TechnicalIndexView = preload("res://UI/TechnicalIndexView.gd")
 const MenuStickNavigationGate = preload("res://UI/MenuStickNavigationGate.gd")
+const MenuLogo3D = preload("res://UI/MenuLogo3D.gd")
 const MENU_TERRAIN_SCENE: PackedScene = preload("res://Environment/LowPolyTerrainPrototype.tscn")
 const MENU_CARRIER_SCENE: PackedScene = preload("res://LandCarrier/LandCarrier2.tscn")
 const GAME_SCENE := "res://Main_Scene.tscn"
@@ -106,6 +107,7 @@ var _setup_panel: Control
 var _developer_panel: Control
 var _technical_index: Control
 var _brand_title_label: Label
+var _brand_logo: SubViewportContainer
 var _system_id_label: Label
 var _message_label: Label
 var _name_edit: LineEdit
@@ -1254,6 +1256,14 @@ func _build_ui() -> void:
 	_brand_title_label.z_index = 20
 	_ui_root.add_child(_brand_title_label)
 
+	_brand_logo = MenuLogo3D.new()
+	_brand_logo.name = "MainMenuLogo"
+	_brand_logo.position = Vector2(24.0, 32.0)
+	_brand_logo.size = Vector2(OPERATOR_RAIL_WIDTH - 48.0, 150.0)
+	_brand_logo.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_brand_logo.z_index = 20
+	_ui_root.add_child(_brand_logo)
+
 	_system_id_label = _make_label("SYS_ID: LC-992-ALPHA // OPERATOR CONSOLE", Vector2(OPERATOR_RAIL_WIDTH + 80.0, 140.0), MenuTypography.BRAND_META_SIZE, UI_TEXT_MUTED)
 	_system_id_label.add_theme_font_override("font", MenuTypography.TECH_FONT)
 	_system_id_label.z_index = 20
@@ -1545,10 +1555,16 @@ func _on_technical_index_mode_changed(mode: String) -> void:
 
 
 func _set_menu_branding(title: String, system_id: String) -> void:
+	var show_logo := _current_screen == "main" and title == "LAND CARRIER"
+	if is_instance_valid(_brand_logo):
+		_brand_logo.visible = show_logo
 	if is_instance_valid(_brand_title_label):
 		_brand_title_label.text = title
+		_brand_title_label.visible = not show_logo
 	if is_instance_valid(_system_id_label):
 		_system_id_label.text = system_id
+		_system_id_label.position = Vector2(48.0, 190.0) if show_logo \
+			else Vector2(OPERATOR_RAIL_WIDTH + 80.0, 140.0)
 
 
 func _start_test_flight() -> void:

@@ -30,6 +30,10 @@ func update_visuals(delta: float, lower_world_y: float, _upper_world_y: float) -
 		_spark_timer_s = 0.0
 		_randomize_sparks()
 
+func reset_shape() -> void:
+	_spark_timer_s = 0.0
+	_randomize_sparks()
+
 func _make_sparks() -> void:
 	var material := StandardMaterial3D.new()
 	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
@@ -79,14 +83,12 @@ func _add_spark_segment(parent: Node3D, start: Vector3, finish: Vector3,
 	segment.transform = Transform3D(Basis(Quaternion(Vector3.UP, delta.normalized())), (start + finish) * 0.5)
 
 func _randomize_sparks() -> void:
-	var radius: float = float(_storm.get("cloud_radius_m"))
 	for spark in _sparks:
 		spark.visible = _rng.randf() < 0.22
 		if not spark.visible:
 			continue
 		var angle := _rng.randf_range(0.0, TAU)
-		var distance := sqrt(_rng.randf()) * radius * 0.82
-		spark.position = Vector3(cos(angle) * distance, _rng.randf_range(-75.0, 35.0),
-			sin(angle) * distance)
+		spark.position = _storm.get_cell_offset(angle, sqrt(_rng.randf()) * 0.82)
+		spark.position.y = _rng.randf_range(-75.0, 35.0)
 		spark.rotation.y = _rng.randf_range(-PI, PI)
 		spark.scale = Vector3.ONE * _rng.randf_range(0.7, 1.6)

@@ -49,6 +49,7 @@ var _activation_serial: int = 0
 var _impact_target_shape_index: int = -1
 var _impact_world_position: Vector3 = Vector3.INF
 var _impact_world_normal: Vector3 = Vector3.ZERO
+var _passed_rotor_discs: Array[RID] = []
 
 static func get_hit_assist_radius_m() -> float:
 	return hit_assist_radius_m
@@ -140,6 +141,8 @@ func _physics_process(delta):
 		query.collision_mask = 0xFFFFFFFF
 			
 		var result: Dictionary = space_state.intersect_ray(query)
+		var rotor_hit := _query_rotor_hit(last_position, result.position if not result.is_empty() else global_position, false)
+		if not rotor_hit.is_empty(): result = rotor_hit
 		if result and not has_impacted:
 			_impact_target_shape_index = int(result.get("shape", -1))
 			_impact_world_position = result.get("position", global_position) as Vector3
@@ -181,6 +184,7 @@ func _physics_process(delta):
 	last_position = global_position
 
 func fire(initial_velocity: Vector3, firing_aircraft: Node3D):
+	_passed_rotor_discs.clear()
 	_activation_serial += 1
 	_lifetime_elapsed_s = 0.0
 	has_impacted = false
@@ -223,6 +227,8 @@ func _sweep_point_collision(from: Vector3, to: Vector3) -> void:
 	# be skipped, without losing an enemy or wall farther along the SAME segment.
 	for attempt in 32:
 		var hit := space.intersect_ray(query)
+		var rotor_hit := _query_rotor_hit(from, hit.position if not hit.is_empty() else to, true)
+		if not rotor_hit.is_empty(): hit = rotor_hit
 		if hit.is_empty():
 			return
 		var body: Node = hit.collider
@@ -241,6 +247,27 @@ func _sweep_point_collision(from: Vector3, to: Vector3) -> void:
 	# allowing an unchecked segment to pass through other geometry.
 	has_impacted = true
 	_retire_projectile()
+
+func _query_rotor_hit(from: Vector3, to: Vector3, sparse: bool) -> Dictionary:
+	var query := PhysicsRayQueryParameters3D.create(from,to,1 << 30)
+	query.collide_with_bodies = false
+	query.collide_with_areas = true
+	query.hit_from_inside = true
+	var excludes := _get_projectile_query_excludes()
+	excludes.append_array(_passed_rotor_discs)
+	query.exclude = excludes
+	var space := get_world_3d().direct_space_state
+	for attempt in 32:
+		var hit := space.intersect_ray(query)
+		if hit.is_empty(): return {}
+		var area: Node = hit.collider
+		if not is_shooter_body(area) and area.has_method("accepts_bullet") \
+				and area.accepts_bullet(hit.position, -1.0 if sparse else 0.0):
+			return hit
+		_passed_rotor_discs.append(hit.rid)
+		excludes.append(hit.rid)
+		query.exclude = excludes
+	return {}
 
 func _get_hit_assist_check_interval_s() -> float:
 	return hit_assist_check_interval_s
@@ -622,6 +649,8 @@ func _apply_impact_damage(damage_target: Node, damage_amount: float) -> void:
 		damage_target.call("take_damage", damage_amount)
 
 func _report_damage_credit(damage_target: Node, damage_amount: float) -> void:
+	if damage_target.has_method("get_damage_credit_target"):
+		damage_target = damage_target.get_damage_credit_target()
 	if damage_target.is_in_group("wildlife"):
 		return
 	if shooter == null or not is_instance_valid(shooter):

@@ -4,6 +4,7 @@ extends Node
 const AirTaskModel: Script = preload("res://AI/AirTask.gd")
 const InterceptTarget: Script = preload("res://AirOps/InterceptTarget.gd")
 const GroundTargetPriority: Script = preload("res://AI/GroundTargetPriority.gd")
+const Readiness: Script = preload("res://Operations/OperationalReadiness.gd")
 
 ## Manages a single named flight of 2-4 aircraft.
 ## Applies mission settings to each pilot and handles per-aircraft target
@@ -193,6 +194,12 @@ func get_campaign_save_blocker() -> String:
 			return "%s is still in carrier transport" % aircraft.name
 		if bool(aircraft.get_meta("controls_disabled", false)):
 			return "%s is still in a launch or recovery sequence" % aircraft.name
+		if _get_helicopter_pilot(aircraft) != null:
+			var status: Dictionary = Readiness.aircraft_status(aircraft)
+			if not status.available: return "%s is unavailable: %s" % [aircraft.name, status.reason]
+			if _get_helicopter_pilot(aircraft)._atk_state != HelicopterPilot.AtkState.SELECT:
+				return "%s is still attacking" % aircraft.name
+			continue
 		var pilot := _get_pilot(aircraft)
 		if pilot == null:
 			return "%s has no restorable AI pilot" % aircraft.name
@@ -346,6 +353,7 @@ func set_attack(area_center: Vector3, carrier: Node3D, area_radius: float = 100.
 
 
 func _apply_attack(aircraft: Node3D) -> bool:
+	if _get_helicopter_pilot(aircraft) != null: return _apply_helicopter_mission(aircraft)
 	var pilot := _get_pilot(aircraft)
 	if not pilot or _is_deck_busy(pilot):
 		return false
@@ -399,7 +407,8 @@ func _update_attack_assignment(delta: float = 0.0) -> void:
 	_prune_stale_claims(false)
 	for target in _claimed_targets.keys():
 		var claimer := _get_pilot(_claimed_targets[target])
-		if not _attack_area_contains(target.global_position) or claimer == null or _is_deck_busy(claimer) \
+		var helicopter := _get_helicopter_pilot(_claimed_targets[target])
+		if not _attack_area_contains(target.global_position) or (claimer == null and helicopter == null) or (claimer != null and _is_deck_busy(claimer)) \
 				or (_attack_tracks_platoon and not attack_platoon_members(_attack_platoon).has(target)):
 			_claimed_targets.erase(target)
 	var targets_remain := not _claimed_targets.is_empty()
@@ -413,6 +422,16 @@ func _update_attack_assignment(delta: float = 0.0) -> void:
 			break
 	var committed := false
 	for aircraft in get_members():
+		var helicopter := _get_helicopter_pilot(aircraft)
+		if helicopter != null:
+			if bool(Readiness.aircraft_status(aircraft).available):
+				var distance := Vector2(aircraft.global_position.x - _cas_area_center.x, aircraft.global_position.z - _cas_area_center.z).length()
+				_attack_area_visited = _attack_area_visited or distance <= maxf(_cas_area_radius, 750.0)
+				if helicopter._atk_state != HelicopterPilot.AtkState.SELECT:
+					committed = true
+				elif not _aircraft_has_live_claim(aircraft):
+					_apply_helicopter_mission(aircraft)
+			continue
 		var pilot := _get_pilot(aircraft)
 		if pilot and not _is_deck_busy(pilot):
 			var distance := Vector2(aircraft.global_position.x - _cas_area_center.x, aircraft.global_position.z - _cas_area_center.z).length()
@@ -536,6 +555,7 @@ func _apply_current_mission(aircraft: Node3D) -> bool:
 	return applied
 
 func _apply_cap(aircraft: Node3D) -> bool:
+	if _get_helicopter_pilot(aircraft) != null: return _apply_helicopter_mission(aircraft)
 	var pilot := _get_pilot(aircraft)
 	if not pilot or _is_deck_busy(pilot):
 		return false
@@ -563,6 +583,7 @@ func _apply_cap(aircraft: Node3D) -> bool:
 	return true
 
 func _apply_cas(aircraft: Node3D) -> bool:
+	if _get_helicopter_pilot(aircraft) != null: return _apply_helicopter_mission(aircraft)
 	var pilot := _get_pilot(aircraft)
 	if not pilot or _is_deck_busy(pilot):
 		return false
@@ -591,6 +612,7 @@ func _apply_cas(aircraft: Node3D) -> bool:
 	return true
 
 func _apply_intercept(aircraft: Node3D) -> bool:
+	if _get_helicopter_pilot(aircraft) != null: return _apply_helicopter_mission(aircraft)
 	if _intercept_tracks_flight:
 		return _apply_flight_intercept(aircraft)
 	var pilot := _get_pilot(aircraft)
@@ -620,6 +642,7 @@ func _update_intercept_assignment() -> void:
 
 
 func _apply_flight_intercept(aircraft: Node3D) -> bool:
+	if _get_helicopter_pilot(aircraft) != null: return _apply_helicopter_mission(aircraft)
 	var pilot := _get_pilot(aircraft)
 	if not pilot or _is_deck_busy(pilot) or not InterceptTarget.is_valid(_intercept_flight):
 		return false
@@ -666,6 +689,7 @@ func _apply_flight_intercept(aircraft: Node3D) -> bool:
 	return true
 
 func _apply_rtb(aircraft: Node3D) -> bool:
+	if _get_helicopter_pilot(aircraft) != null: return _apply_helicopter_mission(aircraft)
 	var pilot := _get_pilot(aircraft)
 	if not pilot or _is_deck_busy(pilot):
 		return false
@@ -682,6 +706,11 @@ func _update_cas_assignments() -> void:
 	_prune_stale_claims(true)
 
 	for aircraft in get_members():
+		var helicopter := _get_helicopter_pilot(aircraft)
+		if helicopter != null:
+			if helicopter._atk_state == HelicopterPilot.AtkState.SELECT and not _aircraft_has_live_claim(aircraft):
+				_apply_helicopter_mission(aircraft)
+			continue
 		var pilot := _get_pilot(aircraft)
 		if not pilot or _is_deck_busy(pilot):
 			continue
@@ -1020,6 +1049,51 @@ func _ground_target_type(node: Node3D) -> String:
 func _get_pilot(aircraft: Node3D) -> AIPilot:
 	return aircraft.find_child("AIPilot", true, false) as AIPilot
 
+func _get_helicopter_pilot(aircraft: Node3D) -> HelicopterPilot:
+	return aircraft.find_child("HelicopterPilot", true, false) as HelicopterPilot
+
+func _apply_helicopter_mission(aircraft: Node3D) -> bool:
+	var pilot := _get_helicopter_pilot(aircraft)
+	var status: Dictionary = Readiness.aircraft_status(aircraft)
+	if status.player_controlled or status.departing or status.reason in ["Individual order", "Deck operations", "Rescue operation", "Destroyed or initializing"]:
+		return false
+	if mission == Mission.RTB:
+		return true if status.recovering else pilot.command_return_to_carrier_and_land()
+	if not status.available: return false
+	if pilot._atk_state != HelicopterPilot.AtkState.SELECT: return false
+	var target: Node3D = null
+	if mission in [Mission.CAS, Mission.ATTACK]:
+		target = _pick_unclaimed_target(aircraft.global_position)
+	elif mission == Mission.INTERCEPT:
+		if _intercept_tracks_flight:
+			for candidate in InterceptTarget.members(_intercept_flight):
+				if candidate.find_child("HelicopterPilot", true, false) != null:
+					target = candidate
+					break
+		elif is_instance_valid(_intercept_target) and _intercept_target.find_child("HelicopterPilot", true, false) != null:
+			target = _intercept_target
+		if target == null: return false
+	if target != null and status.guns + status.bombs + status.rockets > 0:
+		if pilot._commanded_attack_target == target: return true
+		if pilot.command_attack_target(target):
+			_claimed_targets[target] = aircraft
+			return true
+		return false
+	# Leave an established search/patrol loop running while waiting for reports.
+	if pilot.outpost_patrol_mode and int(_member_mission_revision.get(aircraft, -1)) == _mission_revision:
+		return true
+	var route: Array[Vector3] = _cap_route_points.duplicate() if mission == Mission.CAP else []
+	if route.is_empty():
+		var center := _cas_area_center
+		var altitude := _cas_altitude_m
+		if mission == Mission.CAP:
+			center = _cap_carrier.global_position if is_instance_valid(_cap_carrier) else aircraft.global_position
+			altitude = _cap_altitude_m
+		route = _build_cap_loop(center, center.y + altitude)
+	# Stagger route entry points so multiple helicopters do not share one goal.
+	route = _build_display_route_from_current_waypoint(route, get_members().find(aircraft), aircraft.global_position)
+	return pilot.command_flight_patrol(route, patrol_engagement if mission == Mission.CAP else "none")
+
 func get_center_position() -> Vector3:
 	var members := get_members()
 	if members.is_empty():
@@ -1049,6 +1123,9 @@ func get_center_position() -> Vector3:
 
 func get_active_waypoints() -> Array[Vector3]:
 	var active_waypoints: Array[Vector3] = []
+	var lead := _get_lead_aircraft()
+	if lead != null and _get_helicopter_pilot(lead) != null:
+		return _get_helicopter_pilot(lead).get_active_waypoints()
 	var lead_pilot := _get_lead_pilot()
 	if not lead_pilot:
 		return active_waypoints
@@ -1104,6 +1181,9 @@ func get_mission_name() -> String:
 	return Mission.keys()[mission]
 
 func get_lead_state_name() -> String:
+	var lead := _get_lead_aircraft()
+	if lead != null and _get_helicopter_pilot(lead) != null:
+		return HelicopterPilot.State.keys()[_get_helicopter_pilot(lead).state]
 	var lead_pilot := _get_lead_pilot()
 	if not lead_pilot:
 		return "INACTIVE"

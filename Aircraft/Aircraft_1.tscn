@@ -2,7 +2,7 @@
 
 [ext_resource type="Script" uid="uid://c4ltq2v6fji05" path="res://Aircraft/aircraft.gd" id="1_e8t1h"]
 [ext_resource type="PackedScene" uid="uid://cadi81fcpvmuc" path="res://Projectiles/Explosion/explosion.tscn" id="2_x73up"]
-[ext_resource type="PackedScene" uid="uid://cyajx725ey3g1" path="res://Models/Aircraft_1/aircraft_1_breakaway.glb" id="3_kq7no"]
+[ext_resource type="PackedScene" path="res://Models/Aircraft_1/aircraft_1_damage.glb" id="3_kq7no"]
 [ext_resource type="PackedScene" uid="uid://djtbinx1svo2u" path="res://Aircraft/Aircraft wreck/aircraft_1_wreck.tscn" id="3_x73up"]
 [ext_resource type="PackedScene" uid="uid://p831mbxhqubt" path="res://Models/Aircraft_1/aircraft 2 propeller.glb" id="4_ii5ys"]
 [ext_resource type="Script" uid="uid://cyxrx2cid1gt" path="res://Aircraft/SimpleAero.gd" id="5_8vbcf"]
@@ -74,6 +74,12 @@ radius = 0.3
 [sub_resource type="Resource" id="Resource_qvmvr"]
 metadata/__load_path__ = "res://Audio/flaps_deploy 2.wav"
 
+[sub_resource type="BoxShape3D" id="BoxShape3D_engine_damage"]
+size = Vector3(1.45, 1.5, 1.5)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_tail_core_damage"]
+size = Vector3(1.3, 1.1, 1.5)
+
 [node name="Aircraft_1" type="RigidBody3D" unique_id=935008971]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -0.591083)
 collision_layer = 513
@@ -96,6 +102,14 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.123306, 0.707575)
 
 [node name="Aircraft 2 propeller" parent="aircraft_1" unique_id=199105519 instance=ExtResource("4_ii5ys")]
 transform = Transform3D(0.94, 0, 2.801419e-08, 0, 0.94, 0, -2.801419e-08, 0, 0.94, -2.00808e-09, 0.47338265, -1.544418)
+
+[node name="EngineDamageCollider" type="CollisionShape3D" parent="."]
+position = Vector3(0, -0.15, 3.35)
+shape = SubResource("BoxShape3D_engine_damage")
+
+[node name="TailDamageCollider" type="CollisionShape3D" parent="."]
+position = Vector3(0, 0, -3.1999999999999997)
+shape = SubResource("BoxShape3D_tail_core_damage")
 
 [node name="FuselageDamageCollider" type="CollisionShape3D" parent="." unique_id=699888493]
 transform = Transform3D(1, 0, 0, 0, -4.37114e-08, -1, 0, 1, -4.37114e-08, 0, -0.20697665, 0.908111)
@@ -240,6 +254,7 @@ FlapSoundLoop = SubResource("Resource_qvmvr")
 GearCollisionShape = NodePath("../CenterGearCollider")
 gear_collision_shapes = [NodePath("../CenterGearCollider"), NodePath("../RightGearCollider"), NodePath("../LeftGearCollider")]
 gear_visuals = [null, null, null]
+damage_visual_root_paths = Array[NodePath]([NodePath("../NoseGearRig"), NodePath("../RightGearRig"), NodePath("../LeftGearRig")])
 gear_stowed_rotations_degrees = Array[Vector3]([Vector3(90, 0, 0), Vector3(90, 90, -45), Vector3(90, -90, 45)])
 InitialState = 1
 DeploySound = ExtResource("16_biq0k")
@@ -487,6 +502,10 @@ horizontal_stabilizer_attached_visual_paths = Array[NodePath]([NodePath("../airc
 vertical_stabilizer_attached_visual_paths = Array[NodePath]([NodePath("../aircraft_1/fuselage/rudder")])
 independent_debris_zones = Array[StringName]([&"horizontal_stabilizer"])
 vertical_stabilizer_supports_horizontal = true
+tail_section_visual_paths = Array[NodePath]([NodePath("../aircraft_1/fuselage/TailBreakaway")])
+tail_section_attached_visual_paths = Array[NodePath]([])
+tail_cut_local_z = -2.55
+
 
 [node name="WingDamageColliderFollower" type="Node" parent="." unique_id=1745071097]
 script = ExtResource("95_wing_damage_follow")

@@ -102,10 +102,16 @@ func _run() -> void:
 	_expect(is_equal_approx(float(overlay.get("_map_zoom")), 1.0), "right mouse does not zoom while browsing")
 
 	_reset_view(overlay)
+	# ATTACK replaced the former CAS order and requires an explored ground target.
+	_setup_target_grid()
 	overlay.set("_selected_asset_kind", 1) # AssetKind.FLIGHT
 	overlay.set("_selected_asset_name", "Archer")
-	overlay.set("_selected_mission_id", "CAS")
+	overlay.set("_selected_mission_id", "ATTACK")
 	overlay.set("_draft_points", [])
+	var target_position: Vector3 = overlay.call("_map_to_world", left_click.position)
+	var fog := root.get_node("MapFogOfWar")
+	fog.call("reveal_circle", target_position, 1000.0)
+	_expect(bool(fog.call("is_world_explored", target_position)), "target-placement fixture is explored")
 	overlay.call("_on_map_gui_input", left_click)
 	_expect(is_equal_approx(float(overlay.get("_map_zoom")), 1.0), "left mouse keeps its target-placement meaning while drafting")
 	var draft_points: Array = overlay.get("_draft_points")
@@ -139,6 +145,21 @@ func _run() -> void:
 		overlay.call("_layout_ui")
 
 	_finish(overlay)
+
+
+func _setup_target_grid() -> void:
+	var nav_grid := root.get_node("TerrainNavGrid")
+	nav_grid.set("cell_size_m", 1000.0)
+	nav_grid.set("_cols", 9)
+	nav_grid.set("_rows", 9)
+	nav_grid.set("_origin_x", -4000.0)
+	nav_grid.set("_origin_z", -4000.0)
+	var heights := PackedFloat32Array()
+	heights.resize(9 * 9)
+	heights.fill(0.0)
+	nav_grid.set("_heights", heights)
+	nav_grid.set("_is_baked", true)
+	root.get_node("MapFogOfWar").call("_initialize_from_navgrid")
 
 
 func _check_control_rail(overlay: Node, label: String) -> void:

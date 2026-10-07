@@ -235,24 +235,63 @@ func _run() -> void:
 	await process_frame
 	var replicator_page := console.get("_replicator_page") as Control
 	_expect(carrier_page != null and not carrier_page.visible, "carrier schematic page hides on the replicator page")
-	_expect(replicator_page != null and replicator_page.visible, "replicator concept page is visible")
+	_expect(replicator_page != null and replicator_page.visible, "replicator chamber page is visible")
 	var replicator_snapshot: Dictionary = console.call("get_page_debug_snapshot", "replicator")
 	_expect(str(replicator_snapshot.get("kind", "")) == "replicator", "replicator page reports its data kind")
-	_expect(str(replicator_snapshot.get("mode", "")) == "concept_preview", "replicator page labels its data as a concept preview")
-	_expect(int(replicator_snapshot.get("blueprint_count", 0)) == 5, "replicator concept lists the five starter blueprints")
-	_expect(int(replicator_snapshot.get("queue_count", 0)) == 2, "replicator concept starts with two illustrative queue rows")
+	_expect(str(replicator_snapshot.get("mode", "")) == "offline", "replicator reports offline without carrier stores")
+	_expect(int(replicator_snapshot.get("blueprint_count", 0)) == 8, "replicator lists eight starter patterns")
+	_expect(int(replicator_snapshot.get("queue_count", 0)) == 0, "replicator does not invent queue entries")
 	replicator_page.call("_on_blueprint_pressed", "light_combat_vehicle")
-	replicator_page.call("_change_quantity", 1)
 	replicator_page.call("_on_add_to_queue_pressed")
 	replicator_snapshot = console.call("get_page_debug_snapshot", "replicator")
-	_expect(int(replicator_snapshot.get("queue_count", 0)) == 3, "replicator preview can add an illustrative order")
-	_expect(int(replicator_snapshot.get("plasteel", 0)) == 840, "preview order updates the displayed plasteel balance only")
-	_expect(int(replicator_snapshot.get("corium", 0)) == 976, "preview order updates the displayed corium balance only")
-	replicator_page.call("_on_cancel_order_pressed", 2)
-	replicator_snapshot = console.call("get_page_debug_snapshot", "replicator")
-	_expect(int(replicator_snapshot.get("queue_count", 0)) == 2, "replicator preview can cancel the illustrative order")
-	_expect(int(replicator_snapshot.get("plasteel", 0)) == 1000, "cancelling restores the preview plasteel balance")
-	_expect(int(replicator_snapshot.get("corium", 0)) == 1000, "cancelling restores the preview corium balance")
+	_expect(int(replicator_snapshot.get("queue_count", 0)) == 0, "offline replicator cannot fabricate")
+	_expect(int(replicator_snapshot.get("plasteel", 0)) == 0, "offline replicator does not invent materials")
+	var chamber: Node3D = replicator_page.get("_chamber")
+	var initial_opacity: float = chamber.get_shield_opacity()
+	var opacity_key := InputEventKey.new()
+	opacity_key.keycode = KEY_PAGEUP
+	opacity_key.pressed = true
+	Input.parse_input_event(opacity_key)
+	await process_frame
+	_expect(is_equal_approx(chamber.get_shield_opacity(), initial_opacity + 0.05), "PgUp raises live shield opacity")
+	opacity_key.echo = true
+	Input.parse_input_event(opacity_key)
+	await process_frame
+	_expect(is_equal_approx(chamber.get_shield_opacity(), initial_opacity + 0.10), "holding opacity key accepts repeat presses")
+	opacity_key.echo = false
+	opacity_key.keycode = KEY_PAGEDOWN
+	Input.parse_input_event(opacity_key)
+	await process_frame
+	_expect(is_equal_approx(chamber.get_shield_opacity(), initial_opacity + 0.05), "PgDn lowers live shield opacity")
+	for index in range(25):
+		opacity_key.keycode = KEY_PAGEUP
+		Input.parse_input_event(opacity_key.duplicate())
+	await process_frame
+	_expect(is_equal_approx(chamber.get_shield_opacity(), 1.0), "shield opacity stops at fully opaque")
+	for index in range(25):
+		opacity_key.keycode = KEY_PAGEDOWN
+		Input.parse_input_event(opacity_key.duplicate())
+	await process_frame
+	_expect(is_zero_approx(chamber.get_shield_opacity()), "shield opacity stops at fully transparent")
+	replicator_page.adjust_shield_opacity(initial_opacity)
+	var shield: Node3D = chamber.get("_shield")
+	var panels := 0
+	for child in shield.get_children():
+		if not child is MeshInstance3D:
+			continue
+		var material := child.get_active_material(0) as StandardMaterial3D
+		if material != null and material.transparency == BaseMaterial3D.TRANSPARENCY_ALPHA:
+			panels += 1
+			_expect(is_equal_approx(material.albedo_color.a, initial_opacity), "keyboard tuning updates actual shield material")
+	_expect(panels == 8, "all eight shield faces share live opacity tuning")
+	console.call("show_page", "carrier")
+	opacity_key.keycode = KEY_PAGEUP
+	Input.parse_input_event(opacity_key)
+	await process_frame
+	_expect(is_equal_approx(chamber.get_shield_opacity(), initial_opacity), "opacity keys do not tune the hidden Replicator tab")
+	console.call("show_page", "replicator")
+	await process_frame
+	_expect(is_equal_approx(chamber.get_shield_opacity(), initial_opacity), "shield tuning survives switching tabs")
 
 	console.call("set_open", false)
 	await process_frame
@@ -263,6 +302,9 @@ func _run() -> void:
 	_expect(platoons_page != null and not platoons_page.visible, "platoons page closes with the console")
 	_expect(carrier_page != null and not carrier_page.visible, "carrier page closes with the console")
 	_expect(replicator_page != null and not replicator_page.visible, "replicator page closes with the console")
+	Input.parse_input_event(opacity_key)
+	await process_frame
+	_expect(is_equal_approx(chamber.get_shield_opacity(), initial_opacity), "opacity keys do not tune a closed console")
 	_finish()
 
 

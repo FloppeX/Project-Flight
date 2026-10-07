@@ -1,0 +1,28 @@
+{
+  "source": "D:\\3D printing files\\harvester.blend",
+  "snapshot": "C:\\Godot projects\\Project-Flight\\captures\\harvester_source\\harvester-live-20261003-120219.blend",
+  "objects": [
+    {
+      "object": "Vehicle body",
+      "file": "harvester_hull.glb",
+      "vertices": 505,
+      "polygons": 866,
+      "dimensions": [
+        4.403417587280273,
+        9.047748565673828,
+        3.3333747386932373
+      ]
+    },
+    {
+      "object": "Extractor head",
+      "file": "extractor_head.glb",
+      "vertices": 252,
+      "polygons": 282,
+      "dimensions": [
+        0.9171851873397827,
+        1.7527194023132324,
+        0.8996221423149109
+      ]
+    }
+  ]
+}

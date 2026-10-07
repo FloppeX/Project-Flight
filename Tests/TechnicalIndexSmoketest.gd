@@ -35,7 +35,10 @@ func _run() -> void:
 	var ground_vehicle_entries := Catalog.entries_for("GROUND VEHICLES")
 	var expected_ground_vehicle_scenes: Array[String] = [
 		"res://LandCarrier/LandCarrier2.tscn",
-		"res://GroundVehicle/vehicle_friendly_light.tscn",
+		"res://GroundVehicle/ground_vehicle_1.tscn",
+		"res://GroundVehicle/ground_vehicle_2.tscn",
+		"res://GroundVehicle/ground_vehicle_3.tscn",
+		"res://GroundVehicle/Harvester.tscn",
 		"res://GroundVehicle/vehicle_enemy_buggy.tscn",
 		"res://GroundVehicle/vehicle_enemy_pickup.tscn",
 		"res://GroundVehicle/vehicle_enemy_battle_bus.tscn",
@@ -268,16 +271,19 @@ func _run() -> void:
 					or not is_equal_approx(ramp_outer_pivot.rotation.x, ramp_stowed_outer_x):
 				_fail("second vehicle-bay press did not close and stow the carrier ramp")
 				return
-			view.call("_select_entry", ground_vehicle_entries[1])
-			var friendly_vehicle_root := view.get_node_or_null("RotatablePreview/EquipmentViewport/PreviewPivot/ModelRoot")
-			if not _preview_uses_only_livery_pattern(friendly_vehicle_root, TEST_PLAYER_PATTERN_INDEX):
-				_fail("friendly ground-vehicle preview did not inherit the player pattern")
-				return
-			view.call("_select_entry", ground_vehicle_entries[2])
-			var hostile_vehicle_root := view.get_node_or_null("RotatablePreview/EquipmentViewport/PreviewPivot/ModelRoot")
-			if not _find_livery_pattern_modes(hostile_vehicle_root).is_empty():
-				_fail("hostile ground-vehicle preview incorrectly inherited the player pattern")
-				return
+			for vehicle_entry in ground_vehicle_entries:
+				var scene_path := str(vehicle_entry.get("scene", ""))
+				if scene_path not in ["res://GroundVehicle/ground_vehicle_1.tscn", "res://GroundVehicle/ground_vehicle_2.tscn", "res://GroundVehicle/vehicle_enemy_buggy.tscn"]:
+					continue
+				view.call("_select_entry", vehicle_entry)
+				var vehicle_root := view.get_node_or_null("RotatablePreview/EquipmentViewport/PreviewPivot/ModelRoot")
+				if scene_path == "res://GroundVehicle/vehicle_enemy_buggy.tscn":
+					if not _find_livery_pattern_modes(vehicle_root).is_empty():
+						_fail("hostile ground-vehicle preview incorrectly inherited the player pattern")
+						return
+				elif not _preview_uses_only_livery_pattern(vehicle_root, TEST_PLAYER_PATTERN_INDEX):
+					_fail("friendly ground-vehicle preview did not inherit the player pattern: " + scene_path)
+					return
 		await process_frame
 	view.call("_show_category", "AIRPLANES")
 	if String(view.get("current_mode")) != "tech_items":

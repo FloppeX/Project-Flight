@@ -13,6 +13,7 @@ signal update_interface(values)
 @export var gear_collision_shapes: Array[CollisionShape3D] = []  # Array for wheel collision shapes
 @export var auxiliary_safe_collision_shapes: Array[CollisionShape3D] = []  # Rigid skid shapes supported by separate suspension contacts
 @export var gear_visuals: Array[Node3D] = []  # Array for visual gear meshes
+@export var damage_visual_root_paths: Array[NodePath] = []  # Independently animated rigs, when different from suspension visuals
 @export var gear_rotation_axes: Array[Vector3] = []  # Rotation axis for each gear (empty = no rotation)
 @export var gear_rotation_angles: Array[float] = []  # Rotation angle in degrees for each gear when stowed
 @export var gear_stowed_rotations_degrees: Array[Vector3] = []  # Explicit Euler stow rotation per gear in degrees
@@ -82,6 +83,8 @@ enum LandingGearInitialStates {
 @export var forward_friction: float = 0.1      # Low resistance for rolling forward/backward
 @export var sideways_friction: float = 8.0     # High resistance for sliding sideways
 @export var friction_force_multiplier: float = 1000.0  # Overall friction strength
+@export var wheel_brake_deceleration_mps2: float = 5.0  # Full service brake, distributed across the wheels
+@export var wheel_brake_grip: float = 0.65  # Brake force cannot exceed this fraction of wheel normal load
 @export var ground_longitudinal_damping: float = 5000.0  # Extra along-forward damping (N per m/s)
 @export var ground_lateral_damping: float = 15000.0      # Extra side damping (N per m/s)
 @export var skid_terrain_damping: float = 0.0  # Per-skid low-collective grip on terrain (N per m/s)
@@ -101,6 +104,8 @@ var audio_player: AudioStreamPlayer3D
 
 # Properties for external access
 var is_deployed: bool = false
+var damage_jammed: bool = false
+var damage_collapsed: bool = false
 var is_stowed: bool = true
 var gear_compressions: Array[float] = []  # Latest compression per gear slot (metres); readable by debug systems
 var gear_has_contact: Array[bool] = []  # True while the suspension ray is within usable contact range
@@ -108,6 +113,8 @@ var gear_contact_points: Array[Vector3] = []  # World-space surface point for ea
 var gear_contact_normals: Array[Vector3] = []  # World-space surface normal for each gear slot
 var gear_normal_forces_n: Array[float] = []
 var _wheel_sink_speeds: Array[float] = []
+var _wheel_brake_input: float = 0.0
+var _wheel_brake_frame: int = -10
 var _suspension_sized_mass: float = -1.0
 var _suspension_collider_compressions: Array[float] = []
 var _lean_offsets: Array[float] = []       # Per-wheel rest-height offsets from accel lean
@@ -210,6 +217,9 @@ func get_technical_index_preview_kind() -> StringName:
 
 func process_physic_frame(delta: float):
 	"""Apply spring physics to each wheel"""
+	if damage_collapsed:
+		_clear_airborne_contact_state()
+		return
 	if is_instance_valid(aircraft) and not is_equal_approx(_suspension_sized_mass, aircraft.mass):
 		_size_suspension_for_load()
 	_update_gear_animation(delta)
@@ -420,14 +430,19 @@ func apply_spring_physics(collision_shape: CollisionShape3D, gear_index: int, de
 
 		if compression > 0.01:  # Small threshold to avoid jittering
 			_wheel_was_loaded[gear_index] = true
-			if not previously_loaded and not aircraft.freeze and aircraft.has_method("land"):
+			if not aircraft.freeze and aircraft.has_method("land"):
 				# Compliant contact may never produce a rigid-body collision callback.
 				# Keep the same touchdown/damage contract as a physical wheel contact.
 				var surface_kind := "carrier" if carrier_surface != null else "other"
 				if surface_kind == "other" and _find_surface_group_node(surface, "runway_surface") != null:
 					surface_kind = "runway"
 				var relative_velocity: Vector3 = aircraft.linear_velocity - _surface_point_velocity(surface, result.position)
-				aircraft.call("land", maxf(-relative_velocity.dot(contact_normal), 0.0), relative_velocity.length(), surface_kind)
+				if (surface_kind == "other" or (surface_kind == "carrier" and _is_aircraft_helicopter())) and aircraft.has_method("regional_gear_touchdown") and aircraft.get_node_or_null("PartDamageModel") != null:
+					# Keep real wheel support points current for dirt trails, even when
+					# compliant suspension avoids rigid-body collision callbacks.
+					aircraft.call("regional_gear_touchdown", maxf(-relative_velocity.dot(contact_normal), 0.0), contact_normal, result.position, collision_shape, surface)
+				elif not previously_loaded:
+					aircraft.call("land", maxf(-relative_velocity.dot(contact_normal), 0.0), relative_velocity.length(), surface_kind)
 			# Calculate spring force (Hooke's law)
 			var spring_force = spring_strength * compression
 
@@ -966,6 +981,8 @@ func _get_suspension_collider_offset_for_gear(gear_index: int) -> float:
 	return _suspension_collider_compressions[gear_index] * maxf(suspension_collider_compression_scale, 0.0)
 
 func deploy():
+	if damage_jammed or damage_collapsed:
+		return
 	"""Deploy the landing gear"""
 	if current_state == LandingGearInitialStates.DEPLOYED and is_equal_approx(_gear_animation_target, 1.0):
 		return
@@ -991,7 +1008,7 @@ func deploy():
 		if collision_shape:
 			if debug_enabled:
 				print("[LG]  collider -> ", collision_shape.get_path())
-			collision_shape.disabled = false
+			collision_shape.disabled = bool(collision_shape.get_meta("damage_detached", false))
 	
 	# Show visual meshes immediately
 	for visual in gear_visuals:
@@ -1004,7 +1021,57 @@ func deploy():
 	# Emit interface update
 	update_interface.emit({"landing_gear": "deployed"})
 
+func get_damage_visual_roots() -> Array[Node3D]:
+	if damage_visual_root_paths.is_empty():
+		return gear_visuals
+	var roots: Array[Node3D] = []
+	for path in damage_visual_root_paths:
+		var root := get_node_or_null(path) as Node3D
+		if root != null: roots.append(root)
+	return roots
+
+
+func shear_from_damage(spawn_debris: bool = true) -> void:
+	if aircraft == null or bool(aircraft.get_meta("gear_sheared", false)):
+		return
+	var parts: Node = aircraft.get_node_or_null("PartDamageModel")
+	if parts == null:
+		collapse_from_damage()
+		return
+	aircraft.set_meta("gear_sheared", true)
+	aircraft.set_meta("gear_collapsed", true)
+	damage_collapsed = true
+	damage_jammed = true
+	_gear_animation_active = false
+	for collider in gear_collision_shapes + auxiliary_safe_collision_shapes:
+		if is_instance_valid(collider):
+			collider.set_meta("damage_detached", true)
+			collider.set_deferred("disabled", true)
+	for visual in get_damage_visual_roots():
+		if is_instance_valid(visual):
+			parts.detach_gear_assembly(visual, spawn_debris)
+	_clear_airborne_contact_state()
+
+
+func collapse_from_damage() -> void:
+	if damage_collapsed:
+		return
+	damage_collapsed = true
+	damage_jammed = true
+	if aircraft != null: aircraft.set_meta("gear_collapsed", true)
+	for collider in gear_collision_shapes + auxiliary_safe_collision_shapes:
+		if is_instance_valid(collider): collider.set_deferred("disabled", true)
+	# Fixed gear can fail too. Retain the authored parts, bent upwards, instead
+	# of pretending a non-retractable gear assembly retracted normally.
+	for visual in gear_visuals:
+		if is_instance_valid(visual):
+			visual.position.y += 0.3
+			visual.rotation.z += deg_to_rad(25.0 if visual.position.x >= 0.0 else -25.0)
+	_clear_airborne_contact_state()
+
 func stow():
+	if damage_jammed or damage_collapsed:
+		return
 	"""Stow the landing gear"""
 	if lock_deployed:
 		deploy()
@@ -1074,6 +1141,21 @@ func _find_surface_group_node(surface: Variant, group_name: String) -> Node:
 		node = node.get_parent()
 	return null
 
+func set_wheel_brake_input(value: float) -> void:
+	_wheel_brake_input = clampf(value, 0.0, 1.0)
+	_wheel_brake_frame = Engine.get_physics_frames()
+
+func get_wheel_brake_input() -> float:
+	# A short lease releases the pedals when player controls stop processing (AI
+	# takeover, ejection, etc.). Wheel contact itself is checked by suspension.
+	var age := Engine.get_physics_frames() - _wheel_brake_frame
+	if age < 0 or age > 1 or not is_deployed or damage_collapsed or not is_instance_valid(aircraft):
+		return 0.0
+	for flag in [&"controls_disabled", &"carrier_transport_mode", &"arresting_engaged"]:
+		if bool(aircraft.get_meta(flag, false)):
+			return 0.0
+	return _wheel_brake_input
+
 func apply_wheel_friction(collision_shape: CollisionShape3D, gear_index: int, compression: float, contact_normal: Vector3 = Vector3.UP, surface: Variant = null):
 	"""Apply directional friction to simulate realistic wheel behavior"""
 	if not aircraft or compression <= 0.01:
@@ -1108,7 +1190,9 @@ func apply_wheel_friction(collision_shape: CollisionShape3D, gear_index: int, co
 	# toward deck-relative zero rather than world zero (carrier is a moving platform).
 	var relative_velocity = aircraft.linear_velocity
 	if on_carrier_surface:
-		relative_velocity = VelocityFrame.get_relative_velocity(aircraft)
+		# The deck-follow reference is established only after several wheels have
+		# settled. First-contact braking must already use the contacted deck speed.
+		relative_velocity -= _surface_point_velocity(surface, collision_shape.global_position)
 	elif _is_aircraft_helicopter():
 		# A turning helicopter has opposite velocities at its skids even when its
 		# centre barely moves. Friction at each contact must see that yaw motion.
@@ -1140,6 +1224,14 @@ func apply_wheel_friction(collision_shape: CollisionShape3D, gear_index: int, co
 	# Calculate friction forces
 	var forward_friction_force = -forward_velocity * forward_friction * friction_force_multiplier * compression
 	var sideways_friction_force = -sideways_velocity * sideways_friction * friction_force_multiplier * compression
+	var brake_input := get_wheel_brake_input()
+	if brake_input > 0.0 and gear_index < gear_normal_forces_n.size():
+		var wheel_mass: float = aircraft.mass / maxf(gear_collision_shapes.size(), 1)
+		var requested_force := wheel_mass * maxf(wheel_brake_deceleration_mps2, 0.0) * brake_input
+		var grip_force := maxf(gear_normal_forces_n[gear_index], 0.0) * maxf(wheel_brake_grip, 0.0)
+		# Ease to a stop without reversing velocity in a single physics step.
+		var stopping_force := wheel_mass * absf(forward_velocity) / maxf(get_physics_process_delta_time(), 0.001)
+		forward_friction_force -= signf(forward_velocity) * minf(requested_force, minf(grip_force, stopping_force))
 	
 	# Add velocity-proportional damping to keep aircraft still on deck ONLY when engine is off
 	# and not under external control (like a catapult).

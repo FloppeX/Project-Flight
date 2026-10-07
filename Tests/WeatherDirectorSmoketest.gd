@@ -105,8 +105,7 @@ func _run() -> void:
 		- (electrical_lower - 85.0)) < 0.01,
 		"Cloud sparks stay attached to the moving dust-layer underside")
 	check(electrical._last_strike_origin.y >= electrical_lower - 65.0
-		and Vector2(electrical._last_strike_impact.x, electrical._last_strike_impact.z).length()
-		<= electrical.cloud_radius_m * 0.82 + 0.01,
+		and electrical.get_cell_envelope(electrical._last_strike_impact) <= 0.82 + 0.01,
 		"Random lightning begins at the dust layer and lands within its dark area")
 	check(electrical.get_node("LightningFlash").visible and electrical.get_node("LightningSkyFlash").visible
 		and electrical.get_node("LightningImpactHalo").visible

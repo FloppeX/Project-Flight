@@ -2,7 +2,7 @@
 
 > **Document status:** Player/control reference last fully audited on 2026-03-17; tactical-map navigation was refreshed on 2026-09-04. Core controls remain useful, but debug keys and other newer interactions may have drifted. Use the [README](../README.md) for current project status.
 
-**Updated:** 2026-09-04
+**Updated:** 2026-10-05 (wheel brakes)
 **Default Control:** Spectator mode with AI active
 
 ---
@@ -26,8 +26,11 @@
 | **Right Stick** | Look around (camera) |
 | **LT / L2** | Yaw left (rudder) |
 | **RT / R2** | Yaw right (rudder) |
+| **LT + RT / L2 + R2** | Progressive wheel brakes on the ground (fixed-wing) |
 | **LB / L1** | Throttle up |
 | **RB / R1** | Throttle down |
+
+Squeeze both triggers to brake. The lighter trigger sets brake pressure; their difference still controls rudder and nose-wheel steering. Equal pressure brakes straight ahead, and easing one trigger lets you steer while braking. A single trigger steers without applying the wheel brakes. Braking requires deployed, intact wheels in contact with the surface.
 
 ### Aircraft Systems
 | Button | Action |

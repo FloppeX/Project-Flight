@@ -11,6 +11,22 @@ class_name CarrierManager
 
 var aircraft_registry: Dictionary = {}
 var vehicle_registry: Dictionary = {}
+var replicator: Node
+var harvester_ops: Node
+
+func get_harvester_ops() -> Node:
+	if not is_instance_valid(harvester_ops):
+		harvester_ops = preload("res://LandCarrier/HarvesterOps.gd").new()
+		harvester_ops.name = "HarvesterOps"
+		add_child(harvester_ops)
+	return harvester_ops
+
+func get_replicator() -> Node:
+	if not is_instance_valid(replicator):
+		replicator = preload("res://LandCarrier/ReplicatorManager.gd").new()
+		replicator.name = "ReplicatorManager"
+		add_child(replicator)
+	return replicator
 
 const DEFAULT_PILOT_NAMES: Array[String] = ["Smith", "Johnson", "Williams", "Brown", "Jones"]
 const DEFAULT_PILOT_CALLSIGNS: Array[String] = ["Skipper", "Goose", "Rook", "Falcon", "Hound"]
@@ -33,6 +49,8 @@ var _initialized: bool = false
 func _ready() -> void:
 	add_to_group("carrier_manager")
 	ensure_initialized()
+	get_replicator()
+	get_harvester_ops()
 
 func ensure_initialized() -> void:
 	if _initialized:
@@ -154,6 +172,8 @@ func capture_save_state() -> Dictionary:
 	return {
 		"corium_units": corium_units,
 		"plasteel_units": plasteel_units,
+		"replicator": get_replicator().capture_save_state(),
+		"harvester": get_harvester_ops().capture_save_state(),
 		"pilot_records": records,
 		"next_pilot_id": _next_pilot_id,
 	}
@@ -164,6 +184,8 @@ func restore_save_state(state: Dictionary) -> bool:
 		return false
 	corium_units = float(state.get("corium_units", corium_units))
 	plasteel_units = float(state.get("plasteel_units", plasteel_units))
+	get_replicator().restore_save_state(state.get("replicator", {}))
+	get_harvester_ops().restore_save_state(state.get("harvester", {}))
 	var records_variant: Variant = state.get("pilot_records", [])
 	if not (records_variant is Array):
 		return false

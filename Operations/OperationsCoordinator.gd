@@ -225,6 +225,9 @@ func _supervise_assignments() -> void:
 				if order.kind == OpsOrder.Kind.PATROL_POSITION \
 				else order.get_goal_position(carrier)
 		var position: Vector3 = status.get("position", Vector3.ZERO)
+		if unit is GroundVehiclePlatoon and (order.kind == OpsOrder.Kind.ESCORT_HARVESTER \
+				or (order.kind == OpsOrder.Kind.RECOVER and unit.objective_type == GroundVehiclePlatoon.ObjectiveType.RETURN_TO_BASE)):
+			goal = unit._get_route_preview_goal()
 		var distance_m := _distance_to_goal(position, goal)
 		var previous_distance_m := float(assignment.get("last_distance_m", INF))
 		if is_finite(distance_m) and (
@@ -267,9 +270,10 @@ func _supervise_assignments() -> void:
 				and not bool(assignment.get("ground_retrieval_started", false)):
 			if adapter.try_begin_ground_retrieval():
 				assignment["ground_retrieval_started"] = true
+				assignment["objective_type"] = int(unit.objective_type)
 				ground_retrieval_started.emit(unit)
 		var standing := order.kind in [OpsOrder.Kind.HOLD_POSITION, OpsOrder.Kind.PROTECT_POSITION,
-			OpsOrder.Kind.PROTECT_TARGET, OpsOrder.Kind.ESCORT_CARRIER, OpsOrder.Kind.PURSUE_ENEMIES]
+			OpsOrder.Kind.PROTECT_TARGET, OpsOrder.Kind.ESCORT_CARRIER, OpsOrder.Kind.ESCORT_HARVESTER, OpsOrder.Kind.PURSUE_ENEMIES]
 		if standing and (not is_finite(distance_m) or distance_m <= maxf(order.radius_m if is_finite(order.radius_m) else 100.0, 150.0)):
 			assignment["last_progress_s"] = now_s
 			assignment["stall_reported"] = false

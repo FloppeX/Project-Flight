@@ -36,6 +36,8 @@ func _draw() -> void:
 		var aircraft_rect := Rect2(10, 10, w - 20, 70)
 		_visual_frame(aircraft_rect, true)
 		_draw_outline(aircraft_rect)
+		if record.get("rescue_reserved", false):
+			_text("RESCUE RESERVE", Rect2(12, 12, w - 24, 16), 11, YELLOW)
 		_text(str(record.model.name), Rect2(10, 83, w - 20, 20), 14, WHITE, TITLE)
 		_meter("STRUCTURE", Rect2(10, 108, w - 20, 20), health, RED)
 		_meter("FUEL", Rect2(10, 134, w - 20, 20), fuel, YELLOW)
@@ -128,5 +130,5 @@ func _loadout(rect: Rect2) -> void:
 			i += 1
 	else:
 		var preset := str(record.get("loadout", ""))
-		var caption := str({"gun_only": "GUNS", "bomb_strike": "BOMBS + GUNS", "rocket_strike": "ROCKETS + GUNS"}.get(preset, "STANDARD LOADOUT"))
+		var caption := str({"gun_only": "GUNS", "bomb_strike": "BOMBS + GUNS", "rocket_strike": "ROCKETS + GUNS", "unarmed": "UNARMED"}.get(preset, "STANDARD LOADOUT"))
 		_text("LOADOUT · " + caption, rect.grow(-6), 11, MUTED)

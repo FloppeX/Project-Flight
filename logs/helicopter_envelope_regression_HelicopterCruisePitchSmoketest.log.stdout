@@ -1,0 +1,31 @@
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+
+ERROR: Failed to read the root certificate store.
+   at: get_system_ca_certificates (platform/windows/os_windows.cpp:2582)
+[CockpitPilotPool] reserve_ready size=2 created=2 animation_prepare_ms=449.106 animation_prepare_max_ms=448.768
+[AirOpsManager] Ready — flights: Archer, Bulldog, Crimson, Dingo
+[CombatLog] [    0.0] SYS    Combat log online.
+[GroundOps] Ready — platoons: Ember, Ferret, Grizzly, Hammer
+[PerfHitch] Writing C:/Godot projects/Project-Flight/logs/helicopter_envelope_userdata/Godot/app_userdata/Land Carrier/perf_logs/hitch_events.csv threshold_ms=33.0 mark_action=flight_log_mark
+[FrameProfilerReportCapture] enabled (ambient_hitch_trace)
+[godot_ai game_helper] registered mcp capture (debugger active=false, logger=true)
+[Flight Archer] CAP  alt=800m
+[Flight Bulldog] CAP  alt=800m
+[Flight Crimson] CAP  alt=800m
+[Flight Dingo] CAP  alt=800m
+[Resolution] selected=(1920, 1080) window=(0, 0) root=(64, 64) screen=(0, 0) content=(1920, 1080) content_mode=2 content_aspect=1 content_factor=1.0 viewport=(1920.0, 1080.0) 3d_scale=1.0 mode=1
+[InstrumentPanelPool] render_warm panel=PooledInstrumentPanel1 elapsed_ms=14.407
+[InstrumentPanelPool] render_warm panel=PooledInstrumentPanel2 elapsed_ms=11.607
+PITCH_SAMPLE id=9 old_pitch=36.23 new_pitch=15.00 peak=19.14 old_kmh=202.60 new_kmh=202.59
+PITCH_SAMPLE id=10 old_pitch=32.10 new_pitch=15.00 peak=23.33 old_kmh=305.83 new_kmh=305.82
+PITCH_SAMPLE id=11 old_pitch=32.10 new_pitch=15.00 peak=23.74 old_kmh=279.73 new_kmh=279.72
+PITCH_SAMPLE id=12 old_pitch=33.52 new_pitch=15.00 peak=19.80 old_kmh=244.10 new_kmh=244.09
+PITCH_SAMPLE id=13 old_pitch=31.93 new_pitch=15.00 peak=23.26 old_kmh=248.34 new_kmh=248.33
+PITCH_SAMPLE id=15 old_pitch=31.06 new_pitch=15.00 peak=20.66 old_kmh=241.90 new_kmh=241.89
+MANOEUVRE_SAMPLE id=9 braking_pitch=19.48
+MANOEUVRE_SAMPLE id=10 braking_pitch=30.74
+MANOEUVRE_SAMPLE id=11 braking_pitch=31.59
+MANOEUVRE_SAMPLE id=12 braking_pitch=21.48
+MANOEUVRE_SAMPLE id=13 braking_pitch=32.02
+MANOEUVRE_SAMPLE id=15 braking_pitch=26.23
+HELICOPTER_CRUISE_PITCH_PASS []

@@ -30,6 +30,10 @@ class Carrier:
 	func _get_avoidance_steer(_direction: float = 1.0) -> float:
 		return 0.0
 
+class EscortReference extends Node3D:
+	func get_velocity_vector() -> Vector3:
+		return Vector3(0, 0, -4)
+
 func check(value: bool, message: String) -> void:
 	if not value: failures.append(message)
 
@@ -38,26 +42,46 @@ func _ready() -> void:
 	check(ReverseDrive.choose_reverse(0.0, true), "sideways retains reverse")
 	check(not ReverseDrive.choose_reverse(1.0, true), "front destination releases reverse")
 	check(is_zero_approx(ReverseDrive.approach_speed(2.0, -3.0, 2.0, 4.0, 1.0)), "gear change crosses zero in one tick")
+	var selector := ReverseDrive.new()
+	check(not selector.choose_navigation_reverse(-1.0, 400.0, 0.1), "long journey must turn forward")
+	check(selector.choose_navigation_reverse(-1.0, 10.0, 0.1), "nearby rear adjustment may reverse")
+	for tick in 80:
+		selector.choose_navigation_reverse(-1.0, 10.0, 0.05)
+	check(not selector.choose_navigation_reverse(-1.0, 10.0, 0.1), "moving nearby goal must not allow endless reverse")
+	selector.choose_navigation_reverse(1.0, 10.0, 0.1)
+	check(selector.choose_navigation_reverse(-1.0, 10.0, 0.1), "forward alignment rearms short reverse")
+	check(not selector.choose_navigation_reverse(-1.0, 10.0, 0.1, false), "forward-only harvester ignores short reverse")
 	for v in [Friendly.new(), Enemy.new()]:
 		add_child(v)
 		v.use_waypoint_pathfinding = false
 		var points: Array[Vector3] = [Vector3(0, 0, -400)]
 		v._waypoint_positions = points
 		v._refresh_drive_command(0.1)
-		check(v._drive_command_throttle < 0.0, "%s rear command" % v.get_script().resource_path)
-		for tick in 60:
+		check(v._drive_command_throttle >= 0.0 and absf(v._drive_command_steer) > 0.9, "rear command needs decisive forward U-turn")
+		for tick in 600:
 			v._refresh_drive_command(0.05)
 			v._apply_cached_drive_motion(0.05, true)
-		check(v.position.z < -1.0, "vehicle did not move backward")
-		check(absf(v.velocity.z) <= v.max_speed * v.reverse_speed_ratio + 0.01, "reverse speed exceeded cap")
-		check(v.global_basis.z.dot(Vector3.BACK) > 0.99, "straight reversing turned vehicle around")
-		points.assign([v.position + Vector3(100, 0, -400)])
+			check(not v._reverse_driving, "long route entered reverse")
+		check(v.position.z < -250.0, "vehicle did not progress to rearward destination")
+		check(v.global_basis.z.dot(Vector3.FORWARD) > 0.9, "vehicle did not turn nose-first toward rearward destination")
+		# A precision parking/rescue adjustment behind the vehicle is still legal.
+		v.position = Vector3.ZERO
+		v.rotation = Vector3.ZERO
+		v.velocity = Vector3.ZERO
+		v.waypoint_reach_distance = 1.0
+		if v is Friendly:
+			v._arrived_at_destination = false
+		v._navigation_drive.reset_navigation()
+		points.assign([Vector3(0, 0, -10)])
 		v._waypoint_positions = points
-		var before: Vector3 = v.position
-		for tick in 60:
+		v._refresh_drive_command(0.1)
+		check(v._reverse_driving and v._drive_command_throttle < 0.0, "short rear command")
+		for tick in 20:
 			v._refresh_drive_command(0.05)
 			v._apply_cached_drive_motion(0.05, true)
-		check(v.position.x > before.x, "reverse diagonal steered away from destination")
+		check(v.position.z < -0.1, "short adjustment did not back up")
+		check(absf(v.velocity.z) <= v.max_speed * v.reverse_speed_ratio + 0.01, "reverse speed exceeded cap")
+		check(v.global_basis.z.dot(Vector3.BACK) > 0.99, "short straight reverse turned vehicle around")
 		points.assign([v.position + v.global_basis.z * 400.0])
 		v._waypoint_positions = points
 		for tick in 120:
@@ -69,7 +93,31 @@ func _ready() -> void:
 			v._refresh_drive_command(0.05)
 			v._apply_cached_drive_motion(0.05, true)
 		check(v.velocity.length() < 0.01, "vehicle HOLD did not brake")
+		var enemy_target := Node3D.new()
+		add_child(enemy_target)
+		enemy_target.position = v.position - v.global_basis.z * 400.0
+		v.current_target = enemy_target
+		points.assign([enemy_target.position])
+		v._waypoint_positions = points
+		v._refresh_drive_command(0.1)
+		check(not v._reverse_driving and absf(v._drive_command_steer) > 0.5, "rearward combat route must turn forward too")
+		enemy_target.free()
 		v.free()
+	var escort := EscortReference.new()
+	add_child(escort)
+	var formation := GroundVehiclePlatoon.new()
+	add_child(formation)
+	formation.objective_type = GroundVehiclePlatoon.ObjectiveType.ESCORT_CARRIER
+	formation.escort_node = escort
+	var follower := Friendly.new()
+	add_child(follower)
+	follower.platoon = formation
+	for tick in 200:
+		follower._match_formation_velocity(follower.position, 0.05, true)
+	check(follower.global_basis.z.dot(Vector3.FORWARD) > 0.95, "moving escort slot must turn a backwards-facing follower")
+	follower.free()
+	formation.free()
+	escort.free()
 	var c := Carrier.new()
 	add_child(c)
 	c._waypoint_positions.assign([Vector3(0, 0, -400)])

@@ -1,5 +1,6 @@
 shader_type spatial;
 render_mode unshaded, cull_disabled, depth_draw_never;
+#include "res://Weather/storm_shape.gdshaderinc"
 
 uniform sampler2D depth_texture : hint_depth_texture, repeat_disable, filter_nearest;
 uniform vec4 tint : source_color = vec4(0.88, 0.76, 0.62, 0.65);
@@ -9,6 +10,9 @@ uniform float motion_frequency = 0.00125;
 uniform float motion_phase = 0.0;
 uniform vec3 storm_center_world = vec3(0.0);
 uniform float storm_radius_m = 0.0;
+uniform vec2 storm_axis_ratio = vec2(1.0);
+uniform float storm_yaw = 0.0;
+uniform vec4 storm_outline = vec4(5.0, 0.12, 0.8, 0.07);
 varying vec3 world_position;
 varying vec3 local_position;
 
@@ -35,12 +39,10 @@ void fragment() {
 	scene_view.xyz /= scene_view.w;
 	float intersection = smoothstep(0.0, 90.0, -scene_view.z + VERTEX.z);
 	vec2 storm_delta = world_position.xz - storm_center_world.xz;
-	float storm_angle = atan(storm_delta.y, storm_delta.x);
-	float storm_edge = 1.0 + 0.12 * sin(storm_angle * 5.0 + 0.8) + 0.07 * cos(storm_angle * 9.0);
 	float storm_mask = 0.0;
 	if (storm_radius_m > 0.0) {
-		storm_mask = 1.0 - smoothstep(storm_radius_m * storm_edge * 0.62,
-			storm_radius_m * storm_edge, length(storm_delta));
+		storm_mask = 1.0 - smoothstep(0.62, 1.0,
+			electrical_envelope(storm_delta, storm_axis_ratio * storm_radius_m, storm_yaw, storm_outline));
 	}
 	vec3 normal_dust = mix(tint.rgb, tint.rgb * COLOR.rgb, 0.30) * shade;
 	vec3 charged_dust = vec3(0.19, 0.20, 0.27) * shade * COLOR.rgb;

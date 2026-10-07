@@ -1,0 +1,418 @@
+[
+  {
+    "id": "S01",
+    "label": "Electric motorcycle drivetrain",
+    "path": "D:\\Game audio\\PSE Game Audio Sound Pack\\VEHElec_Electric Motorcycle OB Steady Accel Decels 01 M1_PSE_KCVV2_LyaMZ.wav",
+    "role": "Electric engines",
+    "kind": "loop",
+    "note": "Strong source hypothesis for loaded motor whine and acceleration; motorcycle road/tire contamination must be checked."
+  },
+  {
+    "id": "S02",
+    "label": "Long electric motor",
+    "path": "D:\\Downloads\\Soniss\\Sonniss.com - GDC 2019 - Game Audio Bundle\\3maze - Electric Motors\\motor_long_006.wav",
+    "role": "Electric engines",
+    "kind": "loop",
+    "note": "Electric motor identity is explicit in the pack; extract steady power regions, retain acceleration separately."
+  },
+  {
+    "id": "S03",
+    "label": "Medium electric motor",
+    "path": "D:\\Downloads\\Soniss\\Sonniss.com - GDC 2019 - Game Audio Bundle\\3maze - Electric Motors\\motor_med_011.wav",
+    "role": "Electric engines",
+    "kind": "loop",
+    "note": "Alternate motor character for lighter aircraft or robots; recording may contain several gestures."
+  },
+  {
+    "id": "S04",
+    "label": "Rotator motor",
+    "path": "D:\\Downloads\\Soniss\\Sonniss.com - GDC 2019 - Game Audio Bundle\\3maze - Electric Motors\\rotator_motor_005.wav",
+    "role": "Electric engines",
+    "kind": "loop",
+    "note": "Candidate gearbox/rotating mechanism layer; check for recognizable appliance character."
+  },
+  {
+    "id": "S05",
+    "label": "Isolated electric mower",
+    "path": "D:\\Downloads\\Soniss\\Sonniss.com - GDC 2020 - Game Audio Bundle\\Matt Script - Electric Lawn Mower\\Electric_Mower_Engine_Isolated_running_turn_on_off_blade_spinning_machine_hum_03.wav",
+    "role": "Electric engines",
+    "kind": "loop",
+    "note": "Useful electric motor plus blade interaction source; needs processing to avoid sounding like garden equipment."
+  },
+  {
+    "id": "S06",
+    "label": "Kia electric drive",
+    "path": "D:\\Downloads\\Soniss\\Sonniss.com - GDC 2023 - Game Audio Bundle\\Pole Position Production - Kia Niro Hybrid 2018\\Kia Niro Hybrid - t11 - ONBRD - STEADY RPMS - ELECTRIC - Drive Stop x2 - ENGINE - Mix.wav",
+    "role": "Electric engines",
+    "kind": "loop",
+    "note": "Explicitly labeled ELECTRIC; candidate heavy drivetrain, but road noise is not clean aircraft propulsion."
+  },
+  {
+    "id": "S07",
+    "label": "Electromagnetic rotary tool",
+    "path": "D:\\Downloads\\Soniss\\Sonniss.com - GDC 2023 - Game Audio Bundle\\Pole Position Production - The Electromagnetic Library\\Electrical motor - Rotary tool - Steadies - 02 - Electric guitar pickup box.wav",
+    "role": "Electric engines",
+    "kind": "loop",
+    "note": "Pickup recording is a designed inverter/harmonic layer, not airborne motor sound; blend quietly."
+  },
+  {
+    "id": "S08",
+    "label": "Smooth propeller exterior",
+    "path": "D:\\Game audio\\S019C-Aircraft\\Mono\\PropSmoothExt.wav",
+    "role": "Propellers and rotors",
+    "kind": "loop",
+    "note": "Compare with the current shared prop recording; useful aerodynamic bed if no combustion character survives."
+  },
+  {
+    "id": "S09",
+    "label": "Low smooth propeller",
+    "path": "D:\\Game audio\\S019C-Aircraft\\Mono\\PropSmoothLow.wav",
+    "role": "Propellers and rotors",
+    "kind": "loop",
+    "note": "Candidate low-RPM or heavy-prop layer; needs consistent RPM transitions."
+  },
+  {
+    "id": "S10",
+    "label": "Slow prop hummer",
+    "path": "D:\\Game audio\\S019C-Aircraft\\Mono\\PropHummerSlow.wav",
+    "role": "Propellers and rotors",
+    "kind": "loop",
+    "note": "Alternative blade-pulse texture; separate it from the electrical tone."
+  },
+  {
+    "id": "S11",
+    "label": "Propeller clatter",
+    "path": "D:\\Game audio\\S019C-Aircraft\\Mono\\PropClatter.wav",
+    "role": "Propellers and rotors",
+    "kind": "loop",
+    "note": "Possible rough/old airframe or damaged-prop accent; not automatically a clean electrical motor."
+  },
+  {
+    "id": "S12",
+    "label": "Helicopter blade loop",
+    "path": "D:\\Game audio\\Gamemaster Audio - Pro Sound Collection v1.3 - 16bit 48k\\Vehicles_Engines_Motors\\helicopter_blades_spinning_loop_01.wav",
+    "role": "Propellers and rotors",
+    "kind": "loop",
+    "note": "Alternative blade texture to distinguish the light helicopters from the common Helicopter3 set."
+  },
+  {
+    "id": "S13",
+    "label": "Helicopter interior medium",
+    "path": "D:\\Game audio\\S019C-Aircraft\\Mono\\Helicopter3MedInt.wav",
+    "role": "Propellers and rotors",
+    "kind": "loop",
+    "note": "Interior counterpart to the exterior set; compare with existing filtering before adding another full-volume layer."
+  },
+  {
+    "id": "S14",
+    "label": "Current fixed-wing engine",
+    "path": "C:\\Godot projects\\Project-Flight\\Audio\\engine\\fixed_wing\\airplane_propeller 3.wav",
+    "role": "Current game comparison",
+    "kind": "loop",
+    "note": "Current common fixed-wing loop. Baseline only; file name does not establish an electric motor source."
+  },
+  {
+    "id": "S15",
+    "label": "Current helicopter medium",
+    "path": "C:\\Godot projects\\Project-Flight\\Audio\\engine\\helicopter\\Helicopter3MedExt.wav",
+    "role": "Current game comparison",
+    "kind": "loop",
+    "note": "Current medium rotor layer shared by six authored helicopters."
+  },
+  {
+    "id": "S16",
+    "label": "Ventilation fan",
+    "path": "D:\\Game audio\\Gamemaster Audio - Pro Sound Collection v1.3 - 16bit 48k\\Backgrounds\\background_air_vent_fan_loop_02.wav",
+    "role": "Carrier and cockpit ambience",
+    "kind": "loop",
+    "note": "Already contributes to both installed ventilation mixes; reuse source family for consistent room zoning."
+  },
+  {
+    "id": "S17",
+    "label": "Interior room hum",
+    "path": "D:\\Game audio\\Gamemaster Audio - Pro Sound Collection v1.3 - 16bit 48k\\Backgrounds\\background_room_interior_hum_loop_02.wav",
+    "role": "Carrier and cockpit ambience",
+    "kind": "loop",
+    "note": "Already in carrier interior mix; useful bridge/hangar base, not a distinct machine event."
+  },
+  {
+    "id": "S18",
+    "label": "Electric hum",
+    "path": "D:\\Game audio\\Gamemaster Audio - Pro Sound Collection v1.3 - 16bit 48k\\Electricity_Hums\\hum_motor_elec_neon_loop_03.wav",
+    "role": "Carrier and cockpit ambience",
+    "kind": "loop",
+    "note": "Alternative electrical room layer; avoid stationary mains hum as the entire aircraft engine."
+  },
+  {
+    "id": "S19",
+    "label": "Lighthouse motor room",
+    "path": "D:\\Downloads\\Soniss\\Sonniss.com - GDC 2020 - Game Audio Bundle\\Articulated Sounds - Lighthouse Electrical Motor Tone\\MOTOR Electric Lighthouse, 4th Floor, Inside Lightroom, CU, Lantern, Low Rumble, West Point, PEI, Canada, LOOP.wav",
+    "role": "Carrier and cockpit ambience",
+    "kind": "loop",
+    "note": "Long real electrical machinery ambience; promising large carrier machinery room bed."
+  },
+  {
+    "id": "S20",
+    "label": "Current deck ambience",
+    "path": "C:\\Godot projects\\Project-Flight\\Audio\\Carrier\\carrier_deck_sound_mono.wav",
+    "role": "Current game comparison",
+    "kind": "loop",
+    "note": "Installed deck bed; compare level and spectral masking against wind and deck machinery."
+  },
+  {
+    "id": "S21",
+    "label": "Gusty deck wind",
+    "path": "D:\\Game audio\\Gamemaster Audio - Pro Sound Collection v1.3 - 16bit 48k\\Animals_Nature_Ambiences\\wind_general_gusty_low_loop_02.wav",
+    "role": "Wind and weather",
+    "kind": "loop",
+    "note": "Candidate outdoor deck wind layer; driven by relative wind and shelter, not permanent maximum volume."
+  },
+  {
+    "id": "S22",
+    "label": "Strong gust wind",
+    "path": "D:\\Game audio\\Gamemaster Audio - Pro Sound Collection v1.3 - 16bit 48k\\Animals_Nature_Ambiences\\wind_general_gusty_high_loop_02.wav",
+    "role": "Wind and weather",
+    "kind": "loop",
+    "note": "Higher exposure/storm layer; needs crossfade against calm wind."
+  },
+  {
+    "id": "S23",
+    "label": "Aircraft wind",
+    "path": "D:\\Game audio\\S019C-Aircraft\\Mono\\AircraftWind.wav",
+    "role": "Wind and weather",
+    "kind": "loop",
+    "note": "Alternative speed-dependent external air rush; keep cockpit and exposed deck perspectives distinct."
+  },
+  {
+    "id": "S24",
+    "label": "Elevator loop 1",
+    "path": "D:\\Game audio\\Gamemaster Audio - Pro Sound Collection v1.3 - 16bit 48k\\Switches_Buttons_Gears_Levers\\elevator_loop_01.wav",
+    "role": "Elevators and locks",
+    "kind": "loop",
+    "note": "Candidate dedicated lift travel layer; compare to existing elevator motor instead of assuming a missing file."
+  },
+  {
+    "id": "S25",
+    "label": "Elevator loop 2",
+    "path": "D:\\Game audio\\Gamemaster Audio - Pro Sound Collection v1.3 - 16bit 48k\\Switches_Buttons_Gears_Levers\\elevator_loop_02.wav",
+    "role": "Elevators and locks",
+    "kind": "loop",
+    "note": "Alternative motor for island lift versus heavy deck lift."
+  },
+  {
+    "id": "S26",
+    "label": "Interior heavy mechanism",
+    "path": "D:\\Game audio\\Game effects\\Vehicles Heavy\\Mechanisms\\Interior Mechanism Moving Loop.wav",
+    "role": "Elevators and locks",
+    "kind": "loop",
+    "note": "Candidate hangar/deck cover travel layer; keep independent from platform motor."
+  },
+  {
+    "id": "S27",
+    "label": "Heavy mechanism movement",
+    "path": "D:\\Game audio\\Game effects\\Vehicles Heavy\\Mechanisms\\Heavy Mechanism Move A.wav",
+    "role": "Elevators and locks",
+    "kind": "event",
+    "note": "Potential start/stop mechanical body; trim individual events before reuse."
+  },
+  {
+    "id": "S28",
+    "label": "Gate bolt latch",
+    "path": "D:\\Downloads\\Soniss\\Sonniss.com - GDC 2020 - Game Audio Bundle\\344 Audio - Practical Doors\\Exterior Metal Door Gate Bolt Latch 7.wav",
+    "role": "Elevators and locks",
+    "kind": "event",
+    "note": "Good literal source for the missing elevator locking pin; may need body impact layering for scale."
+  },
+  {
+    "id": "S29",
+    "label": "Barrel bolt handling",
+    "path": "D:\\Downloads\\Soniss\\Sonniss.com - GDC 2019 - Game Audio Bundle\\Sound Spark LLC \u2013 Metal Hits, Scrapes and Squeaks\\Metal_Barrel_Bolt_Lock_Loose_Handling_03.wav",
+    "role": "Elevators and locks",
+    "kind": "event",
+    "note": "Alternative bolt/ratchet detail; isolate clean lock and release gestures."
+  },
+  {
+    "id": "S30",
+    "label": "Current elevator motor",
+    "path": "C:\\Godot projects\\Project-Flight\\Audio\\Carrier\\elevator_moving_mono.wav",
+    "role": "Current game comparison",
+    "kind": "loop",
+    "note": "Installed on deck and island lifts; technical validity does not establish audibility in play."
+  },
+  {
+    "id": "S31",
+    "label": "Tank tread A",
+    "path": "D:\\Game audio\\Game effects\\Vehicles Heavy\\Tank\\Tank Tread Loop A.wav",
+    "role": "Tracks and ground contact",
+    "kind": "loop",
+    "note": "Existing track_links.ogg source; first choice for consistency, with independent left/right speeds."
+  },
+  {
+    "id": "S32",
+    "label": "Tank tread B",
+    "path": "D:\\Game audio\\Game effects\\Vehicles Heavy\\Tank\\Tank Tread Loop B.wav",
+    "role": "Tracks and ground contact",
+    "kind": "loop",
+    "note": "Alternative clatter layer for load, turns or terrain variation; compare repetition with A."
+  },
+  {
+    "id": "S33",
+    "label": "Tank tread event",
+    "path": "D:\\Game audio\\Game effects\\Vehicles Heavy\\Tank\\Tank Tread.wav",
+    "role": "Tracks and ground contact",
+    "kind": "event",
+    "note": "Possible engagement/stop punctuation; use selected transient, not the entire recording."
+  },
+  {
+    "id": "S34",
+    "label": "Current track derivative",
+    "path": "C:\\Godot projects\\Project-Flight\\Audio\\Carrier\\track_links.ogg",
+    "role": "Current game comparison",
+    "kind": "loop",
+    "note": "Installed filtered mono loop derived from Tank Tread Loop A."
+  },
+  {
+    "id": "S35",
+    "label": "Deep metal scrape",
+    "path": "D:\\Game audio\\Gamemaster Audio - Pro Sound Collection v1.3 - 16bit 48k\\Metal\\metal_scrape_deep_grind_squeak_03.wav",
+    "role": "Damage and crash landing",
+    "kind": "loop",
+    "note": "Belly-slide abrasive layer; finite gesture may need granular assembly/crossfades rather than whole-file looping."
+  },
+  {
+    "id": "S36",
+    "label": "Metal drag into smash",
+    "path": "D:\\Downloads\\Soniss\\Sonniss.com - GDC 2020 - Game Audio Bundle\\Coll Anderson - Metal Movement\\EFX INT Metal Drag Slide Fast In Smash 02 A.wav",
+    "role": "Damage and crash landing",
+    "kind": "event",
+    "note": "Separate scrape body from final impact; useful crash start/end but not directly a sustained loop."
+  },
+  {
+    "id": "S37",
+    "label": "Screeching metal friction",
+    "path": "D:\\Downloads\\Soniss\\Sonniss.com - GDC 2024 - Game Audio Bundle\\Mechanical Wave - Torturing Metal\\METLFric_Screeching Metal Rub-11_MWSFX_TM.wav",
+    "role": "Damage and crash landing",
+    "kind": "event",
+    "note": "Promising deformation/part-tear accent; a friction recording alone is not a complete wing break."
+  },
+  {
+    "id": "S38",
+    "label": "Metal debris fall",
+    "path": "D:\\Downloads\\Soniss\\Sonniss.com - GDC 2024 - Game Audio Bundle\\Mechanical Wave - Torturing Metal\\METLCrsh_Drop Fall Metal Rattle Scrap Debris_06_MWSFX_TM.wav",
+    "role": "Damage and crash landing",
+    "kind": "event",
+    "note": "Candidate secondary debris hits after breakaway or touchdown; randomize distinct events."
+  },
+  {
+    "id": "S39",
+    "label": "Sheet metal crash",
+    "path": "D:\\Downloads\\Soniss\\Sonniss.com - GDC 2019 - Game Audio Bundle\\Airborne Sound - Elements Metal\\Metal,Crash,Concrete,Sheet Metal,20 Gauge,Slow,Complex.wav",
+    "role": "Damage and crash landing",
+    "kind": "event",
+    "note": "Possible tearing/crumpling body layer; inspect for heavy reverb and multiple impacts."
+  },
+  {
+    "id": "S40",
+    "label": "Chassis drop and bounce",
+    "path": "D:\\Downloads\\Soniss\\Sonniss.com - GDC 2020 - Game Audio Bundle\\Pole Position - Car Destruction\\Car_Destruction_Chassis_Impact_t36_Ext_Drop_on_Ground_Metal_Crash_Bounce_Various_MKH8060.wav",
+    "role": "Damage and crash landing",
+    "kind": "event",
+    "note": "Heavy airframe impact candidate; extract a single impact plus debris tail."
+  },
+  {
+    "id": "S41",
+    "label": "Gravel slide",
+    "path": "D:\\Game audio\\Gamemaster Audio - Pro Sound Collection v1.3 - 16bit 48k\\Footsteps\\footstep_gravel_slide_06.wav",
+    "role": "Damage and crash landing",
+    "kind": "event",
+    "note": "Small gritty texture only: layer many variations under a heavier crash, not a full aircraft slide."
+  },
+  {
+    "id": "S42",
+    "label": "Concrete scrape",
+    "path": "D:\\Downloads\\Soniss\\Sonniss.com - GDC 2020 - Game Audio Bundle\\Matt Script - Electric Lawn Mower\\Electric_Mower_moving_over_concrete_dragging_scrape_scraping_rolling_metal_plastic_02.wav",
+    "role": "Damage and crash landing",
+    "kind": "loop",
+    "note": "Useful dry abrasive source; deliberately a motor-off movement recording by filename, still needs listening."
+  },
+  {
+    "id": "S43",
+    "label": "Metal rattle",
+    "path": "D:\\Downloads\\Soniss\\Sonniss.com - GDC 2023 - Game Audio Bundle\\Justsoundeffects - Metal Movements\\METLMvmt_Metal Rattle 11_JSE_MM_Mono.wav",
+    "role": "Damage and crash landing",
+    "kind": "event",
+    "note": "Loose-panel/cockpit rattle or post-impact debris; avoid repetitive per-frame retriggering."
+  },
+  {
+    "id": "S44",
+    "label": "Electric spark texture",
+    "path": "D:\\Game audio\\Gamemaster Audio - Pro Sound Collection v1.3 - 16bit 48k\\Electricity_Hums\\hum_electric_sparks_interference_loop_01.wav",
+    "role": "Damage and crash landing",
+    "kind": "loop",
+    "note": "Damage arcing layer for disabled motor/battery systems; only while the corresponding damage state exists."
+  },
+  {
+    "id": "S45",
+    "label": "Touchdown impact",
+    "path": "D:\\Game audio\\S019C-Aircraft\\Mono\\Touchdown.wav",
+    "role": "Damage and crash landing",
+    "kind": "event",
+    "note": "Candidate normal landing thump before constructing violent crash variants."
+  },
+  {
+    "id": "S46",
+    "label": "Robot servo",
+    "path": "D:\\Game audio\\PSE Game Audio Sound Pack\\ROBTMvmt_Robot Servo 02_PSE_OS_32dI5.wav",
+    "role": "Deck operations and machinery",
+    "kind": "event",
+    "note": "Recovery robot arm/clamp or harvester articulation; isolate gestures and match motion duration."
+  },
+  {
+    "id": "S47",
+    "label": "Machine wind-down",
+    "path": "D:\\Game audio\\PSE Game Audio Sound Pack\\MECHMisc_Sci Fi Wind Downs Servo Motor Stop Robot Groan_PSE_KCV1_1Di8j.wav",
+    "role": "Deck operations and machinery",
+    "kind": "event",
+    "note": "Motor spin-down/braking source; processing may sound stylized."
+  },
+  {
+    "id": "S48",
+    "label": "3D printer heavy servo",
+    "path": "D:\\Downloads\\Soniss\\Sonniss.com - GDC 2018 - Game Audio Bundle\\MattLightbound - 3D Printer - Lulzbot mini\\3DPrinter.Heavy.Servo.Sequence1.wav",
+    "role": "Deck operations and machinery",
+    "kind": "event",
+    "note": "Replicator arm source; sequence should be divided into motion-synchronized pieces."
+  },
+  {
+    "id": "S49",
+    "label": "Motorized hatch",
+    "path": "D:\\Game audio\\S019C-Aircraft\\Mono\\OpenMotorisedHatch.wav",
+    "role": "Deck operations and machinery",
+    "kind": "event",
+    "note": "Aircraft canopy/vehicle bay/elevator cover candidate; use different scale and filtering by object."
+  },
+  {
+    "id": "S50",
+    "label": "Ejection event",
+    "path": "D:\\Game audio\\S019C-Aircraft\\Mono\\Eject.wav",
+    "role": "Warnings and interactions",
+    "kind": "event",
+    "note": "Candidate ejection transient; add distinct canopy, seat and parachute stages."
+  },
+  {
+    "id": "S51",
+    "label": "Cockpit alarm",
+    "path": "D:\\Game audio\\S019C-Aircraft\\Mono\\CockpitAlarm1.wav",
+    "role": "Warnings and interactions",
+    "kind": "event",
+    "note": "Possible critical warning; assign a single meaning and priority, avoid generic continuous alarm spam."
+  },
+  {
+    "id": "S52",
+    "label": "Target lock",
+    "path": "D:\\Game audio\\S019C-Aircraft\\Mono\\HUDTargetLock.wav",
+    "role": "Warnings and interactions",
+    "kind": "event",
+    "note": "Candidate only for targeting states actually modeled in the game; do not imply a sensor capability."
+  }
+]

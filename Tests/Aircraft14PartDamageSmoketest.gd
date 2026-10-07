@@ -278,8 +278,8 @@ func _check_stabilizer_detachment_and_control_loss() -> void:
 	var vertical_debris := get_node_or_null("DetachedVerticalStabilizer") as RigidBody3D
 	_expect(vertical_debris != null, "destroyed vertical stabilizer did not spawn physical debris")
 	_expect(_direct_child_count(vertical_debris, "MeshInstance3D") == 1, "vertical-stabilizer debris has the wrong mesh count")
-	_expect(is_equal_approx(float(aero.get("pitch_power")), original_pitch * 0.1), "vertical-stabilizer loss changed elevator authority")
-	_expect(is_equal_approx(float(aero.get("yaw_power")), original_yaw * 0.1), "vertical-stabilizer loss did not remove 90 percent of rudder authority")
+	_expect(is_zero_approx(float(aero.get("pitch_power"))) and is_zero_approx(float(aero.get("yaw_power"))), "loss of both stabilizers did not remove full-tail control authority")
+	_expect(damage_model.call("is_zone_destroyed", &"tail"), "loss of both stabilizers did not destroy the shared tail region")
 	_cleanup_detached("DetachedVerticalStabilizer")
 	_cleanup_aircraft(aircraft)
 	await get_tree().process_frame

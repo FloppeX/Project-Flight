@@ -201,6 +201,58 @@ var hud_mode_label: Label
 var ccip_line: ColorRect
 var _hud_camera_fov_deg: float = 75.0
 
+
+func _enter_tree() -> void:
+	add_to_group("flight_hud")
+	# Also refresh HUDs returning from an aircraft's dormant presentation cache.
+	call_deferred("apply_user_hud_settings")
+
+
+func apply_user_hud_settings() -> void:
+	if not is_instance_valid(viewport) or not is_instance_valid(hud_mesh):
+		return
+	var settings := get_node_or_null("/root/PauseMenu")
+	if settings == null or not settings.has_method("get_hud_color"):
+		return
+	var old_dim := hud_dim_color
+	hud_primary_color = settings.get_hud_color()
+	hud_dim_color = Color(hud_primary_color.r, hud_primary_color.g, hud_primary_color.b) * (0.28 / 0.55)
+	hud_dim_color.a = 1.0
+	crosshair_color = hud_primary_color
+	_recolor_hud_control(viewport, old_dim)
+	if is_instance_valid(ccip_circle):
+		ccip_circle.symbol_color = hud_primary_color
+		ccip_circle.queue_redraw()
+	if is_instance_valid(target_direction_arrow):
+		target_direction_arrow.symbol_color = hud_primary_color
+		target_direction_arrow.queue_redraw()
+	var material := hud_mesh.material_override as StandardMaterial3D
+	if material != null:
+		# Unshaded materials output albedo directly and ignore emission.
+		# Convert the linear intensity to the material's sRGB color input.
+		var brightness: float = settings.get_hud_brightness()
+		material.albedo_color = Color(brightness, brightness, brightness).linear_to_srgb()
+
+
+func _recolor_hud_control(node: Node, old_dim: Color) -> void:
+	# Preserve the separate red gun lead cue and black text outlines/backgrounds.
+	if node == lead_reticle:
+		return
+	if node is ColorRect:
+		var rect := node as ColorRect
+		var color := hud_dim_color if lock_diamond_lines.has(rect) and rect.color.is_equal_approx(old_dim) else hud_primary_color
+		rect.color = Color(color.r, color.g, color.b, rect.color.a)
+	elif node is Label:
+		var label := node as Label
+		var alpha := label.get_theme_color("font_color").a
+		label.add_theme_color_override("font_color", Color(hud_primary_color.r, hud_primary_color.g, hud_primary_color.b, alpha))
+	elif node is Panel:
+		var style := (node as Panel).get_theme_stylebox("panel") as StyleBoxFlat
+		if style != null:
+			style.border_color = hud_primary_color
+	for child in node.get_children():
+		_recolor_hud_control(child, old_dim)
+
 func _opaque(color: Color) -> Color:
 	return Color(color.r, color.g, color.b, 1.0)
 
@@ -240,14 +292,11 @@ func _ready():
 	
 	# Basic transparency setup
 	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	material.flags_unshaded = true
-	material.albedo_color = Color(1.0, 1.0, 1.0, 1.0)
+	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	material.albedo_color = Color.WHITE
 	
-	# Add viewport texture and emission
+	# The transparent viewport carries all HUD symbols and text.
 	material.albedo_texture = viewport.get_texture()
-	material.emission_enabled = true
-	material.emission_texture = viewport.get_texture()
-	material.emission_energy = 5.5
 	
 	# Apply material
 	hud_mesh.material_override = material
@@ -318,6 +367,7 @@ func _ready():
 	add_child(ccip_update_timer)
 	ccip_update_timer.timeout.connect(update_ccip)
 	ccip_update_timer.start()
+	apply_user_hud_settings()
 	FrameProfiler.end("HUD.controls", controls_start)
 	FrameProfiler.end("HUD.ready", ready_start)
 

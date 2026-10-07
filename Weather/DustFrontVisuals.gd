@@ -56,6 +56,24 @@ func setup(front: Node3D) -> void:
 	_canopy_audio = preload("res://Weather/CanopySandAudio.gd").new()
 	_canopy_audio.name = "CanopySandImpacts"
 	add_child(_canopy_audio)
+	refresh_shape()
+
+func refresh_shape() -> void:
+	var dimensions := Vector3(_front.half_width_m, _front.height_m, _front.half_depth_m)
+	var mesh := _make_wall_mesh(dimensions)
+	for child in get_children():
+		if child is MeshInstance3D and child.name.begins_with("DistantDustWall"):
+			child.mesh = mesh
+			child.custom_aabb = AABB(Vector3(-dimensions.x * 1.4, -180.0, -dimensions.z * 1.4),
+				Vector3(dimensions.x * 2.8, dimensions.y * 1.25 + 180.0, dimensions.z * 2.8))
+	_fog.size = Vector3(dimensions.x * 2.85, dimensions.y * 1.5, dimensions.z * 2.85)
+	_fog.position.y = dimensions.y * 0.5
+	_fog_material.set_shader_parameter("dimensions", dimensions)
+	_fog_material.set_shader_parameter("box_size", _fog.size)
+	_fog_material.set_shader_parameter("outline", _front.outline)
+	for material in _materials:
+		material.set_shader_parameter("dimensions", dimensions)
+		material.set_shader_parameter("outline", _front.outline)
 
 func _process(delta: float) -> void:
 	if not is_instance_valid(_front):
@@ -159,7 +177,7 @@ func _make_wall_mesh(dimensions: Vector3) -> ArrayMesh:
 			for ij in [Vector2(column, row), Vector2(column + 1, row), Vector2(column, row + 1), Vector2(column + 1, row + 1)]:
 				var angle: float = ij.x / 96.0 * TAU
 				var y: float = ij.y / 16.0
-				var r := sqrt(maxf(0.0, 1.0 - pow(y, 8.0))) * (1.0 + 0.035 * sin(angle * 5.0))
+				var r: float = sqrt(maxf(0.0, 1.0 - pow(y, 8.0))) * _front.SHAPE.edge(angle, _front.outline)
 				corners.append(Vector3(cos(angle) * dimensions.x * r, y * dimensions.y, sin(angle) * dimensions.z * r))
 			for idx in [0, 2, 1, 1, 2, 3]:
 				surface.add_vertex(corners[idx])
@@ -248,11 +266,12 @@ func _update_wall_particles(camera: Camera3D, strength: float) -> void:
 	var depth: float = _front.half_depth_m
 	var height: float = _front.height_m
 	var angle := atan2(p.z / depth, p.x / width)
-	var lobe := 1.0 + 0.035 * sin(angle * 5.0)
-	var tangent := Vector3(sin(angle) * width, 0.0, -cos(angle) * depth).normalized()
+	var lobe: float = _front.SHAPE.edge(angle, _front.outline)
+	var tangent: Vector3 = (_front.get_local_edge(angle - 0.01) - _front.get_local_edge(angle + 0.01)).normalized()
 	var outward := tangent.cross(Vector3.UP).normalized()
+	var half_particle_height := minf(830.0, height * 0.36)
 	var wall_point := Vector3(cos(angle) * width * lobe,
-		clampf(p.y, 870.0, height - 870.0), sin(angle) * depth * lobe)
+		clampf(p.y, half_particle_height + 40.0, height - half_particle_height - 40.0), sin(angle) * depth * lobe)
 	var wall_distance := (p - wall_point).dot(outward)
 	var outside := Vector2(p.x / width, p.z / depth).length() > lobe
 	var active := strength > 0.05 and outside and wall_distance < 3500.0 and p.y < height * 1.15
@@ -263,8 +282,9 @@ func _update_wall_particles(camera: Camera3D, strength: float) -> void:
 		var curvature_radius := pow(width * width * sin(angle) * sin(angle)
 			+ depth * depth * cos(angle) * cos(angle), 1.5) / (width * depth)
 		var half_span := clampf(sqrt(2.0 * curvature_radius * 100.0), 450.0, 1700.0)
-		if absf(_wall_particle_material.emission_box_extents.x - half_span) > 20.0:
-			_wall_particle_material.emission_box_extents = Vector3(half_span, 830.0, 90.0)
+		if absf(_wall_particle_material.emission_box_extents.x - half_span) > 20.0 \
+				or absf(_wall_particle_material.emission_box_extents.y - half_particle_height) > 1.0:
+			_wall_particle_material.emission_box_extents = Vector3(half_span, half_particle_height, 90.0)
 		_wall_particles.global_transform = Transform3D(_front.global_basis * Basis(tangent, Vector3.UP, outward),
 			_front.to_global(wall_point - outward * 40.0))
 

@@ -110,15 +110,18 @@ func capture_save_state() -> Dictionary:
 		if front.enabled and front.initialized and front.strength > 0.01:
 			hazards.append({"kind": "dust", "position": front.global_position,
 				"direction": front.get_travel_velocity().normalized(),
-				"elapsed_s": front.elapsed_s, "severity": front.get_severity()})
+				"elapsed_s": front.elapsed_s, "severity": front.get_severity(),
+				"appearance": front.capture_appearance()})
 	for twister in get_tree().get_nodes_in_group("twister"):
 		if twister.enabled and twister.initialized and twister.strength > 0.01:
 			hazards.append({"kind": "twister", "position": twister.global_position,
-				"direction": twister.get_travel_velocity().normalized(), "elapsed_s": twister.elapsed_s})
+				"direction": twister.get_travel_velocity().normalized(), "elapsed_s": twister.elapsed_s,
+				"appearance": twister.capture_appearance()})
 	for storm in get_tree().get_nodes_in_group("electrical_storm"):
 		if storm.active:
 			hazards.append({"kind": "electrical", "position": storm.global_position,
-				"direction": storm.get_travel_velocity().normalized(), "elapsed_s": storm.get_elapsed_s()})
+				"direction": storm.get_travel_velocity().normalized(), "elapsed_s": storm.get_elapsed_s(),
+				"appearance": storm.capture_appearance()})
 	return {"state": _state.duplicate(), "target": _target.duplicate(),
 		"regime": _regime_name, "elapsed_s": _elapsed_s,
 		"next_change_s": _next_change_s, "last_dust_s": _last_dust_s,
@@ -159,21 +162,25 @@ func restore_save_state(saved: Dictionary) -> void:
 				var front := get_tree().get_first_node_in_group("dust_front") as Node3D
 				if front != null:
 					front.set("severity", clampi(int(entry.get("severity", 2)), 1, 5))
-					front.call("start_at", position, direction)
+					var appearance: Dictionary = entry.get("appearance", {"width": front._base_dimensions.x,
+						"height": front._base_dimensions.y, "depth": front._base_dimensions.z,
+						"outline": [5.0, 0.035, 0.0, 0.0]})
+					front.call("start_at", position, direction, appearance)
 					front.set("elapsed_s", age)
 					front.set("strength", smoothstep(0.0, 45.0, age) * (1.0 - smoothstep(float(front.get("lifetime_s")) - 180.0, float(front.get("lifetime_s")), age)))
 			"twister":
 				var twister := TWISTER_SCRIPT.new() as Node3D
 				twister.name = "WeatherTwister"
 				get_parent().add_child(twister)
-				twister.start_at(position, direction)
+				twister.start_at(position, direction, entry.get("appearance", twister.capture_appearance()))
 				twister.elapsed_s = age
 				twister.strength = smoothstep(0.0, 15.0, age) * (1.0 - smoothstep(twister.lifetime_s - 30.0, twister.lifetime_s, age))
 			"electrical":
 				var storm := ELECTRICAL_SCRIPT.new() as Node3D
 				storm.name = "ElectricalStorm"
 				get_parent().add_child(storm)
-				storm.start_at(position, direction)
+				storm.start_at(position, direction, entry.get("appearance", {"radius": 1700.0,
+					"aspect": 1.0, "yaw": 0.0, "outline": [5.0, 0.12, 0.8, 0.07]}))
 				storm.restore_elapsed_s(age)
 
 func _try_hazards() -> void:

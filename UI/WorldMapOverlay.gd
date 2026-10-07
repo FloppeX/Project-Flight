@@ -2,6 +2,7 @@ extends CanvasLayer
 
 const WorldMapTextureBuilder = preload("res://UI/WorldMapTextureBuilder.gd")
 const InterceptTarget = preload("res://AirOps/InterceptTarget.gd")
+const TacticalMapPalette = preload("res://UI/TacticalMapPalette.gd")
 
 const HEADLINE_FONT: FontFile = preload("res://UI/Fonts/ArchivoNarrow-Variable.ttf")
 const DATA_FONT: FontFile = preload("res://UI/Fonts/JetBrainsMono-Variable.ttf")
@@ -59,9 +60,10 @@ enum AssetKind {
 	FLIGHT,
 	PLATOON,
 	CARRIER,
+	HARVESTER,
 }
 
-const VECTOR_CARRIER_COLOR: Color = VECTOR_CYAN_COLOR
+const VECTOR_CARRIER_COLOR: Color = TacticalMapPalette.FRIENDLY
 
 var _root: Control
 var _backdrop: ColorRect
@@ -129,7 +131,7 @@ var _order_bar: Panel
 var _order_status: Label
 var _footer_panel: Panel
 var _footer_left: Label
-var _footer_right: Label
+var _map_palette_legend: HBoxContainer
 
 var _map_texture: ImageTexture = null
 var _mobility_texture: ImageTexture = null
@@ -140,6 +142,8 @@ var _asset_buttons: Array = []
 var _mission_buttons: Array = []
 var _draft_attack_platoon: Node = null
 var _draft_tracks_platoon := false
+var _draft_source_id := -1
+var _draft_escort_target := ""
 var _draft_intercept_target: Node = null
 var _draft_tracks_flight: bool = false
 var _draft_patrol_engagement: String = "air"
@@ -275,7 +279,7 @@ func _build_ui() -> void:
 	_flight_list = VBoxContainer.new()
 	_flight_list.add_theme_constant_override("separation", 8)
 	_asset_sections.add_child(_flight_list)
-	_platoon_title = _make_label("PLATOONS", 13, VECTOR_STATUS_COLOR, HORIZONTAL_ALIGNMENT_LEFT, DATA_FONT)
+	_platoon_title = _make_label("GROUND UNITS", 13, VECTOR_STATUS_COLOR, HORIZONTAL_ALIGNMENT_LEFT, DATA_FONT)
 	_asset_sections.add_child(_platoon_title)
 	_platoon_list = VBoxContainer.new()
 	_platoon_list.add_theme_constant_override("separation", 8)
@@ -483,9 +487,8 @@ func _build_ui() -> void:
 	_footer_left = _make_label("MAP: + / − ZOOM // OVERVIEW CLICK TO PAN // L STICK CURSOR // LB / RB TABS", 12, VECTOR_STATUS_COLOR, HORIZONTAL_ALIGNMENT_LEFT, DATA_FONT)
 	_footer_left.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_footer_panel.add_child(_footer_left)
-	_footer_right = _make_label("GLOBAL ALERTS    RESOURCES    MISSION TIMER", 12, VECTOR_STATUS_COLOR, HORIZONTAL_ALIGNMENT_RIGHT, DATA_FONT)
-	_footer_right.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	_footer_panel.add_child(_footer_right)
+	_map_palette_legend = _make_map_palette_legend()
+	_footer_panel.add_child(_map_palette_legend)
 
 	# GUI hit testing follows tree order, not z_index. Keep the flyout after
 	# the map so its entire visible buttons receive clicks over the map.
@@ -642,8 +645,8 @@ func _layout_ui() -> void:
 	_footer_panel.size = Vector2(size.x, FOOTER_HEIGHT_PX)
 	_footer_left.position = Vector2(32.0, 0.0)
 	_footer_left.size = Vector2(size.x * 0.52, FOOTER_HEIGHT_PX)
-	_footer_right.position = Vector2(size.x * 0.52, 0.0)
-	_footer_right.size = Vector2(size.x * 0.48 - 32.0, FOOTER_HEIGHT_PX)
+	_map_palette_legend.position = Vector2(size.x * 0.52, 0.0)
+	_map_palette_legend.size = Vector2(size.x * 0.48 - 32.0, FOOTER_HEIGHT_PX)
 	if _mission_popup.visible:
 		_layout_mission_popup()
 
@@ -1002,7 +1005,7 @@ func _refresh_mobility_display() -> void:
 	var carrier_strength := 0.48
 	var filter_label := "ALL MOBILITY"
 	match _selected_asset_kind:
-		AssetKind.PLATOON:
+		AssetKind.PLATOON, AssetKind.HARVESTER:
 			vehicle_strength = 0.92
 			carrier_strength = 0.92
 			carrier_color = vehicle_color
@@ -1022,7 +1025,7 @@ func _refresh_mobility_display() -> void:
 	if not _map_hover_active and _map_meta != null:
 		_map_meta.text = (
 			"GRID_REF: TACTICAL // SCALE 1:%d // ZOOM %.2fX\n" % [int(round(50000.0 / _map_zoom)), _map_zoom]
-			+ "CYAN: CARRIER // AMBER: VEHICLE\n"
+			+ "MOBILITY: CYAN CARRIER // AMBER VEHICLE\n"
 			+ "FILTER: %s" % filter_label
 		)
 
@@ -1031,15 +1034,19 @@ func _rebuild_asset_buttons() -> void:
 	_clear_children(_platoon_list)
 	_asset_buttons.clear()
 	for flight_name in AirOpsManager.get_flight_names():
-		var button := _make_button("", VECTOR_TEXT_COLOR, ASSET_BUTTON_HEIGHT_PX, 16)
+		var button := _make_button("", TacticalMapPalette.FRIENDLY, ASSET_BUTTON_HEIGHT_PX, 16)
 		button.pressed.connect(_select_asset.bind(AssetKind.FLIGHT, flight_name, button))
 		_flight_list.add_child(button)
 		_asset_buttons.append({"kind": AssetKind.FLIGHT, "name": flight_name, "button": button})
 	for platoon_name in GroundOpsManager.get_platoon_names():
-		var button := _make_button("", VECTOR_AMBER_COLOR, ASSET_BUTTON_HEIGHT_PX, 16)
+		var button := _make_button("", TacticalMapPalette.FRIENDLY, ASSET_BUTTON_HEIGHT_PX, 16)
 		button.pressed.connect(_select_asset.bind(AssetKind.PLATOON, platoon_name, button))
 		_platoon_list.add_child(button)
 		_asset_buttons.append({"kind": AssetKind.PLATOON, "name": platoon_name, "button": button})
+	var harvester_button := _make_button("HARVESTER", TacticalMapPalette.FRIENDLY, ASSET_BUTTON_HEIGHT_PX, 16)
+	harvester_button.pressed.connect(_select_asset.bind(AssetKind.HARVESTER, "Harvester", harvester_button))
+	_platoon_list.add_child(harvester_button)
+	_asset_buttons.append({"kind": AssetKind.HARVESTER, "name": "Harvester", "button": harvester_button})
 
 func _rebuild_mission_buttons() -> void:
 	_clear_children(_mission_list)
@@ -1053,6 +1060,10 @@ func _rebuild_mission_buttons() -> void:
 		_mission_buttons.append({"id": String(spec.get("id", "")), "button": button, "accent": accent})
 
 func _refresh_ui(force_rebuild: bool = false) -> void:
+	if _selected_asset_kind == AssetKind.PLATOON and _selected_mission_id == "ESCORT" and not _draft_escort_target.is_empty():
+		_draft_points.clear()
+		var escort_position := _escort_draft_position()
+		if escort_position.is_finite(): _draft_points.append(escort_position)
 	if _selected_mission_id == "ATTACK" and _draft_tracks_flight:
 		_draft_points.clear()
 		if InterceptTarget.is_valid(_draft_intercept_target):
@@ -1152,7 +1163,7 @@ func _refresh_asset_button_states() -> void:
 			continue
 		button.disabled = false
 		button.text = _format_asset_button_text(status)
-		var accent := VECTOR_TEXT_COLOR if kind == AssetKind.FLIGHT else VECTOR_AMBER_COLOR
+		var accent := TacticalMapPalette.FRIENDLY
 		var selected: bool = kind == _selected_asset_kind and name == _selected_asset_name
 		_style_button(button, accent, selected, false)
 
@@ -1181,7 +1192,7 @@ func _refresh_info_panel() -> void:
 		return
 	var status := _get_selected_asset_status()
 	if status.is_empty():
-		_info_body.text = "No asset selected.\n\nPick the Carrier, a flight, or a platoon on the left, then choose a mission and use the map to place its target."
+		_info_body.text = "No asset selected.\n\nPick the Carrier, a flight, a platoon, or the harvester on the left, then choose a mission and use the map to place its target."
 		_command_prompt.text = "CMD> SELECT ASSET"
 		return
 	_info_body.text = _format_asset_info(status)
@@ -1197,7 +1208,7 @@ func _refresh_info_panel() -> void:
 		else:
 			_command_prompt.text = "CMD> %s: %d POINT%s STAGED" % [_selected_mission_id, _draft_points.size(), "" if _draft_points.size() == 1 else "S"]
 	else:
-		_command_prompt.text = "CMD> %s READY TO EXECUTE" % _selected_mission_id
+		_command_prompt.text = "CMD> %s READY TO EXECUTE" % _mission_label(_selected_mission_id)
 
 func _refresh_draft_summary() -> void:
 	if _selected_asset_kind == AssetKind.NONE or _selected_asset_name.is_empty():
@@ -1208,7 +1219,21 @@ func _refresh_draft_summary() -> void:
 		return
 	var lines: Array[String] = []
 	lines.append("ASSET: %s" % _selected_asset_name.to_upper())
-	lines.append("MISSION: %s" % _selected_mission_id)
+	lines.append("MISSION: %s" % _mission_label(_selected_mission_id))
+	if _selected_asset_kind == AssetKind.PLATOON and _selected_mission_id == "ESCORT":
+		lines.append("TARGET: %s" % (_draft_escort_target.to_upper() if not _draft_escort_target.is_empty() else "SELECT CARRIER OR HARVESTER"))
+		lines.append("Harvester escorts wait outside during unloading and rejoin each trip.")
+	if _selected_asset_kind == AssetKind.HARVESTER:
+		if _selected_mission_id == "HARVEST":
+			var source: Dictionary = POIManager.get_resource_field().get_source(_draft_source_id)
+			lines.append("SITE: %s" % str(source.get("label", "Click a known resource marker")))
+			lines.append("Repeat trips until depleted. Unload at the carrier.")
+		elif _selected_mission_id == "AUTO_HARVEST":
+			lines.append("Collect nearby known, active sites within 3 km of the carrier. Unload and repeat.")
+		elif _selected_mission_id == "MOVE":
+			lines.append("Move to this position and hold. Retain cargo.")
+		elif _selected_mission_id == "RTB":
+			lines.append("Stop harvesting. Return, unload, and stay in the bay.")
 	if _selected_asset_kind == AssetKind.FLIGHT and _selected_mission_id == "ATTACK":
 		if _draft_tracks_flight:
 			lines.append("TARGET FLIGHT: %s" % InterceptTarget.label(_draft_intercept_target))
@@ -1233,6 +1258,8 @@ func _refresh_draft_summary() -> void:
 					lines.append("Drag route nodes to adjust.")
 			else:
 				lines.append("LMB adds route points. RMB removes the last point.")
+		elif _draft_points.is_empty() and _selected_mission_id == "ESCORT":
+			lines.append("Click its map marker or its name in the unit list.")
 		elif _draft_points.is_empty():
 			lines.append("Click an enemy flight, platoon, or terrain." if _selected_mission_id == "ATTACK" else "Click the map to place the target area.")
 	else:
@@ -1252,9 +1279,12 @@ func _refresh_order_status() -> void:
 		_order_status.add_theme_color_override("font_color", VECTOR_ERROR_COLOR)
 		return
 	_order_status.add_theme_color_override("font_color", VECTOR_AMBER_COLOR)
-	_order_status.text = "%s ORDER STAGED" % _selected_mission_id
+	_order_status.text = "%s ORDER STAGED" % _mission_label(_selected_mission_id)
 
 func _refresh_map_hint() -> void:
+	if _selected_asset_kind == AssetKind.PLATOON and _selected_mission_id == "ESCORT" and _get_active_command_error().is_empty():
+		_map_hint.text = "ESCORT: pick Harvester or Carrier (map or list)."
+		return
 	if not _map_ready and TerrainNavGrid.is_ready():
 		_ensure_map_texture()
 	var command_error := _get_active_command_error()
@@ -1266,13 +1296,16 @@ func _refresh_map_hint() -> void:
 		_map_hint.text = "FIELD SITE AWAITING ORDERS: click the pulsing yellow star to review the report."
 		return
 	if _selected_asset_kind == AssetKind.NONE:
-		_map_hint.text = "Select the Carrier, a flight, or a platoon to issue a command."
+		_map_hint.text = "Select the Carrier, a flight, a platoon, or the harvester to issue a command."
 		return
 	if _selected_asset_kind == AssetKind.FLIGHT and String(status.get("mission", "")) == "PATROL" and _selected_mission_id.is_empty():
 		_map_hint.text = "Selected patrol route: drag nodes to move, left-click a route segment to add a node, right-click a node to remove it."
 		return
 	if _selected_mission_id.is_empty():
 		_map_hint.text = "Choose a mission from the menu beside the selected asset."
+		return
+	if _selected_asset_kind == AssetKind.HARVESTER and _selected_mission_id == "HARVEST":
+		_map_hint.text = "HARVEST: click a known corium or salvage marker, then confirm. Repeat trips until depleted."
 		return
 	if _selected_asset_kind == AssetKind.FLIGHT and _selected_mission_id == "ATTACK":
 		_map_hint.text = "ATTACK: click an enemy flight, a moving platoon, or terrain for a 100 m area. Then confirm."
@@ -1292,7 +1325,7 @@ func _refresh_map_hint() -> void:
 		else:
 			_map_hint.text = "%s draft: left-click the map to place the target, then confirm." % _selected_mission_id
 	else:
-		_map_hint.text = "%s ready. Confirm to send the order." % _selected_mission_id
+		_map_hint.text = "%s ready. Confirm to send the order." % _mission_label(_selected_mission_id)
 
 func _refresh_map_overlays() -> void:
 	if _symbol_layer == null:
@@ -1321,10 +1354,9 @@ func _refresh_map_overlays() -> void:
 		_symbol_layer.call("clear_command_draft")
 		return
 	var position: Vector3 = status.get("position", Vector3.ZERO)
-	var selection_accent := VECTOR_TEXT_COLOR if _selected_asset_kind == AssetKind.FLIGHT else VECTOR_AMBER_COLOR
-	_symbol_layer.call("set_selection_focus", position, selection_accent)
+	_symbol_layer.call("set_selection_focus", position, TacticalMapPalette.SELECTION)
 	var editing_flight_route: bool = _selected_asset_kind == AssetKind.FLIGHT and _selected_mission_id in ["PATROL", "ATTACK"] and not _draft_points.is_empty()
-	if (_selected_asset_kind == AssetKind.FLIGHT and not editing_flight_route) or _selected_asset_kind == AssetKind.CARRIER:
+	if (_selected_asset_kind == AssetKind.FLIGHT and not editing_flight_route) or _selected_asset_kind in [AssetKind.CARRIER, AssetKind.HARVESTER]:
 		var mission_points_variant = status.get("mission_map_points", [])
 		var mission_points: Array = mission_points_variant if mission_points_variant is Array else []
 		if not mission_points.is_empty():
@@ -1332,7 +1364,7 @@ func _refresh_map_overlays() -> void:
 				"set_selection_route",
 				position,
 				mission_points,
-				selection_accent,
+				TacticalMapPalette.ROUTE,
 				bool(status.get("mission_map_closed_loop", false))
 			)
 		else:
@@ -1347,7 +1379,7 @@ func _refresh_map_overlays() -> void:
 		"set_command_draft",
 		position,
 		draft_preview.get("points", []),
-		draft_preview.get("color", VECTOR_AMBER_COLOR),
+		draft_preview.get("color", TacticalMapPalette.ROUTE),
 		draft_preview.get("closed_loop", false)
 	)
 
@@ -1390,6 +1422,11 @@ func _layout_mission_popup() -> void:
 
 
 func _select_asset(kind: AssetKind, asset_name: String, source_button: Button) -> void:
+	if _selected_asset_kind == AssetKind.PLATOON and _selected_mission_id == "ESCORT" and kind in [AssetKind.HARVESTER, AssetKind.CARRIER]:
+		_set_escort_draft_target("harvester" if kind == AssetKind.HARVESTER else "carrier")
+		return
+	_draft_escort_target = ""
+	_draft_source_id = -1
 	_draft_tracks_platoon = false
 	_draft_attack_platoon = null
 	_draft_tracks_flight = false
@@ -1404,9 +1441,23 @@ func _select_asset(kind: AssetKind, asset_name: String, source_button: Button) -
 	_mission_popup.visible = false
 	_mission_popup_source = null
 	_refresh_ui()
+	if kind == AssetKind.HARVESTER and is_instance_valid(source_button):
+		_asset_scroll.ensure_control_visible(source_button)
 	_show_mission_popup(source_button)
+	if kind == AssetKind.HARVESTER:
+		_reveal_harvester_popup(source_button)
+
+func _reveal_harvester_popup(source_button: Button) -> void:
+	# Scroll limits and child rectangles settle after a resize or page switch.
+	await get_tree().process_frame
+	if _selected_asset_kind != AssetKind.HARVESTER or not is_instance_valid(source_button): return
+	_asset_scroll.ensure_control_visible(source_button)
+	await get_tree().process_frame
+	if _mission_popup.visible: _layout_mission_popup()
 
 func _begin_mission_draft(mission_id: String) -> void:
+	_draft_escort_target = ""
+	_draft_source_id = -1
 	_draft_tracks_platoon = false
 	_draft_attack_platoon = null
 	_draft_tracks_flight = false
@@ -1439,13 +1490,17 @@ func _confirm_draft() -> void:
 					_set_command_error("NO AVAILABLE GROUND RESCUE: select an unassigned downed pilot near a usable route")
 					_refresh_ui()
 			else:
-				_confirm_platoon_order()
+				accepted = _confirm_platoon_order()
 		AssetKind.CARRIER:
 			accepted = _confirm_carrier_order()
+		AssetKind.HARVESTER:
+			accepted = _confirm_harvester_order()
 		_:
 			return
 	if not accepted:
 		return
+	_draft_escort_target = ""
+	_draft_source_id = -1
 	_draft_tracks_platoon = false
 	_draft_attack_platoon = null
 	_draft_tracks_flight = false
@@ -1454,6 +1509,33 @@ func _confirm_draft() -> void:
 	_draft_points.clear()
 	_route_drag_index = -1
 	_refresh_ui()
+
+func _harvester_ops() -> Node:
+	var manager := get_tree().get_first_node_in_group("carrier_manager")
+	return manager.get_harvester_ops() if is_instance_valid(manager) else null
+
+func select_harvester() -> void:
+	CarrierConsole.show_page("tactical", true)
+	for entry in _asset_buttons:
+		if entry.kind == AssetKind.HARVESTER:
+			_select_asset(AssetKind.HARVESTER, "Harvester", entry.button)
+			return
+
+func _confirm_harvester_order() -> bool:
+	var ops := _harvester_ops()
+	if ops == null: return false
+	var error := ""
+	match _selected_mission_id:
+		"MOVE": error = ops.order_move(_draft_points[0])
+		"HARVEST": error = ops.collect(_draft_source_id, true)
+		"AUTO_HARVEST": error = ops.order_auto_harvest()
+		"RTB": ops.recall()
+		_: return false
+	if not error.is_empty():
+		_set_command_error(error)
+		_refresh_ui()
+		return false
+	return true
 
 func _confirm_flight_order() -> bool:
 	match _selected_mission_id:
@@ -1489,28 +1571,37 @@ func _refresh_patrol_buttons() -> void:
 		button.text = ("> " if mode == _draft_patrol_engagement else "") + str(mode).to_upper()
 		button.tooltip_text = {"air": "Engage aircraft; leave ground targets alone.", "ground": "Engage ground threats within 3 km of the route; retain self-defense.", "both": "Engage air and ground threats near the route; air threats take priority."}[mode]
 
-func _confirm_platoon_order() -> void:
+func _confirm_platoon_order() -> bool:
 	match _selected_mission_id:
 		"MOVE", "RECON":
 			if _draft_points.is_empty():
-				return
+				return false
 			GroundOpsManager.order_move(_selected_asset_name, _draft_points[0])
 		"ATTACK":
 			if _draft_points.is_empty():
-				return
+				return false
 			GroundOpsManager.order_attack_position(_selected_asset_name, _draft_points[0], PLATOON_ATTACK_RADIUS_M)
 		"PROTECT":
 			if _draft_points.is_empty():
-				return
+				return false
 			GroundOpsManager.order_protect_position(_selected_asset_name, _draft_points[0], PLATOON_PROTECT_RADIUS_M)
 		"ESCORT":
-			GroundOpsManager.order_escort(_selected_asset_name)
+			if _draft_escort_target == "harvester":
+				if not GroundOpsManager.order_escort_harvester(_selected_asset_name):
+					_set_command_error("HARVESTER UNAVAILABLE")
+					_refresh_ui()
+					return false
+			elif _draft_escort_target == "carrier":
+				GroundOpsManager.order_escort(_selected_asset_name)
+			else:
+				return false
 		"HOLD":
 			GroundOpsManager.order_hold(_selected_asset_name)
 		"AUTO":
 			GroundOpsManager.release_to_automatic(_selected_asset_name)
 		"RTB":
 			GroundOpsManager.order_rtb(_selected_asset_name)
+	return true
 
 func _confirm_carrier_order() -> bool:
 	var carrier := get_tree().get_first_node_in_group("carrier") as Node3D
@@ -1545,6 +1636,8 @@ func _confirm_carrier_order() -> bool:
 
 
 func _cancel_draft() -> void:
+	_draft_escort_target = ""
+	_draft_source_id = -1
 	_draft_tracks_platoon = false
 	_draft_attack_platoon = null
 	_draft_tracks_flight = false
@@ -1563,6 +1656,8 @@ func _on_map_gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion:
 		_map_hover_active = true
 		_update_map_hover_readout((event as InputEventMouseMotion).position)
+	if _selected_mission_id.is_empty() and _route_drag_index < 0 and _try_select_map_harvester(event):
+		return
 	if _selected_mission_id.is_empty() and _route_drag_index < 0 and _try_select_map_flight(event):
 		return
 	var status := _get_selected_asset_status()
@@ -1577,6 +1672,25 @@ func _on_map_gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.pressed and not event.double_click:
 		var mouse_event := event as InputEventMouseButton
 		if mouse_event.button_index == MOUSE_BUTTON_LEFT:
+			if _selected_asset_kind == AssetKind.PLATOON and _selected_mission_id == "ESCORT":
+				var ops := _harvester_ops()
+				var carrier := get_tree().get_first_node_in_group("carrier") as Node3D
+				var harvester_distance: float = _world_to_map_local(ops.vehicle.global_position).distance_to(mouse_event.position) if is_instance_valid(ops) and is_instance_valid(ops.vehicle) else INF
+				var carrier_distance: float = _world_to_map_local(carrier.global_position).distance_to(mouse_event.position) if is_instance_valid(carrier) else INF
+				_set_escort_draft_target("harvester" if harvester_distance <= 18.0 and harvester_distance <= carrier_distance else ("carrier" if carrier_distance <= 22.0 else ""))
+				get_viewport().set_input_as_handled()
+				return
+			if _selected_asset_kind == AssetKind.HARVESTER and _selected_mission_id == "HARVEST":
+				_draft_source_id = _pick_harvest_source(mouse_event.position)
+				_draft_points.clear()
+				if _draft_source_id >= 0:
+					_clear_command_error()
+					_draft_points.append(POIManager.get_resource_field().get_source(_draft_source_id).position)
+				else:
+					_set_command_error("Select a known resource marker with material remaining.")
+				_refresh_ui()
+				get_viewport().set_input_as_handled()
+				return
 			if _selected_asset_kind == AssetKind.FLIGHT and _selected_mission_id == "ATTACK":
 				_draft_points.clear()
 				_draft_intercept_target = _pick_intercept_flight(mouse_event.position)
@@ -1634,6 +1748,8 @@ func _on_map_gui_input(event: InputEvent) -> void:
 			if _selected_asset_kind == AssetKind.FLIGHT and _selected_mission_id == "PATROL":
 				return
 			_draft_points.pop_back()
+			_draft_escort_target = ""
+			_draft_source_id = -1
 			_draft_tracks_platoon = false
 			_draft_attack_platoon = null
 			_draft_tracks_flight = false
@@ -1642,6 +1758,51 @@ func _on_map_gui_input(event: InputEvent) -> void:
 			get_viewport().set_input_as_handled()
 			return
 
+
+func _pick_harvest_source(local_position: Vector2) -> int:
+	var best := -1
+	var distance := 18.0
+	for source in POIManager.get_resource_field().discovered_sources():
+		var candidate := _world_to_map_local(source.position).distance_to(local_position)
+		if candidate < distance:
+			distance = candidate
+			best = int(source.id)
+	return best
+
+func _escort_draft_position() -> Vector3:
+	if _draft_escort_target == "harvester":
+		var ops := _harvester_ops()
+		if is_instance_valid(ops):
+			var status: Dictionary = ops.map_status()
+			if int(status.get("strength", 0)) > 0: return status.position
+	elif _draft_escort_target == "carrier":
+		var carrier := get_tree().get_first_node_in_group("carrier") as Node3D
+		if is_instance_valid(carrier): return carrier.global_position
+	return Vector3.INF
+
+func _set_escort_draft_target(target: String) -> void:
+	_draft_escort_target = target
+	_draft_points.clear()
+	var position := _escort_draft_position()
+	if position.is_finite():
+		_draft_points.append(position)
+		_clear_command_error()
+	else:
+		_set_command_error("Select the Carrier or an available Harvester. A stored harvester can be selected in the unit list.")
+	_refresh_ui()
+
+func _try_select_map_harvester(event: InputEvent) -> bool:
+	if not event is InputEventMouseButton or not event.pressed or event.button_index != MOUSE_BUTTON_LEFT:
+		return false
+	var ops := _harvester_ops()
+	if ops == null or not is_instance_valid(ops.vehicle): return false
+	if _world_to_map_local(ops.vehicle.global_position).distance_to(event.position) > 16.0: return false
+	for entry in _asset_buttons:
+		if entry.kind == AssetKind.HARVESTER:
+			_select_asset(AssetKind.HARVESTER, "Harvester", entry.button)
+			get_viewport().set_input_as_handled()
+			return true
+	return false
 
 func _try_select_map_flight(event: InputEvent) -> bool:
 	if not event is InputEventMouseButton or not event.pressed \
@@ -1765,6 +1926,9 @@ func _get_asset_status(kind: AssetKind, asset_name: String) -> Dictionary:
 			return AirOpsManager.get_flight_status(asset_name)
 		AssetKind.PLATOON:
 			return GroundOpsManager.get_platoon_status(asset_name)
+		AssetKind.HARVESTER:
+			var ops := _harvester_ops()
+			return ops.map_status() if ops != null else {}
 		AssetKind.CARRIER:
 			var carrier := get_tree().get_first_node_in_group("carrier") as Node3D
 			if carrier == null or not is_instance_valid(carrier):
@@ -1785,6 +1949,13 @@ func _get_asset_status(kind: AssetKind, asset_name: String) -> Dictionary:
 
 func _get_selected_mission_specs() -> Array[Dictionary]:
 	match _selected_asset_kind:
+		AssetKind.HARVESTER:
+			return [
+				{"id": "MOVE", "label": "> MOVE", "description": "Move to explored ground and hold there, retaining cargo."},
+				{"id": "HARVEST", "label": "> HARVEST", "accent": VECTOR_AMBER_COLOR, "description": "Choose a known resource marker. Repeat collection and unloading until depleted."},
+				{"id": "AUTO_HARVEST", "label": "> HARVEST WHEN POSSIBLE", "description": "Collect the nearest known, active resources within 3 km of the carrier. Unload and repeat; wait when none are available."},
+				{"id": "RTB", "label": "> RETURN TO BASE", "accent": VECTOR_AMBER_COLOR, "description": "Cancel harvesting, return to the carrier, unload and stay in the bay."},
+			]
 		AssetKind.FLIGHT:
 			return [
 				{"id": "PATROL", "label": "> PATROL", "accent": VECTOR_TEXT_COLOR},
@@ -1818,6 +1989,8 @@ func _is_mission_enabled(spec: Dictionary, status: Dictionary) -> bool:
 	if not bool(spec.get("supported", true)):
 		return false
 	var mission_id: String = spec.get("id", "")
+	if str(status.get("kind", "")) == "harvester":
+		return int(status.get("strength", 0)) > 0 and (mission_id == "RTB" or bool(status.get("command_ready", false)))
 	match mission_id:
 		"RTB":
 			return int(status.get("strength", 0)) > 0
@@ -1825,8 +1998,16 @@ func _is_mission_enabled(spec: Dictionary, status: Dictionary) -> bool:
 			return true
 
 func _can_confirm_draft() -> bool:
+	if _selected_asset_kind == AssetKind.PLATOON and _selected_mission_id == "ESCORT":
+		return not _selected_asset_name.is_empty() and _escort_draft_position().is_finite()
 	if _selected_asset_kind == AssetKind.NONE or _selected_asset_name.is_empty() or _selected_mission_id.is_empty():
 		return false
+	if _selected_asset_kind == AssetKind.HARVESTER:
+		if not _is_mission_enabled({"id": _selected_mission_id}, _get_selected_asset_status()): return false
+		if _selected_mission_id == "HARVEST":
+			var field: Node = POIManager.get_resource_field()
+			var source: Dictionary = field.get_source(_draft_source_id)
+			if source.is_empty() or not bool(source.discovered) or field.remaining(source) <= 0.01: return false
 	if _draft_tracks_platoon and not Flight.is_attack_platoon_valid(_draft_attack_platoon):
 		return false
 	if _draft_tracks_flight and not InterceptTarget.is_valid(_draft_intercept_target):
@@ -1846,6 +2027,8 @@ func _requires_explored_ground_target() -> bool:
 	if _selected_asset_kind == AssetKind.FLIGHT:
 		return _selected_mission_id == "ATTACK" and not _draft_tracks_flight
 	if _selected_asset_kind == AssetKind.CARRIER:
+		return _selected_mission_id == "MOVE"
+	if _selected_asset_kind == AssetKind.HARVESTER:
 		return _selected_mission_id == "MOVE"
 	if _selected_asset_kind != AssetKind.PLATOON:
 		return false
@@ -1908,13 +2091,19 @@ func _get_active_command_error() -> String:
 	return ""
 
 func _mission_requires_target(mission_id: String) -> bool:
-	return mission_id in ["PATROL", "INTERDICTION", "STRIKE", "MOVE", "RECON", "RESCUE", "ATTACK", "PROTECT"]
+	return mission_id in ["PATROL", "INTERDICTION", "STRIKE", "MOVE", "RECON", "RESCUE", "ATTACK", "PROTECT", "HARVEST", "ESCORT"]
+
+func _mission_label(mission_id: String) -> String:
+	if _selected_asset_kind == AssetKind.HARVESTER:
+		if mission_id == "AUTO_HARVEST": return "HARVEST WHEN POSSIBLE"
+		if mission_id == "RTB": return "RETURN TO BASE"
+	return mission_id
 
 func _mission_allows_waypoints(mission_id: String) -> bool:
 	return mission_id == "PATROL"
 
 func _get_draft_preview_points() -> Dictionary:
-	var accent := VECTOR_TEXT_COLOR if _selected_asset_kind == AssetKind.FLIGHT else VECTOR_AMBER_COLOR
+	var accent := TacticalMapPalette.ROUTE
 	if _selected_mission_id == "PATROL":
 		return {
 			"points": _get_cap_route_preview(_draft_points),
@@ -1999,7 +2188,14 @@ func _format_asset_info(status: Dictionary) -> String:
 			if not _draft_points.is_empty():
 				lines.append("TARGET STAGED")
 		return "\n".join(lines)
-	if status.get("kind", "") == "flight":
+	if status.get("kind", "") == "harvester":
+		lines.append("TYPE: HARVESTER")
+		lines.append("MISSION: %s" % _mission_label(str(status.get("mission", "HOLD"))))
+		lines.append("STATE: %s" % str(status.get("phase", "stored")).to_upper().replace("_", " "))
+		lines.append("CARGO: C %.0f / P %.0f / %d" % [float(status.cargo.corium), float(status.cargo.plasteel), int(status.capacity)])
+		lines.append("SITE: %s" % str(status.source))
+		lines.append(str(status.notice))
+	elif status.get("kind", "") == "flight":
 		lines.append("TYPE: FLIGHT")
 		lines.append("MISSION: %s" % status.get("mission", "NONE"))
 		if _selected_asset_kind == AssetKind.FLIGHT and status.get("mission", "") == "PATROL":
@@ -2010,6 +2206,7 @@ func _format_asset_info(status: Dictionary) -> String:
 	else:
 		lines.append("TYPE: PLATOON")
 		lines.append("OBJECTIVE: %s" % status.get("objective", "HOLD"))
+		if not str(status.get("escort_state", "")).is_empty(): lines.append(str(status.escort_state))
 		lines.append("DEPLOYED: %s" % ("YES" if bool(status.get("deployed", false)) else "NO"))
 		lines.append("QUEUED: %s" % ("YES" if bool(status.get("queued", false)) else "NO"))
 		lines.append("STRENGTH: %d" % int(status.get("strength", 0)))
@@ -2296,6 +2493,35 @@ func _make_panel(color: Color, border: Color = VECTOR_BORDER_COLOR, border_width
 	style.corner_radius_bottom_right = 0
 	panel.add_theme_stylebox_override("panel", style)
 	return panel
+
+func _make_map_palette_legend() -> HBoxContainer:
+	var legend := HBoxContainer.new()
+	legend.name = "MapPaletteLegend"
+	legend.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	legend.alignment = BoxContainer.ALIGNMENT_END
+	legend.add_theme_constant_override("separation", 10)
+	for entry in [
+		{"label": "FRIENDLY", "color": TacticalMapPalette.FRIENDLY},
+		{"label": "ENEMY", "color": TacticalMapPalette.HOSTILE},
+		{"label": "SITES", "color": TacticalMapPalette.RESOURCE},
+		{"label": "ROUTES", "color": TacticalMapPalette.ROUTE},
+		{"label": "NEUTRAL", "color": TacticalMapPalette.NEUTRAL},
+		{"label": "SELECTED", "color": TacticalMapPalette.SELECTION},
+	]:
+		var item := HBoxContainer.new()
+		item.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		item.add_theme_constant_override("separation", 4)
+		var swatch := ColorRect.new()
+		swatch.color = entry["color"]
+		swatch.custom_minimum_size = Vector2(8.0, 8.0)
+		swatch.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		swatch.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		item.add_child(swatch)
+		var label := _make_label(entry["label"], 11, VECTOR_STATUS_COLOR, HORIZONTAL_ALIGNMENT_LEFT, DATA_FONT)
+		label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		item.add_child(label)
+		legend.add_child(item)
+	return legend
 
 func _make_label(
 	text: String,

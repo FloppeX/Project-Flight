@@ -78,7 +78,9 @@ const VEHICLE_MESH_LOD = preload("res://Effects/VehicleMeshLOD.gd")
 const FrameProfiler: Script = preload("res://Debug/FrameProfiler.gd")
 const ReverseDrive = preload("res://GroundVehicle/ReverseDrive.gd")
 @export_range(0.1, 0.75, 0.05) var reverse_speed_ratio: float = 0.4
+@export var allow_reverse_navigation: bool = true
 var _reverse_driving: bool = false
+var _navigation_drive := ReverseDrive.new()
 
 # --- Deployment ---
 enum DeployPhase { NONE, ON_DECK, ON_RAMP, DONE }
@@ -312,7 +314,8 @@ func _ready() -> void:
 	turret_controller = _find_turret_controller()
 
 	if not turret_controller:
-		push_warning("VehicleFriendlyLight: No TurretController found as child!")
+		if turret_range > 0.0:
+			push_warning("VehicleFriendlyLight: No TurretController found as child!")
 	else:
 		turret_controller.team = team
 		turret_controller.max_range = turret_range
@@ -645,30 +648,30 @@ func begin_ramp_ascent() -> void:
 	_retrieve_phase = RetrievePhase.ON_RAMP
 	# Initialize carrier-local position from current world position
 	_retrieve_local_pos = _retrieve_carrier.to_local(global_position)
-	# Face carrier bow: look_at points -Z at target, so target the rear to get +Z toward bow
-	var rear_dir: Vector3 = _retrieve_carrier.global_basis.z.normalized()
-	rear_dir.y = 0.0
-	if rear_dir.length_squared() > 0.001:
-		look_at(global_position + rear_dir, Vector3.UP)
+	# Align at the rally point before advancing. Vehicle +Z is its nose, and
+	# retrieval travels in carrier-local +Z; do not face the opposite direction.
+	_reverse_driving = false
+	velocity.x = 0.0
+	velocity.z = 0.0
 	print("[VehicleRetrieve] Ascending ramp")
 
 func _retrieve_on_ramp(delta: float) -> void:
-	# Drive forward in carrier-local space (+Z toward bow/bay)
-	_retrieve_local_pos.z += _retrieve_speed * delta
+	var bay_dir: Vector3 = _retrieve_carrier.global_basis.z.normalized()
+	bay_dir.y = 0.0
+	var yaw_diff := 0.0
+	if bay_dir.length_squared() > 0.001:
+		var target_yaw: float = atan2(bay_dir.x, bay_dir.z)
+		var current_yaw: float = atan2(global_basis.z.x, global_basis.z.z)
+		yaw_diff = wrapf(target_yaw - current_yaw, -PI, PI)
+		global_rotate(Vector3.UP, clampf(yaw_diff, -3.0 * delta, 3.0 * delta))
+	# Turn first, then drive nose-first up the ramp (not sideways or backwards).
+	if absf(yaw_diff) < 0.12:
+		_retrieve_local_pos.z += _retrieve_speed * delta
 
 	# Only control XZ from carrier-local tracking — spring handles Y
 	var world_pos: Vector3 = _retrieve_carrier.to_global(_retrieve_local_pos)
 	global_position.x = world_pos.x
 	global_position.z = world_pos.z
-
-	# Face carrier bow direction (yaw only — tilt spring handles pitch/roll)
-	var bow_dir: Vector3 = -_retrieve_carrier.global_basis.z.normalized()
-	bow_dir.y = 0.0
-	if bow_dir.length_squared() > 0.001:
-		var target_yaw: float = atan2(bow_dir.x, bow_dir.z)
-		var current_yaw: float = atan2(global_basis.z.x, global_basis.z.z)
-		var yaw_diff: float = wrapf(target_yaw - current_yaw, -PI, PI)
-		global_rotate(Vector3.UP, clampf(yaw_diff, -3.0 * delta, 3.0 * delta))
 
 	# Spring suspension handles height and tilt via wheel raycasts on ramp / bay floor
 	_update_wheel_visuals()
@@ -942,10 +945,13 @@ func _advance_patrol_waypoint_if_reached() -> void:
 	var current_target: Vector3 = _waypoint_positions[_waypoint_index]
 	if _flat_distance(global_position, current_target) > waypoint_reach_distance:
 		return
+	var previous_index := _waypoint_index
 	if loop_waypoints:
 		_waypoint_index = (_waypoint_index + 1) % _waypoint_positions.size()
 	else:
 		_waypoint_index = min(_waypoint_index + 1, _waypoint_positions.size() - 1)
+	if _waypoint_index != previous_index:
+		_arrived_at_destination = false
 	_clear_navigation_path()
 
 func _recompute_navigation_path(raw_target: Vector3) -> void:
@@ -1041,7 +1047,10 @@ func _on_navigation_path_computed(best_path: Array[Vector3], target_at_request_t
 	
 	# If the target changed while queued/running, wait for the regular repath cadence.
 	var current_target_dest := _get_raw_navigation_destination()
-	if _flat_distance(target_at_request_time, current_target_dest) > 1.0:
+	# A walking escort slot moves during a queued path solve. Accept a bounded
+	# shift so a busy scheduler cannot starve the escort of every completed path.
+	var allowed_shift := path_goal_repath_distance_m if is_instance_valid(platoon) and platoon.objective_type == GroundVehiclePlatoon.ObjectiveType.ESCORT_HARVESTER else 1.0
+	if _flat_distance(target_at_request_time, current_target_dest) > allowed_shift:
 		_nav_repath_timer_s = 0.0
 		return
 
@@ -1236,6 +1245,8 @@ func _refresh_drive_command(delta: float) -> void:
 		_drive_command_has_destination = false
 		_drive_command_steer = 0.0
 		_drive_command_throttle = 0.0
+		_reverse_driving = false
+		_navigation_drive.reset_navigation()
 		return
 	_drive_command_has_destination = true
 
@@ -1339,33 +1350,48 @@ func _refresh_drive_command(delta: float) -> void:
 		var nudge_weight: float = clampf(nudge.length(), 1.0, 6.0)
 		desired_dir = (desired_dir + nudge.normalized() * nudge_weight).normalized()
 
-	_reverse_driving = ReverseDrive.choose_reverse(current_forward.dot(desired_dir), _reverse_driving)
-	if hold_in_combat and target_distance <= combat_stop_distance_m:
-		_reverse_driving = false
+	# Use the final formation/order destination, not a nearby path node: short
+	# path segments must not turn a long journey into continuous reversing.
+	_reverse_driving = _navigation_drive.choose_navigation_reverse(
+		current_forward.dot(desired_dir), maxf(_flat_distance(global_position, raw_dest),
+			_flat_distance(global_position, steering_destination)), delta,
+		allow_reverse_navigation and not (hold_in_combat and target_distance <= combat_stop_distance_m))
 	var drive_direction := -1.0 if _reverse_driving else 1.0
 	var cross_y: float = current_forward.cross(desired_dir * drive_direction).y
 	var dot: float = clampf(current_forward.dot(desired_dir), -1.0, 1.0)
 	var planar_speed: float = Vector2(velocity.x, velocity.z).length()
 
 	var steer_target: float = clamp(cross_y, -1.0, 1.0)
+	if not _reverse_driving:
+		# A cross product alone is zero for a waypoint directly behind us.
+		# The full yaw angle gives forward-only vehicles a decisive U-turn.
+		steer_target = clampf(atan2(cross_y, dot), -1.0, 1.0)
 	if hold_in_combat:
-		steer_target = clamp(cross_y * 0.7, -0.65, 0.65)
+		steer_target = clampf(steer_target * 0.7, -0.65, 0.65)
 	var turn_rate_scale: float = lerpf(0.2, 1.0, clampf(planar_speed / maxf(max_speed, 0.1), 0.0, 1.0))
 	if nudge_active:
 		turn_rate_scale = maxf(turn_rate_scale, 0.5)  # Don't let avoidance kill turn rate
 	if hold_in_combat:
 		turn_rate_scale = maxf(turn_rate_scale, 0.35)
+	if not _reverse_driving:
+		turn_rate_scale = maxf(turn_rate_scale, 0.75)
 
 	var throttle: float = 1.0
 	if not hold_in_combat:
 		var alignment: float = clampf((dot * drive_direction + 1.0) * 0.5, 0.0, 1.0)
 		throttle = lerpf(0.45, 1.0, alignment)
+		if not _reverse_driving:
+			# Do not orbit a precise waypoint at a fixed minimum cornering speed.
+			# Brake while turning across/away from it, then accelerate nose-first.
+			throttle = pow(clampf(dot, 0.0, 1.0), 2.0)
 	if hold_in_combat and current_target and is_instance_valid(current_target):
 		if target_distance <= combat_stop_distance_m:
 			throttle = 0.0
 		else:
 			var closing_speed: float = clampf((target_distance - combat_stop_distance_m) / maxf(combat_hold_distance_m - combat_stop_distance_m, 1.0), 0.25, 0.7)
 			throttle = maxf(closing_speed, combat_creep_speed_mps / maxf(max_speed, 0.1))
+		if not _reverse_driving:
+			throttle *= pow(clampf(dot, 0.0, 1.0), 2.0)
 	_drive_command_steer = steer_target
 	_drive_command_turn_rate_scale = turn_rate_scale
 	_drive_command_throttle = throttle * (-reverse_speed_ratio if _reverse_driving else 1.0)
@@ -1431,9 +1457,8 @@ func _get_platoon_speed_limit() -> float:
 func _match_formation_velocity(slot_pos: Vector3, delta: float, coarse_motion: bool = false) -> void:
 	var base_vel := Vector3.ZERO
 	# Get carrier velocity if escorting
-	if platoon and is_instance_valid(platoon) and platoon.objective_type == GroundVehiclePlatoon.ObjectiveType.ESCORT_CARRIER:
-		if platoon.escort_node and is_instance_valid(platoon.escort_node) and platoon.escort_node.has_method("get_velocity_vector"):
-			base_vel = platoon.escort_node.get_velocity_vector()
+	if is_instance_valid(platoon) and platoon.objective_type in [GroundVehiclePlatoon.ObjectiveType.ESCORT_CARRIER, GroundVehiclePlatoon.ObjectiveType.ESCORT_HARVESTER]:
+		base_vel = platoon.get_escort_velocity()
 
 	# Correction toward slot position — dead zone so they don't fidget
 	var to_slot: Vector3 = slot_pos - global_position
@@ -1459,7 +1484,10 @@ func _match_formation_velocity(slot_pos: Vector3, delta: float, coarse_motion: b
 		if current_fwd.length_squared() > 0.0001:
 			current_fwd = current_fwd.normalized()
 			var cross_y: float = current_fwd.cross(move_dir).y
-			global_rotate(Vector3.UP, clamp(cross_y * 2.0, -1.0, 1.0) * turn_speed * delta)
+			# An exactly rearward moving escort slot also needs a real U-turn;
+			# cross alone is zero at 180 degrees and leaves the hull facing back.
+			var yaw_error := atan2(cross_y, clampf(current_fwd.dot(move_dir), -1.0, 1.0))
+			global_rotate(Vector3.UP, clampf(yaw_error * 2.0, -1.0, 1.0) * turn_speed * delta)
 
 	_move_vehicle_body(delta, coarse_motion)
 
@@ -1470,7 +1498,7 @@ func _apply_platoon_cohesion(base_destination: Vector3) -> Vector3:
 		return base_destination
 	if not platoon or not is_instance_valid(platoon):
 		return base_destination
-	if platoon.objective_type == GroundVehiclePlatoon.ObjectiveType.ESCORT_CARRIER:
+	if platoon.objective_type in [GroundVehiclePlatoon.ObjectiveType.ESCORT_CARRIER, GroundVehiclePlatoon.ObjectiveType.ESCORT_HARVESTER]:
 		return base_destination
 	if platoon.has_any_member_in_combat():
 		return base_destination
@@ -1518,9 +1546,14 @@ func _select_steering_destination(route_destination: Vector3) -> Vector3:
 	return route_destination
 
 func _has_combat_target() -> bool:
+	if not is_instance_valid(current_target):
+		current_target = null
+		return false
+	if is_instance_valid(platoon) and platoon.objective_type == GroundVehiclePlatoon.ObjectiveType.ESCORT_HARVESTER:
+		if not platoon.can_harvester_escort_engage(self, current_target): return false
 	if is_instance_valid(platoon) and platoon.objective_type == GroundVehiclePlatoon.ObjectiveType.RESCUE:
 		return false # Turrets still defend; the driver commits to the pickup.
-	return current_target != null and is_instance_valid(current_target) and not _is_air_target(current_target)
+	return not _is_air_target(current_target)
 
 func _should_hold_combat_position() -> bool:
 	return _has_combat_target()

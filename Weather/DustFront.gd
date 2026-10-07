@@ -3,6 +3,7 @@ extends Node3D
 ## Root-level placement lets FloatingOrigin translate the entire front exactly once.
 
 const VISUALS = preload("res://Weather/DustFrontVisuals.gd")
+const SHAPE = preload("res://Weather/StormShape.gd")
 @export var automatic_start := false
 @export var enabled := true
 @export_range(1, 5, 1) var severity: int = 2
@@ -22,6 +23,9 @@ var strength := 0.0
 var _start_poll := 0.0
 var _visuals: Node3D
 var _damage_elapsed := 0.0
+var outline := Vector4(5.0, 0.035, 0.0, 0.0)
+var _base_dimensions := Vector3.ZERO
+var _shape_rng := RandomNumberGenerator.new()
 
 const CORE_VISIBILITY_M: Array[float] = [900.0, 450.0, 220.0, 90.0, 30.0]
 const WIND_MULTIPLIER: Array[float] = [0.5, 1.0, 1.8, 3.0, 5.0]
@@ -42,11 +46,31 @@ func get_damage_fraction_per_second(world_position: Vector3, airspeed_mps: float
 func _ready() -> void:
 	add_to_group("dust_front")
 	process_physics_priority = -110
+	_base_dimensions = Vector3(half_width_m, height_m, half_depth_m)
+	_shape_rng.randomize()
 	_visuals = VISUALS.new()
 	add_child(_visuals)
 	_visuals.setup(self)
 
-func start_at(center: Vector3, travel_direction: Vector3) -> void:
+func create_appearance() -> Dictionary:
+	# Size and severity are independent. Reusing a front never compounds its scale.
+	var variants := [Vector3(0.45, 0.7, 0.6), Vector3(1.25, 1.05, 0.8), Vector3(0.8, 1.1, 1.45)]
+	var dimensions: Vector3 = _base_dimensions * variants[_shape_rng.randi_range(0, 2)]
+	dimensions *= _shape_rng.randf_range(0.85, 1.15)
+	return {"width": dimensions.x, "height": dimensions.y, "depth": dimensions.z,
+		"outline": SHAPE.encode_outline(SHAPE.random_outline(_shape_rng))}
+
+func capture_appearance() -> Dictionary:
+	return {"width": half_width_m, "height": height_m, "depth": half_depth_m,
+		"outline": SHAPE.encode_outline(outline)}
+
+func start_at(center: Vector3, travel_direction: Vector3, appearance: Dictionary = {}) -> void:
+	var profile := create_appearance() if appearance.is_empty() else appearance
+	half_width_m = maxf(float(profile.get("width", _base_dimensions.x)), 100.0)
+	height_m = maxf(float(profile.get("height", _base_dimensions.y)), 100.0)
+	half_depth_m = maxf(float(profile.get("depth", _base_dimensions.z)), 100.0)
+	outline = SHAPE.decode_outline(profile.get("outline"), Vector4(5.0, 0.035, 0.0, 0.0))
+	_visuals.refresh_shape()
 	var forward := Vector3(travel_direction.x, 0.0, travel_direction.z).normalized()
 	if forward.length_squared() < 0.1:
 		forward = Vector3.BACK
@@ -122,9 +146,10 @@ func _try_start() -> void:
 	if direction.length_squared() < 0.01:
 		direction = Vector3.BACK
 	direction = direction.normalized()
-	var center := carrier.global_position - direction * (approach_distance_m + half_depth_m)
+	var appearance := create_appearance()
+	var center := carrier.global_position - direction * (approach_distance_m + float(appearance.depth) * SHAPE.MAX_EDGE)
 	center.y = carrier.global_position.y - 550.0
-	start_at(center, direction)
+	start_at(center, direction, appearance)
 
 func get_travel_velocity() -> Vector3:
 	return global_basis.z * travel_speed_mps
@@ -135,7 +160,7 @@ func get_intensity_at(world_position: Vector3) -> float:
 	var p := to_local(world_position)
 	var x := p.x / maxf(half_width_m, 1.0)
 	var z := p.z / maxf(half_depth_m, 1.0)
-	var lobe := 1.0 + 0.035 * sin(atan2(z, x) * 5.0)
+	var lobe := SHAPE.edge(atan2(z, x), outline)
 	var radial := Vector2(x, z).length() / lobe
 	var top := get_top_scale(p.x, p.z)
 	var y := maxf(p.y, 0.0) / maxf(height_m * top, 1.0)
@@ -143,7 +168,11 @@ func get_intensity_at(world_position: Vector3) -> float:
 	return strength * (1.0 - smoothstep(0.82, 1.0, envelope)) * smoothstep(-180.0, 0.0, p.y)
 
 func get_top_scale(x: float, z: float) -> float:
-	return 0.86 + 0.09 * sin(x / 280.0 + elapsed_s * 0.045) + 0.045 * sin(z / 350.0 - x / 1050.0 + elapsed_s * 0.03) + 0.035 * sin(x / 93.0 + z / 137.0 + elapsed_s * 0.08)
+	return SHAPE.dust_top(x, z, elapsed_s, Vector3(half_width_m, height_m, half_depth_m), outline)
+
+func get_local_edge(angle: float) -> Vector3:
+	var radius := SHAPE.edge(angle, outline)
+	return Vector3(cos(angle) * half_width_m * radius, 0.0, sin(angle) * half_depth_m * radius)
 
 func get_wind_at(world_position: Vector3) -> Vector3:
 	var intensity := get_intensity_at(world_position)
@@ -166,17 +195,25 @@ func get_footprint(scale_factor: float = 1.0, future_s: float = 0.0) -> PackedVe
 	var points := PackedVector3Array()
 	for i in 65:
 		var angle := TAU * float(i) / 64.0
-		var radius := scale_factor * (1.0 + 0.035 * sin(angle * 5.0))
-		points.append(to_global(Vector3(cos(angle) * half_width_m * radius, height_m * 0.2,
-			sin(angle) * half_depth_m * radius)) + get_travel_velocity() * future_s)
+		points.append(to_global(get_local_edge(angle) * scale_factor + Vector3.UP * height_m * 0.2)
+			+ get_travel_velocity() * future_s)
 	return points
 
 func get_arrival_seconds(world_position: Vector3) -> float:
 	var p := to_local(world_position)
-	var x := absf(p.x) / maxf(half_width_m, 1.0)
-	if x >= 0.95 or travel_speed_mps <= 0.0:
+	if travel_speed_mps <= 0.0:
 		return -1.0
-	var leading_edge := half_depth_m * sqrt(1.0 - x * x)
-	if p.z < -leading_edge:
+	# Intersect the same polygon drawn on the map with the travel-direction ray.
+	var leading_edge := -INF
+	var trailing_edge := INF
+	var previous := get_local_edge(0.0)
+	for i in range(1, 65):
+		var next := get_local_edge(TAU * float(i) / 64.0)
+		if absf(next.x - previous.x) > 0.001 and p.x >= minf(previous.x, next.x) and p.x <= maxf(previous.x, next.x):
+			var edge_z := lerpf(previous.z, next.z, (p.x - previous.x) / (next.x - previous.x))
+			leading_edge = maxf(leading_edge, edge_z)
+			trailing_edge = minf(trailing_edge, edge_z)
+		previous = next
+	if not is_finite(leading_edge) or p.z < trailing_edge:
 		return -1.0
 	return maxf((p.z - leading_edge) / travel_speed_mps, 0.0)

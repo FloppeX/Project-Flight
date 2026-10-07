@@ -13,6 +13,7 @@ const RETIRED_WEAPON_NAME_TOKEN := "missile"
 
 var weapon_instance: Weapon = null
 var aircraft: RigidBody3D = null
+var damage_disabled: bool = false
 
 func _ready():
 	if mounted_weapon:
@@ -112,7 +113,7 @@ func _get_candidate_weapon_name(candidate_weapon: Weapon) -> String:
 	return candidate_weapon.weapon_name
 
 func fire():
-	if not weapon_instance or not weapon_instance.can_fire():
+	if damage_disabled or not is_visible_in_tree() or not weapon_instance or not weapon_instance.can_fire():
 		return false
 	
 	# Let the weapon handle its own firing logic (ammo, etc.)
@@ -120,6 +121,27 @@ func fire():
 		return false
 	
 	return true
+
+func lose_with_support(debris: Node3D = null) -> void:
+	damage_disabled = true
+	if is_instance_valid(weapon_instance):
+		if debris != null:
+			var stores := Node3D.new()
+			stores.name = "DetachedStores"
+			debris.add_child(stores)
+			for source in weapon_instance.find_children("*", "MeshInstance3D", true, false):
+				if not source.is_visible_in_tree(): continue
+				var visual := source.duplicate() as MeshInstance3D
+				for child in visual.get_children(): child.free()
+				visual.set_script(null)
+				stores.add_child(visual)
+				visual.global_transform = source.global_transform
+		if is_instance_valid(aircraft) and aircraft.has_method("clear_payload_mass"):
+			aircraft.clear_payload_mass(weapon_instance)
+		weapon_instance.queue_free()
+		weapon_instance = null
+	mounted_weapon = null
+	visible = false
 
 func apply_recoil_force(force_magnitude: float, add_shake: bool = true, shake_scale: float = 0.01, shake_duration_s: float = 0.1):
 	if aircraft:

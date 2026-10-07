@@ -69,11 +69,12 @@ var _rng := RandomNumberGenerator.new()
 var _fighter_scene:        PackedScene = null   # Aircraft_3 — nimble fighter
 var _bomber_scene:         PackedScene = null   # Aircraft_4 — heavy strike bomber
 var _attack_scene:         PackedScene = null   # Aircraft_6 — multirole attacker
+var _fighter_bomber_scene: PackedScene = null   # Aircraft_16 — tougher, heavier fighter-bomber
 var _enemy_vehicle_scenes: Array[PackedScene] = []
 
 ## Patrol compositions: each entry is [group_a_slots, group_b_slots].
 ## Each slot is [aircraft_key, loadout]. Total aircraft per patrol: 4–6.
-## aircraft_key: "fighter"=AC3, "bomber"=AC4, "attack"=AC6
+## aircraft_key: "fighter"=AC3, "bomber"=AC4, "attack"=AC6, "fighter_bomber"=AC16
 const PATROL_COMPOSITIONS: Array = [
 	# Pure fighter sweep — 4 total
 	[[["fighter","guns"],["fighter","guns"]], [["fighter","guns"],["fighter","guns"]]],
@@ -89,6 +90,10 @@ const PATROL_COMPOSITIONS: Array = [
 	[[["attack","rockets"],["attack","rockets"],["attack","rockets"]], [["bomber","bombs"],["bomber","bombs"],["bomber","bombs"]]],
 	# Mixed attacker pair — 4 total
 	[[["attack","guns"],["attack","guns"]], [["attack","rockets"],["attack","rockets"]]],
+	# Fighter escort + reinforced fighter-bombers — 4 total
+	[[["fighter","guns"],["fighter","guns"]], [["fighter_bomber","bombs"],["fighter_bomber","bombs"]]],
+	# Heavy fighter sweep + rocket strike — 4 total
+	[[["fighter_bomber","guns"],["fighter_bomber","guns"]], [["fighter_bomber","rockets"],["fighter_bomber","rockets"]]],
 ]
 
 
@@ -108,6 +113,7 @@ func _ready() -> void:
 	_fighter_scene = load("res://Aircraft/Aircraft_3.tscn") as PackedScene
 	_bomber_scene  = load("res://Aircraft/Aircraft_4.tscn") as PackedScene
 	_attack_scene  = load("res://Aircraft/Aircraft_6.tscn") as PackedScene
+	_fighter_bomber_scene = load("res://Aircraft/Aircraft_16.tscn") as PackedScene
 
 	# Vehicle scenes — load all available enemy vehicle types
 	for path in [
@@ -314,6 +320,7 @@ func _resolve_aircraft_scene(key: String) -> PackedScene:
 		"fighter": return _fighter_scene
 		"bomber":  return _bomber_scene
 		"attack":  return _attack_scene if _attack_scene != null else _fighter_scene
+		"fighter_bomber": return _fighter_bomber_scene
 	return _fighter_scene
 
 

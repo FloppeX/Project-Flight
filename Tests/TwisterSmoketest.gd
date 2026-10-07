@@ -25,7 +25,7 @@ func _run() -> void:
 	var twister := load("res://Weather/Twister.gd").new() as Node3D
 	scene.add_child(twister)
 	twister.set_physics_process(false)
-	twister.start_at(Vector3.ZERO, Vector3.RIGHT)
+	twister.start_at(Vector3.ZERO, Vector3.RIGHT, twister.capture_appearance())
 	twister.elapsed_s = 20.0
 	twister.strength = 1.0
 	var axis: Vector3 = twister.get_axis_offset(100.0 / twister.height_m) + Vector3.UP * 100.0

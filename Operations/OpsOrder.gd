@@ -20,6 +20,7 @@ enum Kind {
 	RECOVER,
 	PROTECT_POSITION,
 	PURSUE_ENEMIES,
+	ESCORT_HARVESTER,
 }
 
 var kind: Kind = Kind.NONE
@@ -102,6 +103,13 @@ static func rescue_target(target_node: Node3D) -> OpsOrder:
 	var order := OpsOrder.new()
 	order.kind = Kind.RESCUE_TARGET
 	order.target = target_node
+	return order
+
+
+static func escort_harvester(distance_m: float = 65.0) -> OpsOrder:
+	var order := OpsOrder.new()
+	order.kind = Kind.ESCORT_HARVESTER
+	order.radius_m = maxf(distance_m, 20.0)
 	return order
 
 

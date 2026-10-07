@@ -10,6 +10,7 @@ const FrameProfiler: Script = preload("res://Debug/FrameProfiler.gd")
 const ReverseDrive = preload("res://GroundVehicle/ReverseDrive.gd")
 @export_range(0.1, 0.75, 0.05) var reverse_speed_ratio: float = 0.4
 var _reverse_driving: bool = false
+var _navigation_drive := ReverseDrive.new()
 
 # --- Movement ---
 @export var max_speed: float = 15.0
@@ -914,6 +915,8 @@ func _refresh_drive_command(delta: float) -> void:
 		_drive_command_has_destination = false
 		_drive_command_steer = 0.0
 		_drive_command_throttle = 0.0
+		_reverse_driving = false
+		_navigation_drive.reset_navigation()
 		return
 	_drive_command_has_destination = true
 
@@ -991,22 +994,27 @@ func _refresh_drive_command(delta: float) -> void:
 		var nudge_weight: float = clampf(nudge.length(), 1.0, 6.0)
 		desired_dir = (desired_dir + nudge.normalized() * nudge_weight).normalized()
 
-	_reverse_driving = ReverseDrive.choose_reverse(current_forward.dot(desired_dir), _reverse_driving)
-	if hold_in_combat and target_distance <= combat_stop_distance_m:
-		_reverse_driving = false
+	_reverse_driving = _navigation_drive.choose_navigation_reverse(
+		current_forward.dot(desired_dir), maxf(_flat_distance(global_position, _get_raw_navigation_destination()),
+			_flat_distance(global_position, steering_destination)), delta,
+		not (hold_in_combat and target_distance <= combat_stop_distance_m))
 	var drive_direction := -1.0 if _reverse_driving else 1.0
 	var cross_y: float = current_forward.cross(desired_dir * drive_direction).y
 	var dot: float = clampf(current_forward.dot(desired_dir), -1.0, 1.0)
 	var planar_speed: float = Vector2(velocity.x, velocity.z).length()
 
 	var steer_target: float = clamp(cross_y, -1.0, 1.0)
+	if not _reverse_driving:
+		steer_target = clampf(atan2(cross_y, dot), -1.0, 1.0)
 	if hold_in_combat:
-		steer_target = clamp(cross_y * 0.7, -0.65, 0.65)
+		steer_target = clampf(steer_target * 0.7, -0.65, 0.65)
 	var turn_rate_scale: float = lerpf(0.2, 1.0, clampf(planar_speed / maxf(max_speed, 0.1), 0.0, 1.0))
 	if nudge_active:
 		turn_rate_scale = maxf(turn_rate_scale, 0.5)  # Don't let avoidance kill turn rate
 	if hold_in_combat:
 		turn_rate_scale = maxf(turn_rate_scale, 0.35)
+	if not _reverse_driving:
+		turn_rate_scale = maxf(turn_rate_scale, 0.75)
 
 	var throttle: float = 1.0
 	if hold_in_combat and current_target and is_instance_valid(current_target):
@@ -1015,6 +1023,8 @@ func _refresh_drive_command(delta: float) -> void:
 		else:
 			var closing_speed: float = clampf((target_distance - combat_stop_distance_m) / maxf(combat_hold_distance_m - combat_stop_distance_m, 1.0), 0.25, 0.7)
 			throttle = maxf(closing_speed, combat_creep_speed_mps / maxf(max_speed, 0.1))
+	if not _reverse_driving:
+		throttle *= pow(clampf(dot, 0.0, 1.0), 2.0)
 	_drive_command_steer = steer_target
 	_drive_command_turn_rate_scale = turn_rate_scale
 	_drive_command_throttle = throttle * (-reverse_speed_ratio if _reverse_driving else 1.0)

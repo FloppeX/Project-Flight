@@ -1,5 +1,7 @@
 extends Control
 
+const MAP_PALETTE := preload("res://UI/TacticalMapPalette.gd")
+
 const DATA_FONT: FontFile = preload("res://UI/Fonts/JetBrainsMono-Variable.ttf")
 const PLANE_ICON: Texture2D = preload("res://UI/MapIcons/plane.svg")
 const HELICOPTER_ICON: Texture2D = preload("res://UI/MapIcons/helicopter.svg")
@@ -11,25 +13,21 @@ const BORDER_COLOR: Color = Color(0.46, 0.78, 0.78, 0.82)
 const CENTER_RETICLE_COLOR: Color = Color(0.46, 0.78, 0.78, 0.28)
 const CORNER_BRACKET_LEN_PX: float = 18.0
 const CORNER_BRACKET_INSET_PX: float = 7.0
-const POI_ACTIVE_COLOR: Color = Color("ffb000")
-const POI_USED_COLOR: Color = Color("7d8282")
-const PLANT_PATCH_COLOR: Color = Color(0.42, 0.68, 0.34, 0.62)
-const PLANT_PATCH_OUTLINE_COLOR: Color = Color(0.74, 0.92, 0.58, 0.38)
+const POI_ACTIVE_COLOR: Color = MAP_PALETTE.RESOURCE
+const POI_USED_COLOR: Color = MAP_PALETTE.NEUTRAL
+const PLANT_PATCH_COLOR: Color = Color(MAP_PALETTE.RESOURCE, 0.35)
+const PLANT_PATCH_OUTLINE_COLOR: Color = Color(MAP_PALETTE.RESOURCE, 0.65)
 const DOWNED_PILOT_OUTLINE_COLOR: Color = Color(0.03, 0.03, 0.03, 0.92)
 
-@export var player_color: Color = Color("ffb000")
-@export var friendly_color: Color = Color("76c7c7")
-@export var enemy_color: Color = Color("ffb4ab")
-# Fog-of-war-lite: enemies NOT currently in the friendly sensor picture show in a muted version of their
-# real color (still on the map, but clearly not actively tracked). Set hide_unsensed_enemies=false to
+var friendly_color: Color = MAP_PALETTE.FRIENDLY
+var enemy_color: Color = MAP_PALETTE.HOSTILE
+# Enemies outside the current friendly sensor picture retain muted tactical
+# red (still on the map, but clearly not actively tracked). Set hide_unsensed_enemies=false to
 # draw everything full-color.
 @export var hide_unsensed_enemies: bool = true
 @export_range(0.0, 1.0, 0.05) var unsensed_brightness: float = 0.45  # how dark the muted color is
 @export_range(0.0, 1.0, 0.05) var unsensed_desaturate: float = 0.45  # how far toward grey
 @export_range(0.0, 1.0, 0.05) var unsensed_alpha: float = 0.65       # muted contact transparency
-@export var enemy_platoon_color: Color = Color("ff8a80")
-@export var carrier_color: Color = Color("76c7c7")
-@export var building_color: Color = Color("bfc9c0")
 @export var ground_marker_size_px: float = 5.0
 @export var building_marker_size_px: float = 8.5
 @export var platoon_marker_size_px: float = 10.0
@@ -37,16 +35,15 @@ const DOWNED_PILOT_OUTLINE_COLOR: Color = Color(0.03, 0.03, 0.03, 0.92)
 @export var carrier_marker_length_px: float = 18.0
 @export var carrier_marker_width_px: float = 12.0
 @export var downed_pilot_marker_size_px: float = 20.0
-@export var downed_pilot_color: Color = Color("ffb000")
+var downed_pilot_color: Color = MAP_PALETTE.FRIENDLY
 @export var platoon_reveal_observer_height_m: float = 12.0
 @export var platoon_reveal_target_height_m: float = 10.0
 @export var platoon_reveal_sample_step_m: float = 80.0
 @export var platoon_reveal_terrain_clearance_m: float = 4.0
 @export var platoon_reveal_max_range_m: float = 5000.0
-@export var carrier_waypoint_color: Color = Color(0.46, 0.78, 0.78, 0.9)
-@export var helicopter_waypoint_color: Color = Color(0.62, 0.86, 0.86, 0.9)
-@export var active_aircraft_waypoint_color: Color = Color(1.0, 0.69, 0.0, 1.0)
-@export var platoon_waypoint_color: Color = Color(0.75, 0.79, 0.75, 0.9)
+var carrier_waypoint_color: Color = MAP_PALETTE.ROUTE
+var helicopter_waypoint_color: Color = MAP_PALETTE.ROUTE
+var active_aircraft_waypoint_color: Color = MAP_PALETTE.ROUTE
 @export var waypoint_line_width_px: float = 1.6
 @export var waypoint_dot_size_px: float = 4.0
 @export var route_display_simplify_enabled: bool = true
@@ -54,8 +51,8 @@ const DOWNED_PILOT_OUTLINE_COLOR: Color = Color(0.03, 0.03, 0.03, 0.92)
 @export var route_display_simplify_turn_deg: float = 8.0
 @export var route_display_simplify_line_error_px: float = 5.0
 @export var route_display_simplify_altitude_error_m: float = 35.0
-@export var draft_waypoint_color: Color = Color(1.0, 0.69, 0.0, 0.95)
-@export var selection_color: Color = Color(1.0, 0.69, 0.0, 1.0)
+var draft_waypoint_color: Color = MAP_PALETTE.ROUTE
+var selection_color: Color = MAP_PALETTE.SELECTION
 @export var selection_marker_radius_px: float = 10.0
 @export var counter_margin_px: float = 12.0
 @export var counter_font_size_px: int = 14
@@ -78,7 +75,7 @@ var _selection_world_pos: Vector3 = Vector3.INF
 var _selection_world_color: Color = selection_color
 var _selection_route_origin_world: Vector3 = Vector3.INF
 var _selection_route_points: Array[Vector3] = []
-var _selection_route_color: Color = selection_color
+var _selection_route_color: Color = MAP_PALETTE.ROUTE
 var _selection_route_closed_loop: bool = false
 var _draft_origin_world: Vector3 = Vector3.INF
 var _draft_points: Array[Vector3] = []
@@ -166,7 +163,7 @@ func _draw() -> void:
 	if not TerrainNavGrid.is_ready():
 		return
 	_draw_vector_decor()
-	_draw_attack_area(_attack_area_center, _attack_area_radius_m, friendly_color)
+	_draw_attack_area(_attack_area_center, _attack_area_radius_m, MAP_PALETTE.ROUTE)
 	_draw_attack_area(_attack_draft_center, _attack_draft_radius_m, draft_waypoint_color)
 	_draw_plant_patch_markers()
 	var carrier := get_tree().get_first_node_in_group("carrier") as Node3D
@@ -224,11 +221,12 @@ func _draw() -> void:
 	_draw_enemy_outposts()
 	_draw_enemy_virtual_platoons()
 	_draw_poi_markers()
+	_draw_resource_markers()
 	_draw_selection_route()
 	_draw_command_draft()
-	_draw_attack_platoon(_attack_platoon_center, friendly_color)
+	_draw_attack_platoon(_attack_platoon_center, MAP_PALETTE.ROUTE)
 	_draw_attack_platoon(_attack_draft_platoon_center, draft_waypoint_color)
-	_draw_intercept_marker(_intercept_center, friendly_color)
+	_draw_intercept_marker(_intercept_center, MAP_PALETTE.ROUTE)
 	_draw_intercept_marker(_intercept_draft_center, draft_waypoint_color)
 	# Keep the selected aircraft visible over nearby contacts and route lines.
 	for aircraft in selected_markers:
@@ -296,9 +294,9 @@ func _draw_carrier_marker(carrier: Node3D) -> void:
 	var p1: Vector2 = center + right * half_width - forward * half_length
 	var p2: Vector2 = center + right * half_width + forward * half_length
 	var p3: Vector2 = center - right * half_width + forward * half_length
-	var c_color := Livery.get_team_hud_color(Livery.PLAYER_TEAM_ID)
+	var c_color := friendly_color
 	draw_polygon(PackedVector2Array([p0, p1, p2, p3]), PackedColorArray([c_color]))
-	draw_polyline(PackedVector2Array([p0, p1, p2, p3, p0]), Color(0.92, 0.98, 1.0, 1.0), 1.5)
+	draw_polyline(PackedVector2Array([p0, p1, p2, p3, p0]), c_color.darkened(0.25), 1.5)
 
 func _draw_air_marker(node_3d: Node3D, selected: bool = false) -> void:
 	if not _is_world_in_map_bounds(node_3d.global_position):
@@ -329,7 +327,7 @@ func _draw_air_silhouette(center: Vector2, heading: Vector2, color: Color, icon:
 	if selected:
 		for i in range(8):
 			var offset := Vector2.from_angle(float(i) * TAU / 8.0) * 2.0
-			draw_texture_rect(icon, Rect2(icon_rect.position + offset, icon_rect.size), false, Color.WHITE)
+			draw_texture_rect(icon, Rect2(icon_rect.position + offset, icon_rect.size), false, MAP_PALETTE.SELECTION)
 	draw_texture_rect(icon, icon_rect, false, color)
 	draw_set_transform(Vector2.ZERO)
 
@@ -338,6 +336,10 @@ func _draw_ground_marker(node_3d: Node3D) -> void:
 		return
 	var map_pos: Vector2 = _world_to_map(node_3d.global_position)
 	var color := _color_for_team_node(node_3d)
+	if node_3d.is_in_group("harvesters"):
+		_draw_square_marker(map_pos, 8.0, color, true)
+		draw_string(DATA_FONT, map_pos + Vector2(10, -5), "H", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, color)
+		return
 	if node_3d is Building or node_3d.is_in_group("buildings"):
 		_draw_square_marker(map_pos, building_marker_size_px, color, false)
 	else:
@@ -641,7 +643,7 @@ func clear_selection_focus() -> void:
 	_selection_world_pos = Vector3.INF
 	queue_redraw()
 
-func set_selection_route(origin_world: Vector3, route_points: Array[Vector3], color: Color = selection_color, closed_loop: bool = false) -> void:
+func set_selection_route(origin_world: Vector3, route_points: Array[Vector3], color: Color = MAP_PALETTE.ROUTE, closed_loop: bool = false) -> void:
 	_selection_route_origin_world = origin_world
 	_selection_route_points = route_points.duplicate()
 	_selection_route_color = color
@@ -701,9 +703,9 @@ func _is_world_explored(world_pos: Vector3) -> bool:
 
 
 func _is_enemy_node(node_3d: Node3D) -> bool:
-	if node_3d.is_in_group("enemies"):
-		return true
-	return node_3d.has_method("get_team") and int(node_3d.call("get_team")) == 2
+	if node_3d.has_method("get_team"):
+		return int(node_3d.call("get_team")) == 2
+	return node_3d.is_in_group("enemies") or node_3d.is_in_group("team_2") or node_3d.is_in_group("enemy_bases")
 
 func _world_to_map(world_pos: Vector3) -> Vector2:
 	var span_x: float = float(TerrainNavGrid._cols - 1) * TerrainNavGrid.cell_size_m
@@ -720,14 +722,11 @@ func _basis_to_map_forward(basis: Basis) -> Vector2:
 	return Vector2(forward_3d.x, forward_3d.z)
 
 func _color_for_team_node(node_3d: Node3D) -> Color:
-	if node_3d.has_method("get_team") and int(node_3d.call("get_team")) == 2:
-		var enemy: Color = Livery.get_team_hud_color(2)
-		# Enemies not currently in the friendly sensor picture are drawn muted (dimmed real color) --
-		# still on the map "for now", but clearly shown as not actively tracked by the player's side.
-		if not _is_visible_to_player(node_3d):
-			return _mute_color(enemy)
-		return enemy
-	return Livery.get_team_hud_color(Livery.PLAYER_TEAM_ID)
+	if _is_enemy_node(node_3d):
+		return enemy_color if _is_visible_to_player(node_3d) else _mute_color(enemy_color)
+	if (node_3d.has_method("get_team") and int(node_3d.call("get_team")) == 1) or node_3d.is_in_group("friendlies") or node_3d.is_in_group("team_1"):
+		return friendly_color
+	return MAP_PALETTE.NEUTRAL
 
 ## True if this node is currently detected by the friendly sensor network (carrier radar + any friendly
 ## aircraft/vehicle), via the AirOps fused picture. Team-1 (friendly) nodes are always visible.
@@ -735,7 +734,7 @@ func _is_visible_to_player(node_3d: Node3D) -> bool:
 	if node_3d == null or not is_instance_valid(node_3d):
 		return false
 	if not node_3d.has_method("get_team") or int(node_3d.call("get_team")) != 2:
-		return true  # own side is always visible
+		return true  # Preserve explored-site visibility; sensor fading applies to team-2 units.
 	if not hide_unsensed_enemies:
 		return true
 	if AirOpsManager != null and is_instance_valid(AirOpsManager) and AirOpsManager.has_method("is_contact_detected"):
@@ -756,7 +755,7 @@ func _mute_color(c: Color) -> Color:
 
 
 func _nearest_base_color(_pos: Vector3) -> Color:
-	return Livery.get_team_hud_color(2)
+	return enemy_color
 
 func _is_enemy_platoon_revealed(target_world_pos: Vector3) -> bool:
 	var carrier := get_tree().get_first_node_in_group("carrier") as Node3D
@@ -840,7 +839,7 @@ func _draw_enemy_bases() -> void:
 			continue
 		var mp    := _world_to_map(base_pos)
 		var base_sensed: bool = _is_visible_to_player(base)
-		var color := Livery.get_team_hud_color(2)
+		var color := enemy_color
 		if not base_sensed:
 			color = _mute_color(color)
 
@@ -853,7 +852,7 @@ func _draw_enemy_bases() -> void:
 		draw_colored_polygon(diamond, color)
 		draw_polyline(PackedVector2Array([
 			diamond[0], diamond[1], diamond[2], diamond[3], diamond[0]
-		]), Color(1.0, 1.0, 1.0, 0.55 * (unsensed_alpha if not base_sensed else 1.0)), 1.2)
+		]), Color(color.darkened(0.25), color.a), 1.2)
 
 		# Distant flights use the same silhouette as their materialized aircraft.
 		for flight in base.get_flights():
@@ -864,7 +863,7 @@ func _draw_enemy_bases() -> void:
 			var fmp := _world_to_map(flight.position)
 			var fh  := Vector2(flight.heading.x, flight.heading.z)
 			var alpha := 0.50 if flight.vstate == EnemyVirtualFlight.VState.VIRTUAL else 1.0
-			var fc    := Color(color.r, color.g, color.b, alpha)
+			var fc    := Color(enemy_color, alpha)
 			var icon := PLANE_ICON
 			for member in flight.active_aircraft:
 				if is_instance_valid(member):
@@ -880,7 +879,7 @@ func _draw_enemy_outposts() -> void:
 		if not _is_world_in_map_bounds(station.global_position):
 			continue
 		var mp := _world_to_map(station.global_position)
-		var color := Color("92908a") if station.is_destroyed else enemy_color
+		var color := MAP_PALETTE.NEUTRAL if station.is_destroyed else enemy_color
 		if not station.is_destroyed and show_outpost_range_estimates:
 			# A dashed maximum-range estimate, not a claim of visibility through hills.
 			for segment in range(32):
@@ -901,7 +900,7 @@ func _draw_enemy_outposts() -> void:
 
 
 func _draw_enemy_virtual_platoons() -> void:
-	var color := Livery.get_team_hud_color(2)
+	var color := enemy_color
 	for base in EnemyBaseManager.get_all_bases():
 		if not is_instance_valid(base):
 			continue
@@ -928,8 +927,39 @@ func _draw_poi_markers() -> void:
 		if awaiting_orders:
 			var pulse := 0.5 + 0.5 * sin(float(Time.get_ticks_msec()) * 0.006)
 			radius += pulse * 2.0
-			draw_arc(map_pos, radius + 5.0 + pulse * 3.0, 0.0, TAU, 24, Color(1.0, 0.69, 0.0, 0.35 + pulse * 0.35), 1.5)
+			draw_arc(map_pos, radius + 5.0 + pulse * 3.0, 0.0, TAU, 24, Color(MAP_PALETTE.RESOURCE, 0.35 + pulse * 0.35), 1.5)
 		_draw_star(map_pos, radius, color)
+
+func _draw_resource_markers() -> void:
+	var field := POIManager.get_resource_field()
+	for source in field.sources:
+		if not bool(source.discovered):
+			continue
+		var at: Vector3 = source.position
+		if not _is_world_in_map_bounds(at):
+			continue
+		var point := _world_to_map(at)
+		var corium := str(source.get("kind", "")) == "corium"
+		var exhausted: bool = field.remaining(source) <= 0.01
+		var active := str(source.get("seep_phase", "seeping")) == "seeping"
+		var color: Color = MAP_PALETTE.NEUTRAL if exhausted else MAP_PALETTE.RESOURCE
+		if corium and not active and not exhausted:
+			color = MAP_PALETTE.RESOURCE.darkened(0.35)
+		if corium and active and not exhausted:
+			var hazard_m := float(source.get("hazard_radius", 0.0))
+			var hazard_px := point.distance_to(_world_to_map(at + Vector3.RIGHT * hazard_m))
+			if hazard_px > 8.0:
+				draw_arc(point, hazard_px, 0.0, TAU, 32, Color(1.0, 0.56, 0.18, 0.55), 1.0, true)
+		var diamond := PackedVector2Array([point + Vector2(0, -6), point + Vector2(6, 0), point + Vector2(0, 6), point + Vector2(-6, 0), point + Vector2(0, -6)])
+		draw_polyline(diamond, color, 1.5, true)
+		var label := "P %.0f" % float(source.materials.plasteel)
+		if corium:
+			label = "C %.0f / R %.0f %s" % [float(source.materials.corium), float(source.get("reserve_corium", 0.0)), "EXHAUSTED" if exhausted else ("SEEP" if active else "DORMANT")]
+		elif float(source.materials.corium) > 0.0:
+			label = "C %.0f / P %.0f" % [float(source.materials.corium), float(source.materials.plasteel)]
+		elif exhausted:
+			label = "P 0 EXHAUSTED"
+		draw_string(DATA_FONT, point + Vector2(10, 4), label, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, color)
 
 func _draw_star(center: Vector2, radius: float, color: Color) -> void:
 	var pts := PackedVector2Array()
@@ -941,7 +971,7 @@ func _draw_star(center: Vector2, radius: float, color: Color) -> void:
 	draw_colored_polygon(pts, color)
 	draw_polyline(PackedVector2Array([pts[0], pts[1], pts[2], pts[3], pts[4],
 		pts[5], pts[6], pts[7], pts[8], pts[9], pts[0]]),
-		Color(1.0, 1.0, 1.0, 0.40), 1.0)
+		Color(color.darkened(0.25), 0.6), 1.0)
 
 func _draw_selection_focus() -> void:
 	if not _is_world_in_map_bounds(_selection_world_pos):

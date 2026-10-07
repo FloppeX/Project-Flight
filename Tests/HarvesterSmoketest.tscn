@@ -1,0 +1,4 @@
+[gd_scene format=3]
+[ext_resource type="Script" path="res://Tests/HarvesterSmoketest.gd" id="test"]
+[node name="HarvesterSmoketest" type="Node3D"]
+script = ExtResource("test")

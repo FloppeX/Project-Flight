@@ -66,4 +66,4 @@ func _update_pose(delta: float = -1.0) -> void:
 	_connector_pivot.rotation = _base_connector_rotation + _deg_vec_to_rad(connector_stowed_rotation_degrees) * tuck_alpha
 	_wheel_pivot.rotation = _base_wheel_rotation
 
-	visible = deploy_progress > 0.0 or not hide_when_stowed
+	visible = not bool(get_meta("damage_detached", false)) and (deploy_progress > 0.0 or not hide_when_stowed)

@@ -5,6 +5,7 @@ var _materials: Array[ShaderMaterial] = []
 var _ground: MultiMeshInstance3D
 var _ground_material: StandardMaterial3D
 var _fog_material: ShaderMaterial
+var _fog: FogVolume
 var _audio: AudioStreamPlayer3D
 var _ground_timer := 0.0
 const SAND_TINT := Color(0.80, 0.68, 0.46)
@@ -36,6 +37,7 @@ func setup(twister: Node3D) -> void:
 	_ground.material_override = _ground_material
 	add_child(_ground)
 	var fog := FogVolume.new()
+	_fog = fog
 	fog.size = Vector3(1000, twister.height_m + 60, 1000)
 	fog.position.y = twister.height_m * 0.5 - 20.0
 	_fog_material = ShaderMaterial.new()
@@ -52,6 +54,24 @@ func setup(twister: Node3D) -> void:
 	_audio.max_db = -8.0
 	_audio.pitch_scale = 0.7
 	add_child(_audio)
+	refresh_shape()
+
+func refresh_shape() -> void:
+	var radius: float = maxf(_twister.get_funnel_radius(0.0), _twister.get_funnel_radius(1.0))
+	var extent: float = radius * 1.7 + _twister.bend_scale.length() + 50.0
+	var bounds := AABB(Vector3(-extent, -50.0, -extent), Vector3(extent * 2.0, _twister.height_m + 150.0, extent * 2.0))
+	for child in get_children():
+		if child is GeometryInstance3D:
+			child.custom_aabb = bounds
+	_fog.size = Vector3(extent * 2.0, _twister.height_m + 60.0, extent * 2.0)
+	_fog.position.y = _twister.height_m * 0.5 - 20.0
+	_fog_material.set_shader_parameter("box_size", _fog.size)
+	for material in _materials + [_fog_material]:
+		material.set_shader_parameter("height_m", _twister.height_m)
+		material.set_shader_parameter("funnel_profile", _twister.funnel_profile)
+		material.set_shader_parameter("bend_scale", _twister.bend_scale)
+		material.set_shader_parameter("shape_phase", _twister.shape_phase)
+	_ground_timer = 0.0
 
 func _multimesh(count: int) -> MultiMesh:
 	var mesh := SphereMesh.new()
@@ -127,11 +147,12 @@ func _update_ground() -> void:
 	for i in 64:
 		var phase := fmod(float(i) * 0.618034 + _twister.elapsed_s * 0.06, 1.0)
 		var angle: float = float(i) * 2.39996 + _twister.elapsed_s * 0.6
-		var radius := 60.0 + phase * 190.0
+		var ground_scale: float = _twister.influence_radius_m / 550.0
+		var radius := (60.0 + phase * 190.0) * ground_scale
 		var pos := Vector3(cos(angle) * radius, 0, sin(angle) * radius)
 		pos.y = _twister.ground_height(global_position + pos) - global_position.y + 8.0 + phase * 24.0
 		# Grow and dissipate before wrapping the orbit back to the inner ring.
-		var scale_m := sin(phase * PI) * (38.0 + sin(float(i) * 7.13) * 10.0)
+		var scale_m := sin(phase * PI) * (38.0 + sin(float(i) * 7.13) * 10.0) * ground_scale
 		_ground.multimesh.set_instance_transform(i, Transform3D(Basis.IDENTITY.scaled(Vector3(scale_m, scale_m * 0.65, scale_m)), pos))
 
 func _funnel_mesh() -> ArrayMesh:

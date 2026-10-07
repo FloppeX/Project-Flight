@@ -372,13 +372,16 @@ func spawn_environment_entry(entry: Dictionary) -> Node3D:
 	var frame := _get_spawn_frame()
 	var origin: Vector3 = frame["origin"] as Vector3
 	var forward: Vector3 = frame["forward"] as Vector3
-	var half_depth: float = front.get("half_depth_m")
+	var appearance: Dictionary = front.create_appearance()
+	# Place the actual irregular leading edge 600 m ahead of the viewer.
+	var outline: Vector4 = front.SHAPE.decode_outline(appearance.outline, front.outline)
+	var half_depth: float = float(appearance.depth) * front.SHAPE.edge(PI * 0.5, outline)
 	var center := origin + forward * (half_depth + 600.0)
 	var ground_height := _sample_terrain_height(center)
 	center.y = ground_height - 180.0 if not is_nan(ground_height) else origin.y - 550.0
 	front.set("enabled", true)
 	front.set("severity", clampi(int(entry.get("severity", 2)), 1, 5))
-	front.call("start_at", center, -forward)
+	front.call("start_at", center, -forward, appearance)
 	# The spawn menu is for inspection: make the wall visible as soon as play resumes.
 	front.set("elapsed_s", 45.0)
 	front.set("strength", 1.0)
@@ -853,6 +856,36 @@ static func _build_spawn_catalog() -> Array[Dictionary]:
 			"spawn_kind": "enemy_platoon",
 			"count": 4,
 			"sort_index": 4,
+		},
+		{
+			"name": "FIGHTER-BOMBER FLIGHT // AIRCRAFT 16",
+			"description": "Deploy four hostile Aircraft 16 fighter-bombers with guns, bombs, and rockets for a ground strike.",
+			"category": "ENEMY FORCES",
+			"spawn_kind": "enemy_flight",
+			"role": "fighter_bomber",
+			"scene": "res://Aircraft/Aircraft_16.tscn",
+			"count": 4,
+			"sort_index": 5,
+		},
+		{
+			"name": "HELICOPTER FLIGHT // AIRCRAFT 13",
+			"description": "Deploy four hostile Aircraft 13 scout helicopters to attack the carrier or nearby opposing ground vehicles with rockets.",
+			"category": "ENEMY FORCES",
+			"spawn_kind": "enemy_flight",
+			"role": "scout_helicopter",
+			"scene": "res://Aircraft/Aircraft_13.tscn",
+			"count": 4,
+			"sort_index": 6,
+		},
+		{
+			"name": "HELICOPTER FLIGHT // AIRCRAFT 15",
+			"description": "Deploy four hostile Aircraft 15 attack helicopters to attack the carrier or nearby opposing ground vehicles with rockets.",
+			"category": "ENEMY FORCES",
+			"spawn_kind": "enemy_flight",
+			"role": "attack_helicopter",
+			"scene": "res://Aircraft/Aircraft_15.tscn",
+			"count": 4,
+			"sort_index": 7,
 		},
 	])
 

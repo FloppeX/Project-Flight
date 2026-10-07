@@ -91,6 +91,7 @@ func accepts(order: OpsOrder) -> bool:
 				OpsOrder.Kind.PROTECT_POSITION,
 				OpsOrder.Kind.PURSUE_ENEMIES,
 				OpsOrder.Kind.ESCORT_CARRIER,
+				OpsOrder.Kind.ESCORT_HARVESTER,
 				OpsOrder.Kind.HOLD_POSITION,
 				OpsOrder.Kind.RETURN_TO_BASE,
 				OpsOrder.Kind.RECOVER,
@@ -186,12 +187,12 @@ func try_begin_ground_retrieval() -> bool:
 	var ground_ops := unit.get_node_or_null("/root/GroundOpsManager")
 	var platoon_id := str(platoon.get("platoon_id"))
 	if ground_ops != null and not platoon_id.is_empty() and ground_ops.has_method("retrieve"):
-		ground_ops.call("retrieve", platoon_id)
-		return true
+		return bool(ground_ops.call("retrieve", platoon_id))
 	var carrier := _get_carrier()
 	if carrier != null and "vehicle_bay" in carrier:
 		var bay: Variant = carrier.get("vehicle_bay")
 		if is_instance_valid(bay) and bay.has_method("retrieve_vehicles"):
+			if bay.has_method("can_retrieve_vehicles") and not bay.can_retrieve_vehicles(): return false
 			bay.call("retrieve_vehicles", platoon.get_members())
 			return true
 	return false
@@ -269,6 +270,10 @@ func _accept_ground_order(order: OpsOrder) -> bool:
 			if escort_carrier == null:
 				return false
 			platoon.set_escort_carrier(escort_carrier, order.radius_m if is_finite(order.radius_m) else 100.0)
+		OpsOrder.Kind.ESCORT_HARVESTER:
+			var escort_carrier := _get_carrier()
+			if escort_carrier == null: return false
+			platoon.set_escort_harvester(escort_carrier, order.radius_m if is_finite(order.radius_m) else 65.0)
 		OpsOrder.Kind.HOLD_POSITION:
 			platoon.set_hold_objective()
 		OpsOrder.Kind.RETURN_TO_BASE, OpsOrder.Kind.RECOVER:

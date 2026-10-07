@@ -2,7 +2,7 @@
 
 [ext_resource type="Script" uid="uid://c4ltq2v6fji05" path="res://Aircraft/aircraft.gd" id="1_aircraft"]
 [ext_resource type="PackedScene" uid="uid://cadi81fcpvmuc" path="res://Projectiles/Explosion/explosion.tscn" id="2_explosion"]
-[ext_resource type="PackedScene" uid="uid://bsyj1okkth3en" path="res://Models/Aircraft_13/aircraft_13.glb" id="3_model"]
+[ext_resource type="PackedScene" path="res://Models/Aircraft_13/aircraft_13_damage.glb" id="3_model"]
 [ext_resource type="PackedScene" uid="uid://djtbinx1svo2u" path="res://Aircraft/Aircraft wreck/aircraft_1_wreck.tscn" id="4_wreck"]
 [ext_resource type="Script" uid="uid://cef6lhgwhvqck" path="res://Aircraft/HelicopterFlight.gd" id="5_aero"]
 [ext_resource type="PackedScene" uid="uid://2iprlcyidpwa" path="res://Models/Aircraft_9/rotor disc.glb" id="6_ns3yf"]
@@ -38,9 +38,13 @@
 [ext_resource type="Script" uid="uid://q2od5mw1veln" path="res://Aircraft/Visuals/HeliSwingDoors.gd" id="44_swing_doors"]
 [ext_resource type="PackedScene" path="res://Aircraft/Visuals/TailRotorDisc.tscn" id="46_tail_disc"]
 [ext_resource type="PackedScene" path="res://Aircraft/Visuals/InsigniaMarker.tscn" id="45_insignia"]
-[ext_resource type="AudioStream" uid="uid://hc5s8h1mbj2t" path="res://Audio/engine/helicopter/Helicopter3SlowExt.wav" id="101_rotor_slow"]
-[ext_resource type="AudioStream" uid="uid://b8qaayg6jjf6u" path="res://Audio/engine/helicopter/Helicopter3MedExt.wav" id="102_rotor_medium"]
-[ext_resource type="AudioStream" uid="uid://b63dtvvrs03bl" path="res://Audio/engine/helicopter/Helicopter3FastExt.wav" id="103_rotor_fast"]
+[ext_resource type="AudioStream" path="res://Audio/engine/helicopter/profiles/d/rotor_0.ogg" id="101_rotor_0"]
+[ext_resource type="AudioStream" path="res://Audio/engine/helicopter/profiles/d/rotor_1.ogg" id="102_rotor_1"]
+[ext_resource type="AudioStream" path="res://Audio/engine/helicopter/profiles/d/rotor_2.ogg" id="103_rotor_2"]
+[ext_resource type="AudioStream" path="res://Audio/engine/helicopter/profiles/d/rotor_3.ogg" id="104_rotor_3"]
+[ext_resource type="AudioStream" path="res://Audio/engine/helicopter/profiles/d/rotor_4.ogg" id="105_rotor_4"]
+
+[ext_resource type="Script" path="res://Aircraft/HelicopterDamageModel.gd" id="helicopter_damage"]
 
 [sub_resource type="PhysicsMaterial" id="PhysicsMaterial_lowfriction"]
 friction = 0.75
@@ -93,9 +97,7 @@ transform = Transform3D(0, 0.68, 0, -0.68, 0, 0, 0, 0, 0.68, 0.23177, 0.14214, -
 [node name="RotorAssembly" type="Node3D" parent="." unique_id=1697660502]
 script = ExtResource("6_rotor_script")
 upper_blade_yaws_deg = PackedFloat32Array(0, 180)
-rotor_audio_slow_stream = ExtResource("101_rotor_slow")
-rotor_audio_medium_stream = ExtResource("102_rotor_medium")
-rotor_audio_fast_stream = ExtResource("103_rotor_fast")
+rotor_audio_streams = Array[AudioStream]([ExtResource("101_rotor_0"), ExtResource("102_rotor_1"), ExtResource("103_rotor_2"), ExtResource("104_rotor_3"), ExtResource("105_rotor_4")])
 
 [node name="rotor disc2" parent="RotorAssembly" unique_id=1135955000 instance=ExtResource("6_ns3yf")]
 transform = Transform3D(0.601, 0, 0, 0, 0.45, 0, 0, 0, 0.601, 0, 1.5292944, 0)
@@ -226,6 +228,7 @@ lock_deployed = true
 gear_collision_shapes = [NodePath("../RightRearSkidContact"), NodePath("../RightFrontSkidContact"), NodePath("../LeftRearSkidContact"), NodePath("../LeftFrontSkidContact")]
 auxiliary_safe_collision_shapes = [NodePath("../LeftGearCollider"), NodePath("../RightGearCollider")]
 gear_visuals = [null, null, null, null]
+damage_visual_root_paths = Array[NodePath]([NodePath("../aircraft_13/landing struts")])
 InitialState = 1
 DeployStowTime = 2.0
 DeploySound = ExtResource("14_gear_deploy")
@@ -399,3 +402,7 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.8, 0.88, 0.7)
 
 [node name="DoorHingeLeft_2" type="Node3D" parent="." unique_id=1950025628]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.8, -0.45, 0.7)
+
+[node name="PartDamageModel" type="Node" parent="."]
+script = ExtResource("helicopter_damage")
+aircraft_number = 13

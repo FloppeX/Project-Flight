@@ -13,15 +13,48 @@ var initialized := false
 var _direction := Vector3.RIGHT
 var _terrain: Node3D
 var _damage_timer := 0.0
+var funnel_profile := Vector4(48.0, 210.0, 70.0, 2.0)
+var bend_scale := Vector2(95.0, 65.0)
+var shape_phase := 0.0
+var _base_dimensions := Vector2.ZERO
+var _shape_rng := RandomNumberGenerator.new()
+var _visuals: Node3D
 
 func _ready() -> void:
 	add_to_group("twister")
 	process_physics_priority = -110
-	var visuals := preload("res://Weather/TwisterVisuals.gd").new()
-	add_child(visuals)
-	visuals.setup(self)
+	_base_dimensions = Vector2(height_m, influence_radius_m)
+	_shape_rng.randomize()
+	_visuals = preload("res://Weather/TwisterVisuals.gd").new()
+	add_child(_visuals)
+	_visuals.setup(self)
 
-func start_at(center: Vector3, direction: Vector3) -> void:
+func create_appearance() -> Dictionary:
+	var profiles := [Vector4(32.0, 160.0, 45.0, 3.0), Vector4(105.0, 190.0, 85.0, 1.3),
+		Vector4(55.0, 300.0, 65.0, 2.8)]
+	var size := _shape_rng.randf_range(0.75, 1.35)
+	var profile: Vector4 = profiles[_shape_rng.randi_range(0, 2)]
+	profile = Vector4(profile.x * size, profile.y * size, profile.z * size, profile.w)
+	var bend := Vector2(95.0, 65.0) * size * _shape_rng.randf_range(0.4, 1.7)
+	return {"height": _base_dimensions.x * _shape_rng.randf_range(0.7, 1.45),
+		"influence": _base_dimensions.y * size, "profile": [profile.x, profile.y, profile.z, profile.w],
+		"bend": [bend.x, bend.y], "phase": _shape_rng.randf_range(-PI, PI)}
+
+func capture_appearance() -> Dictionary:
+	return {"height": height_m, "influence": influence_radius_m,
+		"profile": [funnel_profile.x, funnel_profile.y, funnel_profile.z, funnel_profile.w],
+		"bend": [bend_scale.x, bend_scale.y], "phase": shape_phase}
+
+func start_at(center: Vector3, direction: Vector3, appearance: Dictionary = {}) -> void:
+	var profile := create_appearance() if appearance.is_empty() else appearance
+	height_m = maxf(float(profile.get("height", _base_dimensions.x)), 100.0)
+	influence_radius_m = maxf(float(profile.get("influence", _base_dimensions.y)), 100.0)
+	var funnel: Array = profile.get("profile", [48.0, 210.0, 70.0, 2.0])
+	funnel_profile = Vector4(float(funnel[0]), float(funnel[1]), float(funnel[2]), float(funnel[3]))
+	var bend: Array = profile.get("bend", [95.0, 65.0])
+	bend_scale = Vector2(float(bend[0]), float(bend[1]))
+	shape_phase = float(profile.get("phase", 0.0))
+	_visuals.refresh_shape()
 	global_transform = Transform3D(Basis.IDENTITY, center)
 	_direction = Vector3(direction.x, 0, direction.z).normalized()
 	if _direction.is_zero_approx():
@@ -62,12 +95,12 @@ func get_travel_velocity() -> Vector3:
 
 func get_axis_offset(height_fraction: float) -> Vector3:
 	var h := clampf(height_fraction, 0.0, 1.0)
-	return Vector3(sin(h * 3.0 + elapsed_s * 0.13) * 95.0 * h,
-		0.0, cos(h * 4.0 - elapsed_s * 0.11) * 65.0 * h)
+	return Vector3(sin(h * 3.0 + elapsed_s * 0.13 + shape_phase) * bend_scale.x * h,
+		0.0, cos(h * 4.0 - elapsed_s * 0.11 - shape_phase) * bend_scale.y * h)
 
 func get_funnel_radius(height_fraction: float) -> float:
 	var h := clampf(height_fraction, 0.0, 1.0)
-	return 48.0 + 210.0 * h * h + 70.0 * exp(-h * 32.0)
+	return funnel_profile.x + funnel_profile.y * pow(h, funnel_profile.w) + funnel_profile.z * exp(-h * 32.0)
 
 func _sample_frame(point: Vector3) -> Vector3:
 	var p := point - global_position
@@ -135,5 +168,5 @@ func get_footprint(scale_factor: float = 1.0, future_s: float = 0.0) -> PackedVe
 	for i in 65:
 		var angle := TAU * float(i) / 64.0
 		# Include the leaning upper column in the conservative map warning ring.
-		points.append(global_position + Vector3(cos(angle), 0, sin(angle)) * (influence_radius_m + 100.0) * scale_factor + get_travel_velocity() * future_s)
+		points.append(global_position + Vector3(cos(angle), 0, sin(angle)) * (influence_radius_m + bend_scale.length()) * scale_factor + get_travel_velocity() * future_s)
 	return points

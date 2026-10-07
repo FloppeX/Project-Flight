@@ -1,0 +1,109 @@
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+
+ERROR: Failed to read the root certificate store.
+   at: get_system_ca_certificates (platform/windows/os_windows.cpp:2582)
+[CockpitPilotPool] reserve_ready size=2 created=2 animation_prepare_ms=481.641 animation_prepare_max_ms=481.109
+[AirOpsManager] Ready — flights: Archer, Bulldog, Crimson, Dingo
+[CombatLog] [    0.0] SYS    Combat log online.
+[GroundOps] Ready — platoons: Ember, Ferret, Grizzly, Hammer
+[PerfHitch] Writing C:/Godot projects/Project-Flight/logs/helicopter_envelope_userdata/Godot/app_userdata/Land Carrier/perf_logs/hitch_events.csv threshold_ms=33.0 mark_action=flight_log_mark
+[FrameProfilerReportCapture] enabled (ambient_hitch_trace)
+[godot_ai game_helper] registered mcp capture (debugger active=false, logger=true)
+[Flight Archer] CAP  alt=800m
+[Flight Bulldog] CAP  alt=800m
+[Flight Crimson] CAP  alt=800m
+[Flight Dingo] CAP  alt=800m
+[Resolution] selected=(1920, 1080) window=(0, 0) root=(64, 64) screen=(0, 0) content=(1920, 1080) content_mode=2 content_aspect=1 content_factor=1.0 viewport=(1920.0, 1080.0) 3d_scale=1.0 mode=1
+[InstrumentPanelPool] render_warm panel=PooledInstrumentPanel1 elapsed_ms=23.461
+[InstrumentPanelPool] render_warm panel=PooledInstrumentPanel2 elapsed_ms=106.645
+WARNING: [WingFold] Wing nodes not found — check GLB node names
+   at: push_warning (core/variant/variant_utility.cpp:1033)
+   GDScript backtrace (most recent call first):
+       [0] _cache_wing_nodes (res://Aircraft/WingFold.gd:53)
+       [1] _ready (res://Aircraft/WingFold.gd:41)
+       [2] spawn (res://Tests/RegionalAircraftDamageSmoketest.gd:17)
+       [3] input_case (res://Tests/TriggerWheelBrakeSmoketest.gd:52)
+       [4] _run (res://Tests/TriggerWheelBrakeSmoketest.gd:27)
+       [5] input_case (res://Tests/TriggerWheelBrakeSmoketest.gd:88)
+       [6] clear_aircraft (res://Tests/RoughLandingDamageSmoketest.gd:28)
+[CombatLog] [    2.4] LAND   T1:Aircraft_5 terrain touchdown sink=4.6 m/s relative=4.6 m/s
+[CombatLog] [    2.5] LAND   T1:Aircraft_5 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    2.6] LAND   T1:Aircraft_5 terrain touchdown sink=0.2 m/s relative=19.7 m/s
+[CombatLog] [    2.8] LAND   T1:Aircraft_5 terrain touchdown sink=0.0 m/s relative=18.9 m/s
+[CombatLog] [    2.9] LAND   T1:Aircraft_5 terrain touchdown sink=0.1 m/s relative=18.0 m/s
+[CombatLog] [    3.0] LAND   T1:Aircraft_5 terrain touchdown sink=0.1 m/s relative=17.2 m/s
+[CombatLog] [    3.2] LAND   T1:Aircraft_5 terrain touchdown sink=0.1 m/s relative=16.4 m/s
+[CombatLog] [    3.3] LAND   T1:Aircraft_5 terrain touchdown sink=0.0 m/s relative=15.6 m/s
+WHEEL_BRAKE_ROLLOUT aircraft=5 pressure=0.0 speed_2s=18.9274311065674 speed_8s=15.6326446533203
+[CombatLog] [    3.4] LAND   T1:Aircraft_5 terrain touchdown sink=4.6 m/s relative=4.6 m/s
+[CombatLog] [    3.6] LAND   T1:Aircraft_5 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    3.7] LAND   T1:Aircraft_5 terrain touchdown sink=0.2 m/s relative=18.8 m/s
+[CombatLog] [    3.8] LAND   T1:Aircraft_5 terrain touchdown sink=0.2 m/s relative=15.3 m/s
+[CombatLog] [    4.0] LAND   T1:Aircraft_5 terrain touchdown sink=0.2 m/s relative=11.5 m/s
+[CombatLog] [    4.1] LAND   T1:Aircraft_5 terrain touchdown sink=0.1 m/s relative=8.0 m/s
+[CombatLog] [    4.2] LAND   T1:Aircraft_5 terrain touchdown sink=0.6 m/s relative=4.7 m/s
+[CombatLog] [    4.3] LAND   T1:Aircraft_5 terrain touchdown sink=0.0 m/s relative=1.3 m/s
+WHEEL_BRAKE_ROLLOUT aircraft=5 pressure=0.525 speed_2s=15.2128591537476 speed_8s=1.21548974514008
+[CombatLog] [    4.4] LAND   T1:Aircraft_5 terrain touchdown sink=4.6 m/s relative=4.6 m/s
+[CombatLog] [    4.6] LAND   T1:Aircraft_5 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    4.7] LAND   T1:Aircraft_5 terrain touchdown sink=0.2 m/s relative=18.0 m/s
+[CombatLog] [    4.8] LAND   T1:Aircraft_5 terrain touchdown sink=0.1 m/s relative=11.9 m/s
+[CombatLog] [    5.0] LAND   T1:Aircraft_5 terrain touchdown sink=0.3 m/s relative=5.8 m/s
+[CombatLog] [    5.1] LAND   T1:Aircraft_5 terrain touchdown sink=0.2 m/s relative=0.0 m/s
+[CombatLog] [    5.2] LAND   T1:Aircraft_5 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    5.4] LAND   T1:Aircraft_5 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+WHEEL_BRAKE_ROLLOUT aircraft=5 pressure=1.0 speed_2s=11.8176012039185 speed_8s=0.00471929088235
+[CombatLog] [    5.5] LAND   T1:Aircraft_16 terrain touchdown sink=4.6 m/s relative=4.6 m/s
+[CombatLog] [    5.6] LAND   T1:Aircraft_16 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    5.7] LAND   T1:Aircraft_16 terrain touchdown sink=0.0 m/s relative=19.8 m/s
+[CombatLog] [    5.8] LAND   T1:Aircraft_16 terrain touchdown sink=0.0 m/s relative=19.0 m/s
+[CombatLog] [    6.0] LAND   T1:Aircraft_16 terrain touchdown sink=0.0 m/s relative=18.3 m/s
+[CombatLog] [    6.1] LAND   T1:Aircraft_16 terrain touchdown sink=0.0 m/s relative=17.7 m/s
+[CombatLog] [    6.2] LAND   T1:Aircraft_16 terrain touchdown sink=0.0 m/s relative=17.0 m/s
+[CombatLog] [    6.3] LAND   T1:Aircraft_16 terrain touchdown sink=0.0 m/s relative=16.4 m/s
+WHEEL_BRAKE_ROLLOUT aircraft=16 pressure=0.0 speed_2s=19.0221691131592 speed_8s=16.4422702789307
+[CombatLog] [    6.4] LAND   T1:Aircraft_16 terrain touchdown sink=4.6 m/s relative=4.6 m/s
+[CombatLog] [    6.6] LAND   T1:Aircraft_16 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    6.7] LAND   T1:Aircraft_16 terrain touchdown sink=0.0 m/s relative=18.6 m/s
+[CombatLog] [    6.8] LAND   T1:Aircraft_16 terrain touchdown sink=0.0 m/s relative=14.2 m/s
+[CombatLog] [    7.0] LAND   T1:Aircraft_16 terrain touchdown sink=0.0 m/s relative=10.1 m/s
+[CombatLog] [    7.1] LAND   T1:Aircraft_16 terrain touchdown sink=0.0 m/s relative=6.1 m/s
+[CombatLog] [    7.2] LAND   T1:Aircraft_16 terrain touchdown sink=0.0 m/s relative=2.2 m/s
+[CombatLog] [    7.4] LAND   T1:Aircraft_16 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+WHEEL_BRAKE_ROLLOUT aircraft=16 pressure=0.525 speed_2s=14.1747312545776 speed_8s=0.0061023812741
+[CombatLog] [    7.5] LAND   T1:Aircraft_16 terrain touchdown sink=4.6 m/s relative=4.6 m/s
+WARNING: [Physics interpolation] Interpolated Camera3D triggered from outside physics process: "/root/TriggerWheelBrakeSmoketest/@Node3D@877/Aircraft_16/CameraCockpit/Camera3D" (possibly benign).
+   at: _notification (scene/3d/camera_3d.cpp:218)
+[CombatLog] [    7.6] LAND   T1:Aircraft_16 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    7.8] LAND   T1:Aircraft_16 terrain touchdown sink=0.0 m/s relative=17.7 m/s
+[CombatLog] [    7.9] LAND   T1:Aircraft_16 terrain touchdown sink=0.0 m/s relative=10.6 m/s
+[CombatLog] [    8.0] LAND   T1:Aircraft_16 terrain touchdown sink=0.0 m/s relative=3.7 m/s
+[CombatLog] [    8.2] LAND   T1:Aircraft_16 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    8.3] LAND   T1:Aircraft_16 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    8.4] LAND   T1:Aircraft_16 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+WHEEL_BRAKE_ROLLOUT aircraft=16 pressure=1.0 speed_2s=10.5331764221191 speed_8s=0.01564978063107
+[CombatLog] [    8.5] LAND   T1:Aircraft_5 terrain touchdown sink=4.6 m/s relative=4.6 m/s
+[CombatLog] [    8.7] LAND   T1:Aircraft_5 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    8.8] LAND   T1:Aircraft_5 terrain touchdown sink=0.1 m/s relative=6.9 m/s
+[CombatLog] [    8.9] LAND   T1:Aircraft_5 terrain touchdown sink=0.0 m/s relative=6.6 m/s
+WHEEL_BRAKE_STEERING left=0.5 right=0.0 turn_deg=0.74087106533466 speed=6.62353563308716
+[CombatLog] [    9.0] LAND   T1:Aircraft_5 terrain touchdown sink=4.6 m/s relative=4.6 m/s
+[CombatLog] [    9.1] LAND   T1:Aircraft_5 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    9.3] LAND   T1:Aircraft_5 terrain touchdown sink=0.2 m/s relative=6.2 m/s
+[CombatLog] [    9.4] LAND   T1:Aircraft_5 terrain touchdown sink=0.2 m/s relative=3.9 m/s
+WHEEL_BRAKE_STEERING left=0.9 right=0.4 turn_deg=0.75687772037629 speed=3.84234642982483
+[CombatLog] [    9.5] LAND   T1:Aircraft_5 terrain touchdown sink=4.6 m/s relative=4.6 m/s
+[CombatLog] [    9.7] LAND   T1:Aircraft_5 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    9.8] LAND   T1:Aircraft_5 terrain touchdown sink=0.2 m/s relative=6.2 m/s
+[CombatLog] [    9.9] LAND   T1:Aircraft_5 terrain touchdown sink=0.2 m/s relative=3.9 m/s
+WHEEL_BRAKE_STEERING left=0.4 right=0.9 turn_deg=-0.94300887464249 speed=3.84200716018677
+WHEEL_BRAKE_AIRBORNE velocity_difference=0.0
+[CombatLog] [   10.5] LAND   T1:Aircraft_5 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [   10.6] LAND   T1:Aircraft_5 carrier touchdown sink=0.3 m/s relative=9.0 m/s
+[CombatLog] [   10.8] LAND   T1:Aircraft_5 carrier touchdown sink=0.7 m/s relative=3.4 m/s
+WHEEL_BRAKE_MOVING_DECK relative_speed=0.02883912436664 world_speed=12.0
+TRIGGER_WHEEL_BRAKE_PASS subset=[]
+WARNING: 9 ObjectDB instances were leaked at exit (run with `--verbose` for details).
+   at: cleanup (core/object/object.cpp:2536)
+ERROR: 3 resources still in use at exit (run with --verbose for details).
+   at: clear (core/io/resource.cpp:822)

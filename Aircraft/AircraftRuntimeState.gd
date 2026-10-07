@@ -4,6 +4,10 @@ extends RefCounted
 
 
 static func validate(state: Dictionary) -> bool:
+	if state.has("gear_sheared") and not state.gear_sheared is bool:
+		return false
+	if state.has("gear_collapsed") and not state.gear_collapsed is bool:
+		return false
 	if state.has("current_health") and not _finite_number(state.current_health):
 		return false
 	for section in ["modules", "hardpoints", "damage"]:
@@ -35,6 +39,8 @@ static func _finite_number(value: Variant) -> bool:
 
 static func capture(aircraft: Node3D) -> Dictionary:
 	var state := {"modules": [], "hardpoints": [], "damage": []}
+	state["gear_collapsed"] = bool(aircraft.get_meta("gear_collapsed", false))
+	state["gear_sheared"] = bool(aircraft.get_meta("gear_sheared", false))
 	if "current_health" in aircraft:
 		state["current_health"] = float(aircraft.get("current_health"))
 	for node in aircraft.find_children("*", "", true, false):
@@ -80,6 +86,17 @@ static func restore(aircraft: Node3D, state: Dictionary) -> void:
 			damage.restore_damage_state(entry.zones)
 	if state.has("current_health") and "current_health" in aircraft:
 		aircraft.set("current_health", float(state.current_health))
+	if bool(state.get("gear_collapsed", false)) or bool(state.get("gear_sheared", false)):
+		aircraft.set_meta("gear_collapsed", true)
+		var gear := aircraft.get_node_or_null("LandingGear")
+		if gear != null:
+			if bool(state.get("gear_sheared", false)):
+				gear.call("shear_from_damage", false)
+			else:
+				gear.call("collapse_from_damage")
+		var parts := aircraft.get_node_or_null("PartDamageModel") as AircraftPartDamageModel
+		if parts != null and is_instance_valid(parts.systems):
+			parts.systems.refresh()
 	if aircraft.has_method("prepare_energy_system"):
 		aircraft.prepare_energy_system()
 	var weapons := aircraft.find_child("ControlWeapons", true, false)

@@ -14,6 +14,7 @@ enum ObjectiveType {
 	ATTACK_POSITION,
 	RETURN_TO_BASE,
 	RESCUE,
+	ESCORT_HARVESTER,
 }
 
 @export var platoon_id: String = ""
@@ -51,6 +52,8 @@ enum ObjectiveType {
 var protected_node: Node3D = null
 var attack_node: Node3D = null
 var escort_node: Node3D = null
+var _harvester_ops: Node = null
+var _harvester_at_carrier := true
 var _members: Array[Node3D] = []
 var _shared_hostile_cache_key: String = ""
 var _shared_hostile_cache_origin: Vector3 = Vector3.ZERO
@@ -221,7 +224,7 @@ func should_vehicle_use_shared_route(vehicle: Node3D) -> bool:
 		return false
 	if not has_active_objective() or has_any_member_in_combat():
 		return false
-	if objective_type == ObjectiveType.ESCORT_CARRIER:
+	if objective_type in [ObjectiveType.ESCORT_CARRIER, ObjectiveType.ESCORT_HARVESTER]:
 		return false
 	return true
 
@@ -282,7 +285,7 @@ func get_formation_destination_for(vehicle: Node3D, fallback_destination: Vector
 	var slot_index: int = members.find(vehicle)
 	if slot_index < 0 or members.size() <= 1:
 		return fallback_destination
-	if objective_type == ObjectiveType.ESCORT_CARRIER:
+	if objective_type in [ObjectiveType.ESCORT_CARRIER, ObjectiveType.ESCORT_HARVESTER]:
 		return fallback_destination
 	var anchor: Vector3 = _get_formation_anchor(fallback_destination)
 	var center: Vector3 = get_center_position()
@@ -394,6 +397,79 @@ func set_return_to_base(carrier: Node3D, distance_m: float = 90.0) -> void:
 	protected_node = null
 	attack_node = null
 
+func set_escort_harvester(carrier: Node3D, distance_m: float = 65.0) -> void:
+	set_escort_carrier(carrier, distance_m)
+	objective_type = ObjectiveType.ESCORT_HARVESTER
+	_harvester_at_carrier = true
+	_clear_route_preview()
+
+func get_escort_reference() -> Node3D:
+	if objective_type != ObjectiveType.ESCORT_HARVESTER:
+		return escort_node if is_instance_valid(escort_node) else null
+	# The assignment belongs to the harvester operation, not the disposable hull.
+	if not is_instance_valid(_harvester_ops):
+		var manager := get_tree().get_first_node_in_group("carrier_manager")
+		if is_instance_valid(manager): _harvester_ops = manager.get_harvester_ops()
+	if not is_instance_valid(escort_node):
+		escort_node = get_tree().get_first_node_in_group("carrier") as Node3D
+	var harvester: Node3D = _harvester_ops.vehicle if is_instance_valid(_harvester_ops) and is_instance_valid(_harvester_ops.vehicle) else null
+	if harvester == null or harvester.is_queued_for_deletion() or bool(harvester.get("is_dying")):
+		_harvester_at_carrier = true
+		return escort_node
+	if is_instance_valid(escort_node):
+		# Hysteresis avoids switching formations at the ramp perimeter. Retrieval
+		# can begin far away: accompany that journey until the actual approach.
+		var distance := _flat_distance(harvester.global_position, escort_node.global_position)
+		_harvester_at_carrier = distance < (260.0 if _harvester_at_carrier else 220.0) or bool(harvester.get("deploy_mode"))
+	else:
+		_harvester_at_carrier = false
+	return escort_node if _harvester_at_carrier else harvester
+
+func get_harvester_escort_state() -> String:
+	get_escort_reference()
+	if _harvester_at_carrier:
+		if is_instance_valid(_harvester_ops) and _harvester_ops.phase == "lost":
+			return "HARVESTER LOST / GUARDING CARRIER"
+		return "GUARDING CARRIER / WAITING FOR HARVESTER"
+	if is_instance_valid(_harvester_ops) and _harvester_ops.phase in ["harvesting", "waiting_seep", "holding"]:
+		return "GUARDING HARVESTER"
+	return "ACCOMPANYING HARVESTER"
+
+func get_escort_velocity() -> Vector3:
+	var reference := get_escort_reference()
+	if is_instance_valid(reference):
+		if reference.has_method("get_velocity_vector"): return reference.get_velocity_vector()
+		if "velocity" in reference: return reference.velocity
+	return Vector3.ZERO
+
+func can_harvester_escort_engage(vehicle: Node3D, target: Variant) -> bool:
+	# A stale target fails typed argument binding before the function can guard it.
+	if not is_instance_valid(vehicle) or not is_instance_valid(target):
+		return false
+	var target_node := target as Node3D
+	if target_node == null or target_node.is_queued_for_deletion():
+		return false
+	var reference := get_escort_reference()
+	# Turrets may fire while following; combat driving must not pull the guard
+	# into the ramp corridor or leave the moving harvester behind.
+	return is_instance_valid(reference) and not _harvester_at_carrier \
+		and _flat_distance(vehicle.global_position, reference.global_position) <= escort_distance_m + 80.0 \
+		and _flat_distance(target_node.global_position, reference.global_position) <= escort_engage_radius_m
+
+func _get_harvester_escort_destination(vehicle: Node3D) -> Vector3:
+	var reference := get_escort_reference()
+	if not is_instance_valid(reference): return get_center_position()
+	var index := maxi(get_members().find(vehicle), 0)
+	var side := 1.0 if index % 2 == 0 else -1.0
+	var rank := int(index / 2)
+	if _harvester_at_carrier:
+		var slot := _escort_local_to_world(Vector3(side * 110.0, 0.0, -160.0 - rank * 50.0))
+		return _get_escort_navigation_position(vehicle, slot, 100.0) if vehicle != null else slot
+	var forward := reference.global_basis.z.normalized()
+	var right := reference.global_basis.x.normalized()
+	var offset := right * side * escort_distance_m + forward * (escort_distance_m if rank == 0 else -escort_distance_m * rank)
+	return _project_contact_to_ground(reference.global_position + offset)
+
 func get_objective_name() -> String:
 	match objective_type:
 		ObjectiveType.NONE:
@@ -408,6 +484,8 @@ func get_objective_name() -> String:
 			return "ATTACK"
 		ObjectiveType.ESCORT_CARRIER:
 			return "ESCORT"
+		ObjectiveType.ESCORT_HARVESTER:
+			return "ESCORT HARVESTER"
 		ObjectiveType.RETURN_TO_BASE:
 			return "RTB"
 		ObjectiveType.RESCUE:
@@ -417,6 +495,8 @@ func get_objective_name() -> String:
 
 func get_destination_for(vehicle: Node3D) -> Vector3:
 	match objective_type:
+		ObjectiveType.ESCORT_HARVESTER:
+			return _get_harvester_escort_destination(vehicle)
 		ObjectiveType.RESCUE:
 			# One vehicle closes on the survivor; the others cover the pickup area.
 			for member in get_members():
@@ -524,7 +604,7 @@ func _get_formation_anchor(fallback_destination: Vector3) -> Vector3:
 	return fallback_destination
 
 func _get_route_navigation_anchor() -> Vector3:
-	if objective_type == ObjectiveType.ESCORT_CARRIER:
+	if objective_type in [ObjectiveType.ESCORT_CARRIER, ObjectiveType.ESCORT_HARVESTER]:
 		return Vector3.INF
 	var contact_pos := get_contact_position()
 	# Slot zero drives through the route anchor; the map marker follows the
@@ -676,14 +756,15 @@ func _get_escort_corner_position(vehicle: Node3D) -> Vector3:
 		pos.y = terrain_y
 	return pos
 
-func _get_escort_navigation_position(vehicle: Node3D, slot_world: Vector3) -> Vector3:
+func _get_escort_navigation_position(vehicle: Node3D, slot_world: Vector3, distance_m: float = -1.0) -> Vector3:
 	if escort_node == null or not is_instance_valid(escort_node):
 		return slot_world
+	if distance_m < 0.0: distance_m = escort_distance_m
 	var vehicle_local: Vector3 = escort_node.to_local(vehicle.global_position)
 	var slot_local: Vector3 = escort_node.to_local(slot_world)
 	var side_sign: float = 1.0 if slot_local.x >= 0.0 else -1.0
-	var lane_x: float = side_sign * (32.0 + escort_lane_side_clearance_m + escort_distance_m * 0.25)
-	var lane_z: float = 48.0 + escort_lane_end_clearance_m + escort_distance_m * 0.15
+	var lane_x: float = side_sign * (32.0 + escort_lane_side_clearance_m + distance_m * 0.25)
+	var lane_z: float = 48.0 + escort_lane_end_clearance_m + distance_m * 0.15
 	# Advance the staging leg before the driver declares its waypoint reached.
 	# Otherwise it can hold 25 m short while this sequence waits for 10 m.
 	var lane_reach: float = escort_lane_deadband_m
@@ -973,6 +1054,8 @@ func _get_route_preview_goal() -> Vector3:
 	if not members.is_empty():
 		return _project_contact_to_ground(get_destination_for(members[0]))
 	match objective_type:
+		ObjectiveType.ESCORT_HARVESTER:
+			return _get_harvester_escort_destination(null)
 		ObjectiveType.MOVE_TO_POSITION, ObjectiveType.RESCUE:
 			return _project_contact_to_ground(objective_position)
 		ObjectiveType.PURSUE_ENEMIES:
@@ -1000,7 +1083,7 @@ func _get_route_preview_goal() -> Vector3:
 
 func _is_route_preview_goal_dynamic() -> bool:
 	match objective_type:
-		ObjectiveType.PURSUE_ENEMIES, ObjectiveType.PROTECT_NODE, ObjectiveType.ATTACK_NODE, ObjectiveType.PROTECT_POSITION, ObjectiveType.ATTACK_POSITION, ObjectiveType.ESCORT_CARRIER, ObjectiveType.RETURN_TO_BASE:
+		ObjectiveType.PURSUE_ENEMIES, ObjectiveType.PROTECT_NODE, ObjectiveType.ATTACK_NODE, ObjectiveType.PROTECT_POSITION, ObjectiveType.ATTACK_POSITION, ObjectiveType.ESCORT_CARRIER, ObjectiveType.ESCORT_HARVESTER, ObjectiveType.RETURN_TO_BASE:
 			return true
 		_:
 			return false

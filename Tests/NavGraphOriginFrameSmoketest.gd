@@ -35,6 +35,7 @@ func _run() -> void:
 	var b := nodes[nodes.size() * 3 / 4]
 	var baseline: Array[Vector3] = graph.call("find_path", a, b, 0.0)
 	_expect(baseline.size() > 2, "fixture did not exercise path simplification")
+	_expect(bool(graph.call("can_traverse_segment", a + Vector3.UP * 2.0, a + Vector3.RIGHT, 0.0)), "short ground traversal treated chassis height as terrain grade")
 	var total := Vector3.ZERO
 	for offset in [Vector3(8123.5, 0, -5400.25), Vector3(-24567, 0, 10023), Vector3(45678.25, 0, -7890.5)]:
 		total += offset
@@ -43,6 +44,7 @@ func _run() -> void:
 		_expect(graph.get("_sp_grid") == index, "origin shift rebuilt spatial index")
 		_expect(bool(graph.call("has_nearby_node", a - total, 0.0)), "nearest-node lookup broke")
 		_expect(bool(graph.call("can_anchor", a - total, 0.0)), "anchor lookup broke")
+		_expect(bool(graph.call("can_traverse_segment", a - total + Vector3.UP * 2.0, a - total + Vector3.RIGHT, 0.0)), "short final approach broke after origin shift")
 		_expect_path(graph.call("find_path", a - total, b - total, 0.0), baseline, total)
 	# A worker owns the expensive solver lock. Origin shifting must not wait for it.
 	var lock: Mutex = graph.get("_lock")
@@ -63,7 +65,7 @@ func _run() -> void:
 	_expect(lock_shift_ms < 30.0, "origin shift waited on solver mutex")
 	_expect_path(graph.call("find_path", a - total, b - total, 0.0), baseline, total)
 	# Explicit cache round-trip after rebasing preserves the build frame.
-	var cache_path := "user://navgraph_origin_frame_smoketest.bin"
+	var cache_path := "res://logs/navgraph_origin_frame_smoketest.bin" if "--workspace-cache" in OS.get_cmdline_user_args() else "user://navgraph_origin_frame_smoketest.bin"
 	graph.call("_save", cache_path)
 	graph.call("_reset_graph")
 	_expect(bool(graph.call("_load", cache_path)), "rebase cache load failed")

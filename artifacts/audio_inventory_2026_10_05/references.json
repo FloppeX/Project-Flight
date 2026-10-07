@@ -1,0 +1,1546 @@
+{
+  "res://Audio/engine/engine_start.wav": [
+    {
+      "file": "addons/simplified_flightsim/aircraft_modules/Engine/Engine.tscn",
+      "line": 4,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://bouv88p2spjty\" path=\"res://Audio/engine/engine_start.wav\" id=\"2\"]",
+      "test": false
+    }
+  ],
+  "res://Audio/engine/engine.ogg": [
+    {
+      "file": "addons/simplified_flightsim/aircraft_modules/Engine/Engine.tscn",
+      "line": 5,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://d113roojokjhb\" path=\"res://Audio/engine/engine.ogg\" id=\"3\"]",
+      "test": false
+    }
+  ],
+  "res://Audio/engine/fixed_wing/airplane_propeller 3.wav": [
+    {
+      "file": "Aircraft/Aircraft_1.tscn",
+      "line": 12,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://c3k88yn1mcnfm\" path=\"res://Audio/engine/fixed_wing/airplane_propeller 3.wav\" id=\"11_btnkm\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_14.tscn",
+      "line": 12,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://c3k88yn1mcnfm\" path=\"res://Audio/engine/fixed_wing/airplane_propeller 3.wav\" id=\"11_btnkm\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_16.tscn",
+      "line": 11,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://c3k88yn1mcnfm\" path=\"res://Audio/engine/fixed_wing/airplane_propeller 3.wav\" id=\"11_btnkm\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_3.tscn",
+      "line": 13,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://c3k88yn1mcnfm\" path=\"res://Audio/engine/fixed_wing/airplane_propeller 3.wav\" id=\"11_btnkm\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_4.tscn",
+      "line": 11,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://c3k88yn1mcnfm\" path=\"res://Audio/engine/fixed_wing/airplane_propeller 3.wav\" id=\"11_btnkm\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_5.tscn",
+      "line": 12,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://c3k88yn1mcnfm\" path=\"res://Audio/engine/fixed_wing/airplane_propeller 3.wav\" id=\"11_btnkm\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_6.tscn",
+      "line": 13,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://c3k88yn1mcnfm\" path=\"res://Audio/engine/fixed_wing/airplane_propeller 3.wav\" id=\"11_btnkm\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_8.tscn",
+      "line": 13,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://c3k88yn1mcnfm\" path=\"res://Audio/engine/fixed_wing/airplane_propeller 3.wav\" id=\"11_btnkm\"]",
+      "test": false
+    }
+  ],
+  "res://Audio/engine/fixed_wing/prop startup 3.wav": [
+    {
+      "file": "Aircraft/Aircraft_1.tscn",
+      "line": 13,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://dscm8ajwonvl5\" path=\"res://Audio/engine/fixed_wing/prop startup 3.wav\" id=\"12_sqfht\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_14.tscn",
+      "line": 13,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://dscm8ajwonvl5\" path=\"res://Audio/engine/fixed_wing/prop startup 3.wav\" id=\"12_sqfht\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_16.tscn",
+      "line": 12,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://dscm8ajwonvl5\" path=\"res://Audio/engine/fixed_wing/prop startup 3.wav\" id=\"12_sqfht\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_2.tscn",
+      "line": 12,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://dscm8ajwonvl5\" path=\"res://Audio/engine/fixed_wing/prop startup 3.wav\" id=\"12_sqfht\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_3.tscn",
+      "line": 14,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://dscm8ajwonvl5\" path=\"res://Audio/engine/fixed_wing/prop startup 3.wav\" id=\"12_sqfht\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_4.tscn",
+      "line": 12,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://dscm8ajwonvl5\" path=\"res://Audio/engine/fixed_wing/prop startup 3.wav\" id=\"12_sqfht\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_5.tscn",
+      "line": 13,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://dscm8ajwonvl5\" path=\"res://Audio/engine/fixed_wing/prop startup 3.wav\" id=\"12_sqfht\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_6.tscn",
+      "line": 14,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://dscm8ajwonvl5\" path=\"res://Audio/engine/fixed_wing/prop startup 3.wav\" id=\"12_sqfht\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_7.tscn",
+      "line": 14,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://dscm8ajwonvl5\" path=\"res://Audio/engine/fixed_wing/prop startup 3.wav\" id=\"12_sqfht\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_8.tscn",
+      "line": 14,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://dscm8ajwonvl5\" path=\"res://Audio/engine/fixed_wing/prop startup 3.wav\" id=\"12_sqfht\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/CompleteFighterJet.tscn",
+      "line": 15,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://dscm8ajwonvl5\" path=\"res://Audio/engine/fixed_wing/prop startup 3.wav\" id=\"12_sqfht\"]",
+      "test": false
+    },
+    {
+      "file": "Enemies/EnemyFighter.tscn",
+      "line": 15,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://dscm8ajwonvl5\" path=\"res://Audio/engine/fixed_wing/prop startup 3.wav\" id=\"12_sqfht\"]",
+      "test": false
+    },
+    {
+      "file": "Tests/HelicopterAudioSmoketest.gd",
+      "line": 59,
+      "text": "\"res://Audio/engine/fixed_wing/prop startup 3.wav\",",
+      "test": true
+    }
+  ],
+  "res://Audio/landing_gear/deploy.wav": [
+    {
+      "file": "Aircraft/Aircraft_1.tscn",
+      "line": 17,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://cvxa8h3yftguj\" path=\"res://Audio/landing_gear/deploy.wav\" id=\"16_biq0k\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_10.tscn",
+      "line": 15,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://cvxa8h3yftguj\" path=\"res://Audio/landing_gear/deploy.wav\" id=\"14_gear_deploy\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_11.tscn",
+      "line": 15,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://cvxa8h3yftguj\" path=\"res://Audio/landing_gear/deploy.wav\" id=\"14_gear_deploy\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_12.tscn",
+      "line": 16,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://cvxa8h3yftguj\" path=\"res://Audio/landing_gear/deploy.wav\" id=\"14_gear_deploy\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_13.tscn",
+      "line": 15,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://cvxa8h3yftguj\" path=\"res://Audio/landing_gear/deploy.wav\" id=\"14_gear_deploy\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_14.tscn",
+      "line": 17,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://cvxa8h3yftguj\" path=\"res://Audio/landing_gear/deploy.wav\" id=\"16_biq0k\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_15.tscn",
+      "line": 15,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://cvxa8h3yftguj\" path=\"res://Audio/landing_gear/deploy.wav\" id=\"14_gear_deploy\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_16.tscn",
+      "line": 16,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://cvxa8h3yftguj\" path=\"res://Audio/landing_gear/deploy.wav\" id=\"16_biq0k\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_2.tscn",
+      "line": 16,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://cvxa8h3yftguj\" path=\"res://Audio/landing_gear/deploy.wav\" id=\"16_biq0k\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_3.tscn",
+      "line": 18,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://cvxa8h3yftguj\" path=\"res://Audio/landing_gear/deploy.wav\" id=\"16_biq0k\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_4.tscn",
+      "line": 16,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://cvxa8h3yftguj\" path=\"res://Audio/landing_gear/deploy.wav\" id=\"16_biq0k\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_5.tscn",
+      "line": 17,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://cvxa8h3yftguj\" path=\"res://Audio/landing_gear/deploy.wav\" id=\"16_biq0k\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_6.tscn",
+      "line": 18,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://cvxa8h3yftguj\" path=\"res://Audio/landing_gear/deploy.wav\" id=\"16_biq0k\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_7.tscn",
+      "line": 18,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://cvxa8h3yftguj\" path=\"res://Audio/landing_gear/deploy.wav\" id=\"16_biq0k\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_8.tscn",
+      "line": 18,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://cvxa8h3yftguj\" path=\"res://Audio/landing_gear/deploy.wav\" id=\"16_biq0k\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_9.tscn",
+      "line": 18,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://cvxa8h3yftguj\" path=\"res://Audio/landing_gear/deploy.wav\" id=\"14_gear_deploy\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/CompleteFighterJet.tscn",
+      "line": 19,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://cvxa8h3yftguj\" path=\"res://Audio/landing_gear/deploy.wav\" id=\"16_biq0k\"]",
+      "test": false
+    },
+    {
+      "file": "Enemies/EnemyFighter.tscn",
+      "line": 19,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://cvxa8h3yftguj\" path=\"res://Audio/landing_gear/deploy.wav\" id=\"16_biq0k\"]",
+      "test": false
+    }
+  ],
+  "res://Audio/landing_gear/stow.wav": [
+    {
+      "file": "Aircraft/Aircraft_1.tscn",
+      "line": 18,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://ch1k8klfyw0mq\" path=\"res://Audio/landing_gear/stow.wav\" id=\"17_1st6a\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_10.tscn",
+      "line": 16,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://ch1k8klfyw0mq\" path=\"res://Audio/landing_gear/stow.wav\" id=\"15_gear_stow\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_11.tscn",
+      "line": 16,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://ch1k8klfyw0mq\" path=\"res://Audio/landing_gear/stow.wav\" id=\"15_gear_stow\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_12.tscn",
+      "line": 17,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://ch1k8klfyw0mq\" path=\"res://Audio/landing_gear/stow.wav\" id=\"15_gear_stow\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_13.tscn",
+      "line": 16,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://ch1k8klfyw0mq\" path=\"res://Audio/landing_gear/stow.wav\" id=\"15_gear_stow\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_14.tscn",
+      "line": 18,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://ch1k8klfyw0mq\" path=\"res://Audio/landing_gear/stow.wav\" id=\"17_1st6a\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_15.tscn",
+      "line": 16,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://ch1k8klfyw0mq\" path=\"res://Audio/landing_gear/stow.wav\" id=\"15_gear_stow\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_16.tscn",
+      "line": 17,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://ch1k8klfyw0mq\" path=\"res://Audio/landing_gear/stow.wav\" id=\"17_1st6a\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_2.tscn",
+      "line": 17,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://ch1k8klfyw0mq\" path=\"res://Audio/landing_gear/stow.wav\" id=\"17_1st6a\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_3.tscn",
+      "line": 19,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://ch1k8klfyw0mq\" path=\"res://Audio/landing_gear/stow.wav\" id=\"17_1st6a\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_4.tscn",
+      "line": 17,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://ch1k8klfyw0mq\" path=\"res://Audio/landing_gear/stow.wav\" id=\"17_1st6a\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_5.tscn",
+      "line": 18,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://ch1k8klfyw0mq\" path=\"res://Audio/landing_gear/stow.wav\" id=\"17_1st6a\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_6.tscn",
+      "line": 19,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://ch1k8klfyw0mq\" path=\"res://Audio/landing_gear/stow.wav\" id=\"17_1st6a\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_7.tscn",
+      "line": 19,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://ch1k8klfyw0mq\" path=\"res://Audio/landing_gear/stow.wav\" id=\"17_1st6a\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_8.tscn",
+      "line": 19,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://ch1k8klfyw0mq\" path=\"res://Audio/landing_gear/stow.wav\" id=\"17_1st6a\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_9.tscn",
+      "line": 19,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://ch1k8klfyw0mq\" path=\"res://Audio/landing_gear/stow.wav\" id=\"15_gear_stow\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/CompleteFighterJet.tscn",
+      "line": 20,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://ch1k8klfyw0mq\" path=\"res://Audio/landing_gear/stow.wav\" id=\"17_1st6a\"]",
+      "test": false
+    },
+    {
+      "file": "Enemies/EnemyFighter.tscn",
+      "line": 20,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://ch1k8klfyw0mq\" path=\"res://Audio/landing_gear/stow.wav\" id=\"17_1st6a\"]",
+      "test": false
+    },
+    {
+      "file": "Tests/AircraftAudioBudgetSmoketest.gd",
+      "line": 3,
+      "text": "const SOUND := preload(\"res://Audio/landing_gear/stow.wav\")",
+      "test": true
+    }
+  ],
+  "res://Audio/cockpit/cockpit_interior_4.wav": [
+    {
+      "file": "Aircraft/Aircraft_1.tscn",
+      "line": 39,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://o2xkkc5oyh4w\" path=\"res://Audio/cockpit/cockpit_interior_4.wav\" id=\"38_cpit\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_10.tscn",
+      "line": 32,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://o2xkkc5oyh4w\" path=\"res://Audio/cockpit/cockpit_interior_4.wav\" id=\"31_cockpit\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_11.tscn",
+      "line": 32,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://o2xkkc5oyh4w\" path=\"res://Audio/cockpit/cockpit_interior_4.wav\" id=\"31_cockpit\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_12.tscn",
+      "line": 33,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://o2xkkc5oyh4w\" path=\"res://Audio/cockpit/cockpit_interior_4.wav\" id=\"31_cockpit\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_13.tscn",
+      "line": 32,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://o2xkkc5oyh4w\" path=\"res://Audio/cockpit/cockpit_interior_4.wav\" id=\"31_cockpit\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_14.tscn",
+      "line": 39,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://o2xkkc5oyh4w\" path=\"res://Audio/cockpit/cockpit_interior_4.wav\" id=\"38_cpit\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_15.tscn",
+      "line": 32,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://o2xkkc5oyh4w\" path=\"res://Audio/cockpit/cockpit_interior_4.wav\" id=\"31_cockpit\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_5.tscn",
+      "line": 40,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://o2xkkc5oyh4w\" path=\"res://Audio/cockpit/cockpit_interior_4.wav\" id=\"38_cpit\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_7.tscn",
+      "line": 39,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://o2xkkc5oyh4w\" path=\"res://Audio/cockpit/cockpit_interior_4.wav\" id=\"38_cpit\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_8.tscn",
+      "line": 40,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://o2xkkc5oyh4w\" path=\"res://Audio/cockpit/cockpit_interior_4.wav\" id=\"38_cpit\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_9.tscn",
+      "line": 35,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://o2xkkc5oyh4w\" path=\"res://Audio/cockpit/cockpit_interior_4.wav\" id=\"31_cockpit\"]",
+      "test": false
+    }
+  ],
+  "res://Audio/flaps_deploy 2.wav": [
+    {
+      "file": "Aircraft/Aircraft_1.tscn",
+      "line": 75,
+      "text": "metadata/__load_path__ = \"res://Audio/flaps_deploy 2.wav\"",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_14.tscn",
+      "line": 76,
+      "text": "metadata/__load_path__ = \"res://Audio/flaps_deploy 2.wav\"",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_16.tscn",
+      "line": 74,
+      "text": "metadata/__load_path__ = \"res://Audio/flaps_deploy 2.wav\"",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_2.tscn",
+      "line": 72,
+      "text": "metadata/__load_path__ = \"res://Audio/flaps_deploy 2.wav\"",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_3.tscn",
+      "line": 71,
+      "text": "metadata/__load_path__ = \"res://Audio/flaps_deploy 2.wav\"",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_4.tscn",
+      "line": 75,
+      "text": "metadata/__load_path__ = \"res://Audio/flaps_deploy 2.wav\"",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_5.tscn",
+      "line": 76,
+      "text": "metadata/__load_path__ = \"res://Audio/flaps_deploy 2.wav\"",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_6.tscn",
+      "line": 74,
+      "text": "metadata/__load_path__ = \"res://Audio/flaps_deploy 2.wav\"",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_7.tscn",
+      "line": 77,
+      "text": "metadata/__load_path__ = \"res://Audio/flaps_deploy 2.wav\"",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_8.tscn",
+      "line": 77,
+      "text": "metadata/__load_path__ = \"res://Audio/flaps_deploy 2.wav\"",
+      "test": false
+    },
+    {
+      "file": "Aircraft/CompleteFighterJet.tscn",
+      "line": 54,
+      "text": "metadata/__load_path__ = \"res://Audio/flaps_deploy 2.wav\"",
+      "test": false
+    },
+    {
+      "file": "Enemies/EnemyFighter.tscn",
+      "line": 58,
+      "text": "metadata/__load_path__ = \"res://Audio/flaps_deploy 2.wav\"",
+      "test": false
+    }
+  ],
+  "res://Audio/engine/helicopter/Helicopter3SlowExt.wav": [
+    {
+      "file": "Aircraft/Aircraft_10.tscn",
+      "line": 40,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://hc5s8h1mbj2t\" path=\"res://Audio/engine/helicopter/Helicopter3SlowExt.wav\" id=\"101_rotor_slow\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_11.tscn",
+      "line": 41,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://hc5s8h1mbj2t\" path=\"res://Audio/engine/helicopter/Helicopter3SlowExt.wav\" id=\"101_rotor_slow\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_12.tscn",
+      "line": 40,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://hc5s8h1mbj2t\" path=\"res://Audio/engine/helicopter/Helicopter3SlowExt.wav\" id=\"101_rotor_slow\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_13.tscn",
+      "line": 41,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://hc5s8h1mbj2t\" path=\"res://Audio/engine/helicopter/Helicopter3SlowExt.wav\" id=\"101_rotor_slow\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_15.tscn",
+      "line": 42,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://hc5s8h1mbj2t\" path=\"res://Audio/engine/helicopter/Helicopter3SlowExt.wav\" id=\"101_rotor_slow\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_9.tscn",
+      "line": 46,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://hc5s8h1mbj2t\" path=\"res://Audio/engine/helicopter/Helicopter3SlowExt.wav\" id=\"101_rotor_slow\"]",
+      "test": false
+    }
+  ],
+  "res://Audio/engine/helicopter/Helicopter3MedExt.wav": [
+    {
+      "file": "Aircraft/Aircraft_10.tscn",
+      "line": 41,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://b8qaayg6jjf6u\" path=\"res://Audio/engine/helicopter/Helicopter3MedExt.wav\" id=\"102_rotor_medium\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_11.tscn",
+      "line": 42,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://b8qaayg6jjf6u\" path=\"res://Audio/engine/helicopter/Helicopter3MedExt.wav\" id=\"102_rotor_medium\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_12.tscn",
+      "line": 41,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://b8qaayg6jjf6u\" path=\"res://Audio/engine/helicopter/Helicopter3MedExt.wav\" id=\"102_rotor_medium\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_13.tscn",
+      "line": 42,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://b8qaayg6jjf6u\" path=\"res://Audio/engine/helicopter/Helicopter3MedExt.wav\" id=\"102_rotor_medium\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_15.tscn",
+      "line": 43,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://b8qaayg6jjf6u\" path=\"res://Audio/engine/helicopter/Helicopter3MedExt.wav\" id=\"102_rotor_medium\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_9.tscn",
+      "line": 47,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://b8qaayg6jjf6u\" path=\"res://Audio/engine/helicopter/Helicopter3MedExt.wav\" id=\"102_rotor_medium\"]",
+      "test": false
+    }
+  ],
+  "res://Audio/engine/helicopter/Helicopter3FastExt.wav": [
+    {
+      "file": "Aircraft/Aircraft_10.tscn",
+      "line": 42,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://b63dtvvrs03bl\" path=\"res://Audio/engine/helicopter/Helicopter3FastExt.wav\" id=\"103_rotor_fast\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_11.tscn",
+      "line": 43,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://b63dtvvrs03bl\" path=\"res://Audio/engine/helicopter/Helicopter3FastExt.wav\" id=\"103_rotor_fast\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_12.tscn",
+      "line": 42,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://b63dtvvrs03bl\" path=\"res://Audio/engine/helicopter/Helicopter3FastExt.wav\" id=\"103_rotor_fast\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_13.tscn",
+      "line": 43,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://b63dtvvrs03bl\" path=\"res://Audio/engine/helicopter/Helicopter3FastExt.wav\" id=\"103_rotor_fast\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_15.tscn",
+      "line": 44,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://b63dtvvrs03bl\" path=\"res://Audio/engine/helicopter/Helicopter3FastExt.wav\" id=\"103_rotor_fast\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_9.tscn",
+      "line": 48,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://b63dtvvrs03bl\" path=\"res://Audio/engine/helicopter/Helicopter3FastExt.wav\" id=\"103_rotor_fast\"]",
+      "test": false
+    }
+  ],
+  "res://Audio/cockpit/cockpit_interior_3.wav": [
+    {
+      "file": "Aircraft/Aircraft_16.tscn",
+      "line": 35,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://bbrf4t56r5uti\" path=\"res://Audio/cockpit/cockpit_interior_3.wav\" id=\"37_cpit\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_3.tscn",
+      "line": 37,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://bbrf4t56r5uti\" path=\"res://Audio/cockpit/cockpit_interior_3.wav\" id=\"37_cpit\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_6.tscn",
+      "line": 37,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://bbrf4t56r5uti\" path=\"res://Audio/cockpit/cockpit_interior_3.wav\" id=\"37_cpit\"]",
+      "test": false
+    }
+  ],
+  "res://Audio/engine/fixed_wing/airplane_propeller 1.wav": [
+    {
+      "file": "Aircraft/Aircraft_2.tscn",
+      "line": 11,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://dkgrtqcvax58r\" path=\"res://Audio/engine/fixed_wing/airplane_propeller 1.wav\" id=\"11_btnkm\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_7.tscn",
+      "line": 13,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://dkgrtqcvax58r\" path=\"res://Audio/engine/fixed_wing/airplane_propeller 1.wav\" id=\"11_btnkm\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/CompleteFighterJet.tscn",
+      "line": 14,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://dkgrtqcvax58r\" path=\"res://Audio/engine/fixed_wing/airplane_propeller 1.wav\" id=\"11_btnkm\"]",
+      "test": false
+    },
+    {
+      "file": "AirOps/FlightDirector.gd",
+      "line": 2248,
+      "text": "var test_a = load(\"res://Audio/engine/fixed_wing/airplane_propeller 1.wav\")",
+      "test": false
+    },
+    {
+      "file": "Enemies/EnemyFighter.tscn",
+      "line": 14,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://dkgrtqcvax58r\" path=\"res://Audio/engine/fixed_wing/airplane_propeller 1.wav\" id=\"11_btnkm\"]",
+      "test": false
+    },
+    {
+      "file": "Tests/HelicopterAudioSmoketest.gd",
+      "line": 58,
+      "text": "\"res://Audio/engine/fixed_wing/airplane_propeller 1.wav\",",
+      "test": true
+    }
+  ],
+  "res://Audio/cockpit/cockpit_interior_2.wav": [
+    {
+      "file": "Aircraft/Aircraft_2.tscn",
+      "line": 38,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://c0ax7nrniu8x3\" path=\"res://Audio/cockpit/cockpit_interior_2.wav\" id=\"37_cpit\"]",
+      "test": false
+    },
+    {
+      "file": "Aircraft/Aircraft_4.tscn",
+      "line": 38,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://c0ax7nrniu8x3\" path=\"res://Audio/cockpit/cockpit_interior_2.wav\" id=\"37_cpit\"]",
+      "test": false
+    }
+  ],
+  "res://Audio/cockpit/stall buffet sound.wav": [
+    {
+      "file": "Aircraft/AirflowFeedback.gd",
+      "line": 4,
+      "text": "@export var warning_audio_stream: AudioStream = preload(\"res://Audio/cockpit/stall buffet sound.wav\")",
+      "test": false
+    },
+    {
+      "file": "Weather/ContinuousTurbulence.gd",
+      "line": 30,
+      "text": "@export var stall_buffet_sound: AudioStream = preload(\"res://Audio/cockpit/stall buffet sound.wav\")",
+      "test": false
+    }
+  ],
+  "res://Audio/cockpit/wind_sound_cockpit.wav": [
+    {
+      "file": "Aircraft/AirflowFeedback.gd",
+      "line": 18,
+      "text": "@export var wind_audio_stream: AudioStream = preload(\"res://Audio/cockpit/wind_sound_cockpit.wav\")",
+      "test": false
+    },
+    {
+      "file": "Audio/AudioManager3D.gd",
+      "line": 19,
+      "text": "@export var bridge_interior_sound: AudioStream = preload(\"res://Audio/cockpit/wind_sound_cockpit.wav\")",
+      "test": false
+    },
+    {
+      "file": "LandCarrier/Commander.gd",
+      "line": 47,
+      "text": "@export var control_room_wind: AudioStream = preload(\"res://Audio/cockpit/wind_sound_cockpit.wav\")",
+      "test": false
+    },
+    {
+      "file": "Tests/HelicopterAudioSmoketest.gd",
+      "line": 57,
+      "text": "\"res://Audio/cockpit/wind_sound_cockpit.wav\",",
+      "test": true
+    },
+    {
+      "file": "Weather/ContinuousTurbulence.gd",
+      "line": 28,
+      "text": "@export var wind_sound: AudioStream = preload(\"res://Audio/cockpit/wind_sound_cockpit.wav\")",
+      "test": false
+    },
+    {
+      "file": "Weather/ContinuousTurbulence.tscn",
+      "line": 4,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://fw6styeqfphy\" path=\"res://Audio/cockpit/wind_sound_cockpit.wav\" id=\"2_uuof8\"]",
+      "test": false
+    },
+    {
+      "file": "Weather/DustFrontVisuals.gd",
+      "line": 53,
+      "text": "_audio.stream = preload(\"res://Audio/RuntimeAudio.gd\").loop_stream(preload(\"res://Audio/cockpit/wind_sound_cockpit.wav\"))",
+      "test": false
+    }
+  ],
+  "res://Audio/cockpit/air rush sound.wav": [
+    {
+      "file": "Aircraft/AirflowFeedback.gd",
+      "line": 28,
+      "text": "@export var drag_audio_stream: AudioStream = preload(\"res://Audio/cockpit/air rush sound.wav\")",
+      "test": false
+    },
+    {
+      "file": "Weather/ContinuousTurbulence.gd",
+      "line": 29,
+      "text": "@export var air_rush_sound: AudioStream = preload(\"res://Audio/cockpit/air rush sound.wav\")",
+      "test": false
+    }
+  ],
+  "res://Audio/cockpit/cockpit_interior_1.wav": [
+    {
+      "file": "Aircraft/CompleteFighterJet.tscn",
+      "line": 39,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://dqbmuufyl5tn0\" path=\"res://Audio/cockpit/cockpit_interior_1.wav\" id=\"36_cpit\"]",
+      "test": false
+    },
+    {
+      "file": "Enemies/EnemyFighter.tscn",
+      "line": 39,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://dqbmuufyl5tn0\" path=\"res://Audio/cockpit/cockpit_interior_1.wav\" id=\"36_cpit\"]",
+      "test": false
+    }
+  ],
+  "res://Audio/Carrier/carrier_deck_sound.wav": [
+    {
+      "file": "AirOps/FlightDirector.gd",
+      "line": 2250,
+      "text": "var test_b = load(\"res://Audio/Carrier/carrier_deck_sound.wav\")",
+      "test": false
+    }
+  ],
+  "res://Audio/cockpit/cabin_systems.ogg": [
+    {
+      "file": "Audio/AudioManager3D.gd",
+      "line": 17,
+      "text": "@export var cabin_systems_sound: AudioStream = preload(\"res://Audio/cockpit/cabin_systems.ogg\")",
+      "test": false
+    }
+  ],
+  "res://Audio/UI/click.wav": [
+    {
+      "file": "Audio/InterfaceAudio.gd",
+      "line": 3,
+      "text": "const CLICK = preload(\"res://Audio/UI/click.wav\")",
+      "test": false
+    }
+  ],
+  "res://Audio/UI/confirm.wav": [
+    {
+      "file": "Audio/InterfaceAudio.gd",
+      "line": 4,
+      "text": "const CONFIRM = preload(\"res://Audio/UI/confirm.wav\")",
+      "test": false
+    }
+  ],
+  "res://Audio/UI/cancel.wav": [
+    {
+      "file": "Audio/InterfaceAudio.gd",
+      "line": 5,
+      "text": "const CANCEL = preload(\"res://Audio/UI/cancel.wav\")",
+      "test": false
+    }
+  ],
+  "res://Audio/footsteps/metal_01.wav": [
+    {
+      "file": "Audio/OfficerFootsteps.gd",
+      "line": 3,
+      "text": "const SOUNDS = [preload(\"res://Audio/footsteps/metal_01.wav\"), preload(\"res://Audio/footsteps/metal_02.wav\"),",
+      "test": false
+    }
+  ],
+  "res://Audio/footsteps/metal_02.wav": [
+    {
+      "file": "Audio/OfficerFootsteps.gd",
+      "line": 3,
+      "text": "const SOUNDS = [preload(\"res://Audio/footsteps/metal_01.wav\"), preload(\"res://Audio/footsteps/metal_02.wav\"),",
+      "test": false
+    }
+  ],
+  "res://Audio/footsteps/metal_03.wav": [
+    {
+      "file": "Audio/OfficerFootsteps.gd",
+      "line": 4,
+      "text": "preload(\"res://Audio/footsteps/metal_03.wav\"), preload(\"res://Audio/footsteps/metal_04.wav\"),",
+      "test": false
+    }
+  ],
+  "res://Audio/footsteps/metal_04.wav": [
+    {
+      "file": "Audio/OfficerFootsteps.gd",
+      "line": 4,
+      "text": "preload(\"res://Audio/footsteps/metal_03.wav\"), preload(\"res://Audio/footsteps/metal_04.wav\"),",
+      "test": false
+    }
+  ],
+  "res://Audio/footsteps/metal_05.wav": [
+    {
+      "file": "Audio/OfficerFootsteps.gd",
+      "line": 5,
+      "text": "preload(\"res://Audio/footsteps/metal_05.wav\"), preload(\"res://Audio/footsteps/metal_06.wav\"),",
+      "test": false
+    }
+  ],
+  "res://Audio/footsteps/metal_06.wav": [
+    {
+      "file": "Audio/OfficerFootsteps.gd",
+      "line": 5,
+      "text": "preload(\"res://Audio/footsteps/metal_05.wav\"), preload(\"res://Audio/footsteps/metal_06.wav\"),",
+      "test": false
+    }
+  ],
+  "res://Audio/footsteps/metal_07.wav": [
+    {
+      "file": "Audio/OfficerFootsteps.gd",
+      "line": 6,
+      "text": "preload(\"res://Audio/footsteps/metal_07.wav\"), preload(\"res://Audio/footsteps/metal_08.wav\")]",
+      "test": false
+    }
+  ],
+  "res://Audio/footsteps/metal_08.wav": [
+    {
+      "file": "Audio/OfficerFootsteps.gd",
+      "line": 6,
+      "text": "preload(\"res://Audio/footsteps/metal_07.wav\"), preload(\"res://Audio/footsteps/metal_08.wav\")]",
+      "test": false
+    }
+  ],
+  "res://Audio/mechanisms/electric_servo.ogg": [
+    {
+      "file": "Audio/TurretServoAudio.gd",
+      "line": 3,
+      "text": "const SERVO = preload(\"res://Audio/mechanisms/electric_servo.ogg\")",
+      "test": false
+    }
+  ],
+  "res://Audio/Carrier/elevator_moving_mono.wav": [
+    {
+      "file": "LandCarrier/CarrierElevator.gd",
+      "line": 57,
+      "text": "@export var moving_sound: AudioStream = preload(\"res://Audio/Carrier/elevator_moving_mono.wav\")",
+      "test": false
+    },
+    {
+      "file": "LandCarrier/CommanderWalkArea.gd",
+      "line": 14,
+      "text": "@export var elevator_motor_sound: AudioStream = preload(\"res://Audio/Carrier/elevator_moving_mono.wav\")",
+      "test": false
+    }
+  ],
+  "res://Audio/mechanisms/door_slide.wav": [
+    {
+      "file": "LandCarrier/CarrierSlidingDoor.gd",
+      "line": 24,
+      "text": "_motion_audio.stream = preload(\"res://Audio/mechanisms/door_slide.wav\")",
+      "test": false
+    }
+  ],
+  "res://Audio/Carrier/track_links.ogg": [
+    {
+      "file": "LandCarrier/CarrierTread.gd",
+      "line": 56,
+      "text": "@export var rolling_sound: AudioStream = preload(\"res://Audio/Carrier/track_links.ogg\")",
+      "test": false
+    }
+  ],
+  "res://Audio/Carrier/interior_ventilation.ogg": [
+    {
+      "file": "LandCarrier/Commander.gd",
+      "line": 41,
+      "text": "@export var control_room_ambience: AudioStream = preload(\"res://Audio/Carrier/interior_ventilation.ogg\")",
+      "test": false
+    }
+  ],
+  "res://Audio/Carrier/carrier_deck_sound_mono.wav": [
+    {
+      "file": "LandCarrier/LandCarrier.gd",
+      "line": 131,
+      "text": "@export var deck_sound: AudioStream = preload(\"res://Audio/Carrier/carrier_deck_sound_mono.wav\")",
+      "test": false
+    }
+  ],
+  "res://Audio/cockpit/electrical_hum_2.wav": [
+    {
+      "file": "LandCarrier/ReplicatorChamber.gd",
+      "line": 49,
+      "text": "var hum := preload(\"res://Audio/cockpit/electrical_hum_2.wav\").duplicate() as AudioStreamWAV",
+      "test": false
+    }
+  ],
+  "res://Audio/explosion/explosion_large_01.wav": [
+    {
+      "file": "Projectiles/Explosion/explosion.gd",
+      "line": 218,
+      "text": "selected_sound = load(\"res://Audio/explosion/explosion_large_01.wav\")",
+      "test": false
+    },
+    {
+      "file": "Projectiles/Explosion/explosion.tscn",
+      "line": 4,
+      "text": "[ext_resource type=\"AudioStream\" path=\"res://Audio/explosion/explosion_large_01.wav\" id=\"2_sound1\"]",
+      "test": false
+    },
+    {
+      "file": "Tests/HelicopterAudioSmoketest.gd",
+      "line": 62,
+      "text": "\"res://Audio/explosion/explosion_large_01.wav\",",
+      "test": true
+    }
+  ],
+  "res://Audio/explosion/explosion_large_02.wav": [
+    {
+      "file": "Projectiles/Explosion/explosion.tscn",
+      "line": 5,
+      "text": "[ext_resource type=\"AudioStream\" path=\"res://Audio/explosion/explosion_large_02.wav\" id=\"3_sound2\"]",
+      "test": false
+    }
+  ],
+  "res://Audio/explosion/explosion_large_03.wav": [
+    {
+      "file": "Projectiles/Explosion/explosion.tscn",
+      "line": 6,
+      "text": "[ext_resource type=\"AudioStream\" path=\"res://Audio/explosion/explosion_large_03.wav\" id=\"4_sound3\"]",
+      "test": false
+    }
+  ],
+  "res://Audio/explosion/explosion_large_04.wav": [
+    {
+      "file": "Projectiles/Explosion/explosion.tscn",
+      "line": 7,
+      "text": "[ext_resource type=\"AudioStream\" path=\"res://Audio/explosion/explosion_large_04.wav\" id=\"5_sound4\"]",
+      "test": false
+    }
+  ],
+  "res://Audio/explosion/explosion_large_05.wav": [
+    {
+      "file": "Projectiles/Explosion/explosion.tscn",
+      "line": 8,
+      "text": "[ext_resource type=\"AudioStream\" path=\"res://Audio/explosion/explosion_large_05.wav\" id=\"6_sound5\"]",
+      "test": false
+    }
+  ],
+  "res://Audio/impacts/bullet_impact_metal_heavy_%02d.wav": [
+    {
+      "file": "Projectiles/ProjectileNew/projectile_new.gd",
+      "line": 72,
+      "text": "var metal := load(\"res://Audio/impacts/bullet_impact_metal_heavy_%02d.wav\" % i)",
+      "test": false
+    }
+  ],
+  "res://Audio/impacts/bullet_impact_dirt_%02d.wav": [
+    {
+      "file": "Projectiles/ProjectileNew/projectile_new.gd",
+      "line": 75,
+      "text": "var dirt := load(\"res://Audio/impacts/bullet_impact_dirt_%02d.wav\" % i)",
+      "test": false
+    }
+  ],
+  "res://Audio/rockets/rocket.wav": [
+    {
+      "file": "Projectiles/Rocket/rocket.gd",
+      "line": 7,
+      "text": "const DEFAULT_ROCKET_LOOP: AudioStream = preload(\"res://Audio/rockets/rocket.wav\")",
+      "test": false
+    },
+    {
+      "file": "Tests/HelicopterAudioSmoketest.gd",
+      "line": 64,
+      "text": "\"res://Audio/rockets/rocket.wav\",",
+      "test": true
+    }
+  ],
+  "res://Audio/Voices/Citadel/Citadel voice test.mp3": [
+    {
+      "file": "Radio/RadioComms.gd",
+      "line": 3,
+      "text": "const RADIO_TEST_STREAM_PATH := \"res://Audio/Voices/Citadel/Citadel voice test.mp3\"",
+      "test": false
+    }
+  ],
+  "res://Audio/impacts/bullet_impact_dirt_01.wav": [
+    {
+      "file": "Tests/HelicopterAudioSmoketest.gd",
+      "line": 60,
+      "text": "\"res://Audio/impacts/bullet_impact_dirt_01.wav\",",
+      "test": true
+    },
+    {
+      "file": "Projectiles/ProjectileNew/projectile_new.gd",
+      "line": 75,
+      "text": "var dirt := load(\"res://Audio/impacts/bullet_impact_dirt_%02d.wav\" % i)",
+      "test": false,
+      "dynamic_pattern": "res://Audio/impacts/bullet_impact_dirt_%02d.wav"
+    }
+  ],
+  "res://Audio/impacts/bullet_impact_metal_heavy_01.wav": [
+    {
+      "file": "Tests/HelicopterAudioSmoketest.gd",
+      "line": 61,
+      "text": "\"res://Audio/impacts/bullet_impact_metal_heavy_01.wav\",",
+      "test": true
+    },
+    {
+      "file": "Projectiles/ProjectileNew/projectile_new.gd",
+      "line": 72,
+      "text": "var metal := load(\"res://Audio/impacts/bullet_impact_metal_heavy_%02d.wav\" % i)",
+      "test": false,
+      "dynamic_pattern": "res://Audio/impacts/bullet_impact_metal_heavy_%02d.wav"
+    }
+  ],
+  "res://Audio/guns/Heavy machine gun.wav": [
+    {
+      "file": "Tests/HelicopterAudioSmoketest.gd",
+      "line": 63,
+      "text": "\"res://Audio/guns/Heavy machine gun.wav\",",
+      "test": true
+    },
+    {
+      "file": "Weapons/Autocannon/Autocannon.tscn",
+      "line": 6,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://dqxot06c6ine2\" path=\"res://Audio/guns/Heavy machine gun.wav\" id=\"3_8ku1u\"]",
+      "test": false
+    }
+  ],
+  "res://Audio/Music/Static Horizon.wav": [
+    {
+      "file": "Tests/StartupMusicSmoketest.gd",
+      "line": 4,
+      "text": "const EXPECTED_TRACK_PATH := \"res://Audio/Music/Static Horizon.wav\"",
+      "test": true
+    },
+    {
+      "file": "UI/MainMenu.tscn",
+      "line": 4,
+      "text": "[ext_resource type=\"AudioStream\" uid=\"uid://cjc2v825wbicr\" path=\"res://Audio/Music/Static Horizon.wav\" id=\"2_music\"]",
+      "test": false
+    }
+  ],
+  "res://Audio/guns/gun_machinegun_auto_heavy_shot_01.wav": [
+    {
+      "file": "Weapons/Autocannon/autocannon.gd",
+      "line": 18,
+      "text": "preload(\"res://Audio/guns/gun_machinegun_auto_heavy_shot_01.wav\"),",
+      "test": false
+    },
+    {
+      "file": "Weapons/Turrets/bullet_weapon.gd",
+      "line": 21,
+      "text": "preload(\"res://Audio/guns/gun_machinegun_auto_heavy_shot_01.wav\"),",
+      "test": false
+    }
+  ],
+  "res://Audio/guns/gun_machinegun_auto_heavy_shot_02.wav": [
+    {
+      "file": "Weapons/Autocannon/autocannon.gd",
+      "line": 19,
+      "text": "preload(\"res://Audio/guns/gun_machinegun_auto_heavy_shot_02.wav\"),",
+      "test": false
+    },
+    {
+      "file": "Weapons/Turrets/bullet_weapon.gd",
+      "line": 22,
+      "text": "preload(\"res://Audio/guns/gun_machinegun_auto_heavy_shot_02.wav\"),",
+      "test": false
+    }
+  ],
+  "res://Audio/guns/gun_machinegun_auto_heavy_shot_03.wav": [
+    {
+      "file": "Weapons/Autocannon/autocannon.gd",
+      "line": 20,
+      "text": "preload(\"res://Audio/guns/gun_machinegun_auto_heavy_shot_03.wav\"),",
+      "test": false
+    },
+    {
+      "file": "Weapons/Turrets/bullet_weapon.gd",
+      "line": 23,
+      "text": "preload(\"res://Audio/guns/gun_machinegun_auto_heavy_shot_03.wav\"),",
+      "test": false
+    }
+  ],
+  "res://Audio/guns/gun_machinegun_auto_heavy_shot_04.wav": [
+    {
+      "file": "Weapons/Autocannon/autocannon.gd",
+      "line": 21,
+      "text": "preload(\"res://Audio/guns/gun_machinegun_auto_heavy_shot_04.wav\"),",
+      "test": false
+    },
+    {
+      "file": "Weapons/Turrets/bullet_weapon.gd",
+      "line": 24,
+      "text": "preload(\"res://Audio/guns/gun_machinegun_auto_heavy_shot_04.wav\"),",
+      "test": false
+    }
+  ],
+  "res://Audio/guns/gun_machinegun_auto_heavy_shot_05.wav": [
+    {
+      "file": "Weapons/Autocannon/autocannon.gd",
+      "line": 22,
+      "text": "preload(\"res://Audio/guns/gun_machinegun_auto_heavy_shot_05.wav\"),",
+      "test": false
+    },
+    {
+      "file": "Weapons/Turrets/bullet_weapon.gd",
+      "line": 25,
+      "text": "preload(\"res://Audio/guns/gun_machinegun_auto_heavy_shot_05.wav\"),",
+      "test": false
+    }
+  ],
+  "res://Audio/guns/gun_machinegun_auto_heavy_shot_06.wav": [
+    {
+      "file": "Weapons/Autocannon/autocannon.gd",
+      "line": 23,
+      "text": "preload(\"res://Audio/guns/gun_machinegun_auto_heavy_shot_06.wav\"),",
+      "test": false
+    },
+    {
+      "file": "Weapons/Turrets/bullet_weapon.gd",
+      "line": 26,
+      "text": "preload(\"res://Audio/guns/gun_machinegun_auto_heavy_shot_06.wav\"),",
+      "test": false
+    }
+  ],
+  "res://Audio/guns/gun_machinegun_auto_heavy_shot_07.wav": [
+    {
+      "file": "Weapons/Autocannon/autocannon.gd",
+      "line": 24,
+      "text": "preload(\"res://Audio/guns/gun_machinegun_auto_heavy_shot_07.wav\"),",
+      "test": false
+    },
+    {
+      "file": "Weapons/Turrets/bullet_weapon.gd",
+      "line": 27,
+      "text": "preload(\"res://Audio/guns/gun_machinegun_auto_heavy_shot_07.wav\"),",
+      "test": false
+    }
+  ],
+  "res://Audio/guns/gun_machinegun_auto_heavy_shot_08.wav": [
+    {
+      "file": "Weapons/Autocannon/autocannon.gd",
+      "line": 25,
+      "text": "preload(\"res://Audio/guns/gun_machinegun_auto_heavy_shot_08.wav\"),",
+      "test": false
+    },
+    {
+      "file": "Weapons/Turrets/bullet_weapon.gd",
+      "line": 28,
+      "text": "preload(\"res://Audio/guns/gun_machinegun_auto_heavy_shot_08.wav\"),",
+      "test": false
+    }
+  ],
+  "res://Audio/guns/gun_lmg_1.wav": [
+    {
+      "file": "Weapons/Autocannon/autocannon.gd",
+      "line": 28,
+      "text": "preload(\"res://Audio/guns/gun_lmg_1.wav\"),",
+      "test": false
+    },
+    {
+      "file": "Weapons/Turrets/bullet_weapon.gd",
+      "line": 31,
+      "text": "preload(\"res://Audio/guns/gun_lmg_1.wav\"),",
+      "test": false
+    }
+  ],
+  "res://Audio/guns/gun_lmg_2.wav": [
+    {
+      "file": "Weapons/Autocannon/autocannon.gd",
+      "line": 29,
+      "text": "preload(\"res://Audio/guns/gun_lmg_2.wav\"),",
+      "test": false
+    },
+    {
+      "file": "Weapons/Turrets/bullet_weapon.gd",
+      "line": 32,
+      "text": "preload(\"res://Audio/guns/gun_lmg_2.wav\"),",
+      "test": false
+    }
+  ],
+  "res://Audio/guns/gun_lmg_3.wav": [
+    {
+      "file": "Weapons/Autocannon/autocannon.gd",
+      "line": 30,
+      "text": "preload(\"res://Audio/guns/gun_lmg_3.wav\"),",
+      "test": false
+    },
+    {
+      "file": "Weapons/Turrets/bullet_weapon.gd",
+      "line": 33,
+      "text": "preload(\"res://Audio/guns/gun_lmg_3.wav\"),",
+      "test": false
+    }
+  ],
+  "res://Audio/guns/gun_lmg_4.wav": [
+    {
+      "file": "Weapons/Autocannon/autocannon.gd",
+      "line": 31,
+      "text": "preload(\"res://Audio/guns/gun_lmg_4.wav\"),",
+      "test": false
+    },
+    {
+      "file": "Weapons/Turrets/bullet_weapon.gd",
+      "line": 34,
+      "text": "preload(\"res://Audio/guns/gun_lmg_4.wav\"),",
+      "test": false
+    }
+  ],
+  "res://Audio/guns/gun_lmg_5.wav": [
+    {
+      "file": "Weapons/Autocannon/autocannon.gd",
+      "line": 32,
+      "text": "preload(\"res://Audio/guns/gun_lmg_5.wav\"),",
+      "test": false
+    },
+    {
+      "file": "Weapons/Turrets/bullet_weapon.gd",
+      "line": 35,
+      "text": "preload(\"res://Audio/guns/gun_lmg_5.wav\"),",
+      "test": false
+    }
+  ],
+  "res://Audio/guns/gun_lmg_6.wav": [
+    {
+      "file": "Weapons/Autocannon/autocannon.gd",
+      "line": 33,
+      "text": "preload(\"res://Audio/guns/gun_lmg_6.wav\"),",
+      "test": false
+    },
+    {
+      "file": "Weapons/Turrets/bullet_weapon.gd",
+      "line": 36,
+      "text": "preload(\"res://Audio/guns/gun_lmg_6.wav\"),",
+      "test": false
+    }
+  ],
+  "res://Audio/guns/gun_lmg_7.wav": [
+    {
+      "file": "Weapons/Autocannon/autocannon.gd",
+      "line": 34,
+      "text": "preload(\"res://Audio/guns/gun_lmg_7.wav\"),",
+      "test": false
+    },
+    {
+      "file": "Weapons/Turrets/bullet_weapon.gd",
+      "line": 37,
+      "text": "preload(\"res://Audio/guns/gun_lmg_7.wav\"),",
+      "test": false
+    }
+  ],
+  "res://Audio/guns/gun_lmg_8.wav": [
+    {
+      "file": "Weapons/Autocannon/autocannon.gd",
+      "line": 35,
+      "text": "preload(\"res://Audio/guns/gun_lmg_8.wav\"),",
+      "test": false
+    },
+    {
+      "file": "Weapons/Turrets/bullet_weapon.gd",
+      "line": 38,
+      "text": "preload(\"res://Audio/guns/gun_lmg_8.wav\"),",
+      "test": false
+    }
+  ],
+  "res://Audio/guns/gun_lmg_9.wav": [
+    {
+      "file": "Weapons/Autocannon/autocannon.gd",
+      "line": 36,
+      "text": "preload(\"res://Audio/guns/gun_lmg_9.wav\"),",
+      "test": false
+    },
+    {
+      "file": "Weapons/Turrets/bullet_weapon.gd",
+      "line": 39,
+      "text": "preload(\"res://Audio/guns/gun_lmg_9.wav\"),",
+      "test": false
+    }
+  ],
+  "res://Audio/guns/autocannon_1.wav": [
+    {
+      "file": "Weapons/Autocannon/autocannon.gd",
+      "line": 39,
+      "text": "preload(\"res://Audio/guns/autocannon_1.wav\"),",
+      "test": false
+    },
+    {
+      "file": "Weapons/Turrets/bullet_weapon.gd",
+      "line": 42,
+      "text": "preload(\"res://Audio/guns/autocannon_1.wav\"),",
+      "test": false
+    }
+  ],
+  "res://Audio/guns/autocannon_2.wav": [
+    {
+      "file": "Weapons/Autocannon/autocannon.gd",
+      "line": 40,
+      "text": "preload(\"res://Audio/guns/autocannon_2.wav\"),",
+      "test": false
+    },
+    {
+      "file": "Weapons/Turrets/bullet_weapon.gd",
+      "line": 43,
+      "text": "preload(\"res://Audio/guns/autocannon_2.wav\"),",
+      "test": false
+    }
+  ],
+  "res://Audio/guns/autocannon_3.wav": [
+    {
+      "file": "Weapons/Autocannon/autocannon.gd",
+      "line": 41,
+      "text": "preload(\"res://Audio/guns/autocannon_3.wav\"),",
+      "test": false
+    },
+    {
+      "file": "Weapons/Turrets/bullet_weapon.gd",
+      "line": 44,
+      "text": "preload(\"res://Audio/guns/autocannon_3.wav\"),",
+      "test": false
+    }
+  ],
+  "res://Audio/guns/autocannon_4.wav": [
+    {
+      "file": "Weapons/Autocannon/autocannon.gd",
+      "line": 42,
+      "text": "preload(\"res://Audio/guns/autocannon_4.wav\"),",
+      "test": false
+    },
+    {
+      "file": "Weapons/Turrets/bullet_weapon.gd",
+      "line": 45,
+      "text": "preload(\"res://Audio/guns/autocannon_4.wav\"),",
+      "test": false
+    }
+  ],
+  "res://Audio/cockpit/canopy_sand_ticks.wav": [
+    {
+      "file": "Weather/CanopySandAudio.gd",
+      "line": 9,
+      "text": "_ticks = _make_player(\"GrainTicks\", preload(\"res://Audio/cockpit/canopy_sand_ticks.wav\"))",
+      "test": false
+    }
+  ],
+  "res://Audio/cockpit/canopy_sand_rattle.wav": [
+    {
+      "file": "Weather/CanopySandAudio.gd",
+      "line": 10,
+      "text": "_rattle = _make_player(\"GrainRattle\", preload(\"res://Audio/cockpit/canopy_sand_rattle.wav\"))",
+      "test": false
+    }
+  ],
+  "res://Audio/wind woosh loop.wav": [
+    {
+      "file": "Weather/TwisterVisuals.gd",
+      "line": 49,
+      "text": "_audio.stream = preload(\"res://Audio/RuntimeAudio.gd\").loop_stream(preload(\"res://Audio/wind woosh loop.wav\"))",
+      "test": false
+    }
+  ],
+  "res://Audio/impacts/bullet_impact_metal_heavy_02.wav": [
+    {
+      "file": "Projectiles/ProjectileNew/projectile_new.gd",
+      "line": 72,
+      "text": "var metal := load(\"res://Audio/impacts/bullet_impact_metal_heavy_%02d.wav\" % i)",
+      "test": false,
+      "dynamic_pattern": "res://Audio/impacts/bullet_impact_metal_heavy_%02d.wav"
+    }
+  ],
+  "res://Audio/impacts/bullet_impact_metal_heavy_03.wav": [
+    {
+      "file": "Projectiles/ProjectileNew/projectile_new.gd",
+      "line": 72,
+      "text": "var metal := load(\"res://Audio/impacts/bullet_impact_metal_heavy_%02d.wav\" % i)",
+      "test": false,
+      "dynamic_pattern": "res://Audio/impacts/bullet_impact_metal_heavy_%02d.wav"
+    }
+  ],
+  "res://Audio/impacts/bullet_impact_metal_heavy_04.wav": [
+    {
+      "file": "Projectiles/ProjectileNew/projectile_new.gd",
+      "line": 72,
+      "text": "var metal := load(\"res://Audio/impacts/bullet_impact_metal_heavy_%02d.wav\" % i)",
+      "test": false,
+      "dynamic_pattern": "res://Audio/impacts/bullet_impact_metal_heavy_%02d.wav"
+    }
+  ],
+  "res://Audio/impacts/bullet_impact_metal_heavy_05.wav": [
+    {
+      "file": "Projectiles/ProjectileNew/projectile_new.gd",
+      "line": 72,
+      "text": "var metal := load(\"res://Audio/impacts/bullet_impact_metal_heavy_%02d.wav\" % i)",
+      "test": false,
+      "dynamic_pattern": "res://Audio/impacts/bullet_impact_metal_heavy_%02d.wav"
+    }
+  ],
+  "res://Audio/impacts/bullet_impact_metal_heavy_06.wav": [
+    {
+      "file": "Projectiles/ProjectileNew/projectile_new.gd",
+      "line": 72,
+      "text": "var metal := load(\"res://Audio/impacts/bullet_impact_metal_heavy_%02d.wav\" % i)",
+      "test": false,
+      "dynamic_pattern": "res://Audio/impacts/bullet_impact_metal_heavy_%02d.wav"
+    }
+  ],
+  "res://Audio/impacts/bullet_impact_metal_heavy_07.wav": [
+    {
+      "file": "Projectiles/ProjectileNew/projectile_new.gd",
+      "line": 72,
+      "text": "var metal := load(\"res://Audio/impacts/bullet_impact_metal_heavy_%02d.wav\" % i)",
+      "test": false,
+      "dynamic_pattern": "res://Audio/impacts/bullet_impact_metal_heavy_%02d.wav"
+    }
+  ],
+  "res://Audio/impacts/bullet_impact_metal_heavy_08.wav": [
+    {
+      "file": "Projectiles/ProjectileNew/projectile_new.gd",
+      "line": 72,
+      "text": "var metal := load(\"res://Audio/impacts/bullet_impact_metal_heavy_%02d.wav\" % i)",
+      "test": false,
+      "dynamic_pattern": "res://Audio/impacts/bullet_impact_metal_heavy_%02d.wav"
+    }
+  ],
+  "res://Audio/impacts/bullet_impact_dirt_02.wav": [
+    {
+      "file": "Projectiles/ProjectileNew/projectile_new.gd",
+      "line": 75,
+      "text": "var dirt := load(\"res://Audio/impacts/bullet_impact_dirt_%02d.wav\" % i)",
+      "test": false,
+      "dynamic_pattern": "res://Audio/impacts/bullet_impact_dirt_%02d.wav"
+    }
+  ],
+  "res://Audio/impacts/bullet_impact_dirt_03.wav": [
+    {
+      "file": "Projectiles/ProjectileNew/projectile_new.gd",
+      "line": 75,
+      "text": "var dirt := load(\"res://Audio/impacts/bullet_impact_dirt_%02d.wav\" % i)",
+      "test": false,
+      "dynamic_pattern": "res://Audio/impacts/bullet_impact_dirt_%02d.wav"
+    }
+  ],
+  "res://Audio/impacts/bullet_impact_dirt_04.wav": [
+    {
+      "file": "Projectiles/ProjectileNew/projectile_new.gd",
+      "line": 75,
+      "text": "var dirt := load(\"res://Audio/impacts/bullet_impact_dirt_%02d.wav\" % i)",
+      "test": false,
+      "dynamic_pattern": "res://Audio/impacts/bullet_impact_dirt_%02d.wav"
+    }
+  ],
+  "res://Audio/impacts/bullet_impact_dirt_05.wav": [
+    {
+      "file": "Projectiles/ProjectileNew/projectile_new.gd",
+      "line": 75,
+      "text": "var dirt := load(\"res://Audio/impacts/bullet_impact_dirt_%02d.wav\" % i)",
+      "test": false,
+      "dynamic_pattern": "res://Audio/impacts/bullet_impact_dirt_%02d.wav"
+    }
+  ],
+  "res://Audio/impacts/bullet_impact_dirt_06.wav": [
+    {
+      "file": "Projectiles/ProjectileNew/projectile_new.gd",
+      "line": 75,
+      "text": "var dirt := load(\"res://Audio/impacts/bullet_impact_dirt_%02d.wav\" % i)",
+      "test": false,
+      "dynamic_pattern": "res://Audio/impacts/bullet_impact_dirt_%02d.wav"
+    }
+  ],
+  "res://Audio/impacts/bullet_impact_dirt_07.wav": [
+    {
+      "file": "Projectiles/ProjectileNew/projectile_new.gd",
+      "line": 75,
+      "text": "var dirt := load(\"res://Audio/impacts/bullet_impact_dirt_%02d.wav\" % i)",
+      "test": false,
+      "dynamic_pattern": "res://Audio/impacts/bullet_impact_dirt_%02d.wav"
+    }
+  ],
+  "res://Audio/impacts/bullet_impact_dirt_08.wav": [
+    {
+      "file": "Projectiles/ProjectileNew/projectile_new.gd",
+      "line": 75,
+      "text": "var dirt := load(\"res://Audio/impacts/bullet_impact_dirt_%02d.wav\" % i)",
+      "test": false,
+      "dynamic_pattern": "res://Audio/impacts/bullet_impact_dirt_%02d.wav"
+    }
+  ]
+}

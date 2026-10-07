@@ -60,7 +60,7 @@ func _run() -> void:
 	var outpost_site := outpost.get("world_node") as Node3D
 	_expect(is_instance_valid(outpost_site), "the abandoned outpost world scene was instantiated")
 	if is_instance_valid(outpost_site):
-		_expect(outpost_site.get_node_or_null("OutpostPose/RuinBuildingMesh") != null, "the authored ruin-building mesh is visible")
+		_expect(outpost_site.get_node_or_null("OutpostPose/HomesteadBuildingMesh") != null, "the authored homestead mesh is visible")
 		_expect(outpost_site.get_node_or_null("OutpostPose/StaticBody3D/CollisionShape3D") != null, "the outpost has physical collision")
 
 	poi_manager.call("_mark_poi_awaiting_orders", poi)

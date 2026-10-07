@@ -15,6 +15,35 @@
 
 Runtime voice discovery intentionally scans only `Voices/Citadel/` and `Voices/Pilots/`; files in `Voices/SourcePacks/` are archival inputs, not in-game clips.
 
+## Helicopter profiles
+
+The six helicopters now use separate five-speed banks from the local
+`D:/Game audio/Helicopter Engine Sounds` pack: Bumblebee (9) uses B, Dune Skimmer
+(10) F, Hummingbird (11) A, Huntsman (12) C, Dragonfly (13) D, and medium attack
+(15) G. These initial assignments use measured spectral differences; they still
+need an in-game listening pass. The source sets are named A–H and do not identify
+real helicopter models or certify electric-only propulsion recordings.
+
+`CounterRotatingRotor.gd` blends adjacent recordings using actual rotor speed,
+including coast-down. The pack's `0x` recording is an audible idle, so a stopped
+rotor explicitly stops playback. At most two layers play per rotor. Existing
+cockpit filtering, spatial attenuation and audio budget controls remain in use.
+
+`tools/prepare_helicopter_audio.py` rebuilds the 30 mono Vorbis loops (4.76 MB)
+under `engine/helicopter/profiles/`. It applies a 30 Hz high-pass, an 80 ms seam
+overlap and one common gain per family, preserving relative levels across speeds.
+`helicopter_audio_sources.json` records source paths, hashes and processing.
+The original recordings and legacy three-layer fallback are retained. Sets E/H
+and the pack's authored acceleration/deceleration one-shots remain available for
+future review; those one-shots are not played over the live RPM-driven blends.
+
+The comparison page at
+`artifacts/audio_inventory_2026_10_05/helicopter_update_2026_10_06/report.html`
+contains all eight profiles and synthesized spool demonstrations. These previews
+are not captures of the final in-game mix. `Tests/HelicopterAudioSmoketest.gd`
+checks all six scenes, five layer assignments, mixer output, loop wrap, stopped
+and budget-suppressed silence, and cockpit routing.
+
 `cockpit/canopy_sand_ticks.wav` and `canopy_sand_rattle.wav` are original synthetic
 stereo grain-impact loops, rebuilt by `tools/generate_canopy_sand_audio.py` without
 external recordings. `Weather/CanopySandAudio.gd` mixes them according to local

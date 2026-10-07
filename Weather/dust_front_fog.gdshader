@@ -1,6 +1,8 @@
 shader_type fog;
+#include "res://Weather/storm_shape.gdshaderinc"
 uniform vec3 box_size;
 uniform vec3 dimensions;
+uniform vec4 outline = vec4(5.0, 0.035, 0.0, 0.0);
 uniform float elapsed = 0.0;
 uniform float strength = 0.0;
 uniform float extinction = 0.008693;
@@ -12,9 +14,9 @@ void fog() {
 	vec3 p = (UVW - 0.5) * box_size + vec3(0.0, dimensions.y * 0.5, 0.0);
 	float x = p.x / dimensions.x;
 	float z = p.z / dimensions.z;
-	float lobe = 1.0 + 0.035 * sin(atan(z, x) * 5.0);
+	float lobe = storm_edge(atan(z, x), outline);
 	float radial = length(vec2(x, z)) / lobe;
-	float top = 0.86 + 0.09 * sin(p.x / 280.0 + elapsed * 0.045) + 0.045 * sin(p.z / 350.0 - p.x / 1050.0 + elapsed * 0.03) + 0.035 * sin(p.x / 93.0 + p.z / 137.0 + elapsed * 0.08);
+	float top = dust_top(p, dimensions, elapsed, outline);
 	float y = max(p.y, 0.0) / (dimensions.y * top);
 	float envelope = sqrt(radial * radial + pow(y, 8.0));
 	float body = (1.0 - smoothstep(0.90, 1.015, envelope)) * smoothstep(-110.0, 0.0, p.y);

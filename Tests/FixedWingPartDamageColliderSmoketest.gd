@@ -177,7 +177,7 @@ func _check_aircraft_3_breakaway_wiring(
 	var tail_marker := aircraft.get_node_or_null("InsigniaTail")
 	var left_main_wing := aircraft.get_node_or_null("Aircraft 3/wing left") as MeshInstance3D
 	var right_main_wing := aircraft.get_node_or_null("Aircraft 3/wing right") as MeshInstance3D
-	var tail_visual := aircraft.get_node_or_null("Aircraft 3/tail_002") as MeshInstance3D
+	var tail_visual := aircraft.get_node_or_null("Aircraft 3/tail_002/TailBreakaway") as MeshInstance3D
 	_expect(
 		wing_marker != null and wing_marker.get("follow_target_path") == NodePath("../Aircraft 3/wing left"),
 		"%s wing insignia is not attached to the detachable left wing" % label
@@ -187,7 +187,7 @@ func _check_aircraft_3_breakaway_wiring(
 		"%s tail insignia is not attached to the detachable vertical stabilizer" % label
 	)
 	_expect(
-		damage_model.get("tail_section_visual_paths") == [NodePath("../Aircraft 3/tail_002")],
+		damage_model.get("tail_section_visual_paths") == [NodePath("../Aircraft 3/tail_002/TailBreakaway")],
 		"%s common tail section is not configured as a breakaway visual" % label
 	)
 	for zone: StringName in [

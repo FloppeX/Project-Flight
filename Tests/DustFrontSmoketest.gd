@@ -28,7 +28,8 @@ func _run() -> void:
 	_expect((visuals.get_node("ApproachingWallDust") as GPUParticles3D).amount == 2200, "Faceted wall retains approaching dust puffs")
 	_expect((visuals.get_node("NearbyBlowingDust") as GPUParticles3D).amount == 320, "Faceted wall retains nearby grains")
 	front.set_physics_process(false)
-	front.start_at(Vector3(2300, -500, -1700), Vector3(1, 0, 1))
+	# Fixed geometry isolates the established boundary checks from spawn variation.
+	front.start_at(Vector3(2300, -500, -1700), Vector3(1, 0, 1), front.capture_appearance())
 	front.elapsed_s = 120.0
 	front.strength = 1.0
 	var center := front.to_global(Vector3(0, 500, 0))

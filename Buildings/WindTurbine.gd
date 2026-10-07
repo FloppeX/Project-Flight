@@ -27,7 +27,10 @@ func _process(delta: float) -> void:
 	rotor_target.rotate_object_local(spin_axis, deg_to_rad(rotor_speed_deg_per_s) * delta)
 
 func _destroy() -> void:
+	if is_destroyed:
+		return
 	is_destroyed = true
+	_register_plasteel_salvage("Wind turbine wreck salvage", 220.0)
 	if team != 1 and not bool(get_meta("suppress_enemy_ops_on_destroy", false)):
 		EnemyOpsManager.report_asset_loss(global_position, "wind turbine")
 	destroyed.emit(self)

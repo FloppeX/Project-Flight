@@ -1,0 +1,35 @@
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+
+ERROR: Failed to read the root certificate store.
+   at: get_system_ca_certificates (platform/windows/os_windows.cpp:2582)
+[CockpitPilotPool] reserve_ready size=2 created=2 animation_prepare_ms=505.542 animation_prepare_max_ms=505.012
+[AirOpsManager] Ready — flights: Archer, Bulldog, Crimson, Dingo
+[CombatLog] [    0.0] SYS    Combat log online.
+[GroundOps] Ready — platoons: Ember, Ferret, Grizzly, Hammer
+[PerfHitch] Writing C:/Godot projects/Project-Flight/logs/helicopter_envelope_userdata/Godot/app_userdata/Land Carrier/perf_logs/hitch_events.csv threshold_ms=33.0 mark_action=flight_log_mark
+[FrameProfilerReportCapture] enabled (ambient_hitch_trace)
+[godot_ai game_helper] registered mcp capture (debugger active=false, logger=true)
+Auto-starting engines (throttle increased)
+Auto-stopping engines (throttle at 0)
+Auto-starting engines (throttle increased)
+Auto-starting engines (throttle increased)
+Auto-stopping engines (throttle at 0)
+Auto-starting engines (throttle increased)
+Auto-starting engines (throttle increased)
+Auto-stopping engines (throttle at 0)
+Auto-starting engines (throttle increased)
+Auto-starting engines (throttle increased)
+Auto-stopping engines (throttle at 0)
+Auto-starting engines (throttle increased)
+Auto-starting engines (throttle increased)
+Auto-stopping engines (throttle at 0)
+Auto-starting engines (throttle increased)
+Auto-starting engines (throttle increased)
+Auto-stopping engines (throttle at 0)
+Auto-starting engines (throttle increased)
+[HelicopterManualStartupThrottleSmoketest] PASS helicopters=9,10,11,12,13,15
+[Flight Archer] CAP  alt=800m
+[Flight Bulldog] CAP  alt=800m
+[Flight Crimson] CAP  alt=800m
+[Flight Dingo] CAP  alt=800m
+[Resolution] selected=(1920, 1080) window=(0, 0) root=(64, 64) screen=(0, 0) content=(1920, 1080) content_mode=2 content_aspect=1 content_factor=1.0 viewport=(1920.0, 1080.0) 3d_scale=1.0 mode=1

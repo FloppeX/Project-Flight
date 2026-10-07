@@ -212,6 +212,10 @@ var current_departure_drag_n: float = 0.0
 # drag/buffet feedback without permanently rewriting the aircraft profile.
 var structural_damage_drag_accel_mps2: float = 0.0
 var structural_damage_buffet_intensity: float = 0.0
+var damage_left_lift_scale: float = 1.0
+var damage_right_lift_scale: float = 1.0
+var damage_drag_multiplier: float = 1.0
+var damage_flap_effectiveness: float = 1.0
 
 var _flight_model_override: int = -1  # Tests only: -1 follows Gameplay, 0 simplified, 1 advanced
 var _simplified_linear_damp_mode: RigidBody3D.DampMode = RigidBody3D.DAMP_MODE_COMBINE
@@ -315,7 +319,7 @@ func _physics_process(delta: float) -> void:
 	# --- Drag (split longitudinal vs lateral; gear+flaps increase drag on approach) ---
 	if speed > 0.1:
 		var gear_mult: float = gear_drag_multiplier if _is_gear_deployed() else 1.0
-		var flaps_mult: float = flaps_drag_multiplier if _is_flaps_deployed() else 1.0
+		var flaps_mult: float = lerpf(1.0, flaps_drag_multiplier, damage_flap_effectiveness) if _is_flaps_deployed() else 1.0
 		approach_mult = gear_mult * flaps_mult
 		# Longitudinal
 		var active_forward_drag_scale := forward_drag_scale if advanced_flight_model else simplified_forward_drag_scale
@@ -328,6 +332,7 @@ func _physics_process(delta: float) -> void:
 		total_drag_force = (forward_drag_force * get_configuration_forward_drag_multiplier(approach_mult)
 			+ lateral_drag_force * approach_mult) * drag_base_multiplier
 		lateral_drag_feedback_n = lateral_drag_force.length() * drag_base_multiplier * approach_mult
+		total_drag_force *= damage_drag_multiplier
 		rb.apply_central_force(total_drag_force)
 
 	# --- Lift calculation ---
@@ -335,7 +340,7 @@ func _physics_process(delta: float) -> void:
 	var lift_dir: Vector3 = (up - v_dir * up.dot(v_dir)).normalized()
 
 	# Effective stall speed: lower when flaps deployed (more lift at low speed)
-	var effective_stall_speed: float = stall_speed * (flaps_stall_speed_factor if _is_flaps_deployed() else 1.0)
+	var effective_stall_speed: float = stall_speed * (lerpf(1.0, flaps_stall_speed_factor, damage_flap_effectiveness) if _is_flaps_deployed() else 1.0)
 	var aligned_level_speed: float = maxf(aligned_level_speed_mps, effective_stall_speed + 1.0)
 	var zero_aoa_lift_ratio: float = minf(pow(speed / aligned_level_speed, 2.0), 1.0)
 	var alpha_rad: float = atan2(-local_vel.y, maxf(local_vel.z, 0.1))
@@ -346,7 +351,7 @@ func _physics_process(delta: float) -> void:
 	var aoa_lift_scale: float = 1.0 + positive_alpha_t * aoa_lift_bonus_factor - negative_alpha_t * aoa_negative_lift_penalty_factor
 	# Flaps: extra lift coefficient when deployed -> more lift at a given speed, so the aircraft can fly a
 	# slower approach at higher AoA. Raise the lift ceiling too so the bonus isn't immediately clamped.
-	var flap_lift_scale: float = (1.0 + flaps_lift_bonus) if _is_flaps_deployed() else 1.0
+	var flap_lift_scale: float = (1.0 + flaps_lift_bonus * damage_flap_effectiveness) if _is_flaps_deployed() else 1.0
 	var lift_ceiling: float = maxf(max_lift_ratio, 0.1) * flap_lift_scale
 	commanded_lift_ratio = clampf(
 		zero_aoa_lift_ratio * maxf(aoa_lift_scale, 0.0) * flap_lift_scale,
@@ -438,6 +443,7 @@ func _physics_process(delta: float) -> void:
 	var speed_lift_loss: float = active_stall_lift_loss * speed_stall_severity
 	var aoa_lift_loss: float = active_aoa_stall_lift_loss * aoa_stall_severity
 	var actual_lift_mag: float = base_lift_mag * (1.0 - clampf(maxf(speed_lift_loss, aoa_lift_loss), 0.0, 0.95))
+	actual_lift_mag *= (damage_left_lift_scale + damage_right_lift_scale) * 0.5
 	lift_force = lift_dir * actual_lift_mag
 	actual_lift_ratio = actual_lift_mag / maxf(rb.mass * gravity_mag * maxf(rb.gravity_scale, 0.0), 0.001)
 
@@ -448,6 +454,8 @@ func _physics_process(delta: float) -> void:
 
 	# Apply lift at center of mass
 	rb.apply_central_force(lift_force)
+	if damage_left_lift_scale > 0.0 and damage_right_lift_scale > 0.0:
+		rb.apply_torque(fwd * (damage_left_lift_scale - damage_right_lift_scale) * actual_lift_mag * _wing_lift_arm_m * 0.25)
 	# Sample each half-wing. Differences from the centre airflow act at their
 	# spanwise positions, creating a physical moment without prescribed wobble.
 	current_gust_torque_nm = Vector3.ZERO
@@ -592,7 +600,7 @@ func _physics_process(delta: float) -> void:
 	# departure fade avoid a new limit cycle or fighting deliberate stall spins.
 	current_directional_sideslip_deg = 0.0
 	current_directional_stability_torque_nm = 0.0
-	var directional_airborne := speed > 5.0 and not _has_grounded_gear()
+	var directional_airborne := speed > 5.0 and not _has_ground_support()
 	# Keep the signed-angle telemetry useful for every airframe, including the
 	# zero-strength fleet baseline used in comparisons.
 	if directional_airborne:
@@ -615,7 +623,7 @@ func _physics_process(delta: float) -> void:
 	# Let flight-path alignment grow with speed: mild at slow speed so the
 	# aircraft can still feel loose and maneuverable, stronger in fast flight so
 	# the movement direction lines up with the nose more naturally.
-	if speed > 5.0 and not _has_grounded_gear():
+	if speed > 5.0 and not _has_ground_support():
 		var high_speed_alignment_t: float = _smoothstep(
 			slow_flight_alignment_release_speed_mps,
 			slow_flight_alignment_start_speed_mps,
@@ -690,7 +698,7 @@ func _physics_process(delta: float) -> void:
 		rb.apply_torque(extra_pitch_damping)
 
 	# --- Attitude stability (separate roll/pitch self-righting) ---
-	if speed > 5.0 and stability_strength > 0.0:
+	if speed > 5.0 and stability_strength > 0.0 and not _has_body_ground_contact():
 		_apply_attitude_stability(fwd, right, up, speed, forward_speed, stall_control_loss)
 
 	if force_audit_sample.has_connections():
@@ -1318,7 +1326,7 @@ func _get_wind_sample_lift(velocity: Vector3, advanced: bool) -> Vector3:
 	var up := rb.global_basis.y
 	var lift_direction := (up - direction * up.dot(direction)).normalized()
 	var alpha := rad_to_deg(atan2(-local.y, maxf(local.z, 0.1)))
-	var flap := (1.0 + flaps_lift_bonus) if _is_flaps_deployed() else 1.0
+	var flap := (1.0 + flaps_lift_bonus * damage_flap_effectiveness) if _is_flaps_deployed() else 1.0
 	var stall := get_effective_stall_speed_mps()
 	var ratio := minf(pow(speed / maxf(aligned_level_speed_mps, stall + 1.0), 2.0), 1.0)
 	var coefficient := 1.0 + clampf(alpha / maxf(aoa_lift_full_deg, 0.1), 0.0, 1.0) * aoa_lift_bonus_factor - clampf(-alpha / maxf(aoa_lift_full_deg, 0.1), 0.0, 1.0) * aoa_negative_lift_penalty_factor
@@ -1342,14 +1350,14 @@ func get_lift_load_scale() -> float:
 	# body. Keep this shared with AI estimates: stores add weight, not wing area.
 	if rb == null:
 		return 1.0
-	var flap_scale := (1.0 + flaps_lift_bonus) if _is_flaps_deployed() else 1.0
-	return flap_scale * get_lift_reference_mass_kg() / maxf(rb.mass, 0.001)
+	var flap_scale := (1.0 + flaps_lift_bonus * damage_flap_effectiveness) if _is_flaps_deployed() else 1.0
+	return flap_scale * get_lift_reference_mass_kg() / maxf(rb.mass, 0.001) * (damage_left_lift_scale + damage_right_lift_scale) * 0.5
 
 func get_estimated_lift_ratio() -> float:
 	if rb == null:
 		return 0.0
 	var speed: float = get_air_relative_velocity().length()
-	var effective_stall_speed: float = stall_speed * (flaps_stall_speed_factor if _is_flaps_deployed() else 1.0)
+	var effective_stall_speed: float = stall_speed * (lerpf(1.0, flaps_stall_speed_factor, damage_flap_effectiveness) if _is_flaps_deployed() else 1.0)
 	var aligned_level_speed: float = maxf(aligned_level_speed_mps, effective_stall_speed + 1.0)
 	var zero_aoa_lift_ratio: float = minf(pow(speed / aligned_level_speed, 2.0), 1.0)
 	var alpha_deg: float = get_estimated_angle_of_attack_deg()
@@ -1374,7 +1382,7 @@ func get_stall_severity() -> float:
 	return current_stall_severity
 
 func get_effective_stall_speed_mps() -> float:
-	return stall_speed * (flaps_stall_speed_factor if _is_flaps_deployed() else 1.0)
+	return stall_speed * (lerpf(1.0, flaps_stall_speed_factor, damage_flap_effectiveness) if _is_flaps_deployed() else 1.0)
 
 func _prepare_aero_report() -> void:
 	if not aero_report_enabled:
@@ -2209,7 +2217,7 @@ func _get_ground_rudder_assist_strength(forward_speed: float) -> float:
 func _is_airborne_for_stall_effects() -> bool:
 	if rb == null:
 		return false
-	if _has_grounded_gear():
+	if _has_ground_support():
 		return false
 	if rb.has_meta("parking_brake") and bool(rb.get_meta("parking_brake")):
 		return false
@@ -2222,6 +2230,14 @@ func _is_airborne_for_stall_effects() -> bool:
 	if rb.has_meta("helicopter_deck_takeoff_ready") and bool(rb.get_meta("helicopter_deck_takeoff_ready")):
 		return false
 	return true
+
+func _has_body_ground_contact() -> bool:
+	if rb == null: return false
+	var age := Engine.get_physics_frames() - int(rb.get_meta("ground_body_contact_frame", -1000))
+	return age >= 0 and age <= 2
+
+func _has_ground_support() -> bool:
+	return _has_body_ground_contact() or _has_grounded_gear()
 
 func _has_grounded_gear() -> bool:
 	if not _is_gear_deployed() or _landing_gear_node == null:

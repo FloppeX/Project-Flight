@@ -15,6 +15,9 @@ const ZONE_COCKPIT: StringName = &"cockpit"
 const ZONE_HORIZONTAL_STABILIZER: StringName = &"horizontal_stabilizer"
 const ZONE_VERTICAL_STABILIZER: StringName = &"vertical_stabilizer"
 const ZONE_TAIL_SECTION: StringName = &"tail_section"
+const ZONE_ENGINE: StringName = &"engine"
+const ZONE_TAIL: StringName = &"tail"
+const DISPLAY_ZONES: Array[StringName] = [ZONE_FUSELAGE, ZONE_COCKPIT, ZONE_ENGINE, ZONE_LEFT_WING, ZONE_RIGHT_WING, ZONE_TAIL]
 const ZONE_ORDER: Array[StringName] = [
 	ZONE_LEFT_WING,
 	ZONE_RIGHT_WING,
@@ -22,6 +25,8 @@ const ZONE_ORDER: Array[StringName] = [
 	ZONE_COCKPIT,
 	ZONE_HORIZONTAL_STABILIZER,
 	ZONE_VERTICAL_STABILIZER,
+	ZONE_ENGINE,
+	ZONE_TAIL,
 ]
 
 @export_group("Collision zones")
@@ -31,6 +36,9 @@ const ZONE_ORDER: Array[StringName] = [
 @export var cockpit_collider_path: NodePath = NodePath("../CockpitDamageCollider")
 @export var horizontal_stabilizer_collider_path: NodePath = NodePath("../HorizontalStabilizerDamageCollider")
 @export var vertical_stabilizer_collider_path: NodePath = NodePath("../VerticalStabilizerDamageCollider")
+@export var engine_collider_path: NodePath = NodePath("../EngineDamageCollider")
+@export var tail_collider_path: NodePath = NodePath("../TailDamageCollider")
+@export var tail_cut_local_z: float = -3.0
 
 @export_group("Detachable visuals")
 @export var left_wing_visual_paths: Array[NodePath] = []
@@ -46,9 +54,10 @@ const ZONE_ORDER: Array[StringName] = [
 @export var horizontal_stabilizer_attached_visual_paths: Array[NodePath] = []
 @export var vertical_stabilizer_attached_visual_paths: Array[NodePath] = []
 @export_group("Detachable visuals")
-## Optional common tail structure. It is not a seventh damage pool: it breaks
-## away only after both stabilizer regions have been destroyed.
+## Capped rear structure. A full tail hit detaches it and all surviving tail surfaces.
 @export var tail_section_visual_paths: Array[NodePath] = []
+@export var tail_section_attached_visual_paths: Array[NodePath] = []
+@export var engine_attached_to_tail: bool = false
 @export var align_companion_wing_visuals_to_outer_fold: bool = false
 ## Opt-in for disconnected pieces sharing a damage pool (e.g. two tail tips).
 ## Compound authored sections continue to fall as a single body by default.
@@ -76,12 +85,14 @@ const ZONE_ORDER: Array[StringName] = [
 @export var wing_loss_turbulence_torque_per_kg: float = 0.9
 @export_range(0.0, 1.0, 0.05) var wing_loss_buffet_intensity: float = 0.9
 @export var wing_loss_pitch_tumble_torque_per_kg: float = 14.0
-@export var wing_loss_yaw_spin_torque_per_kg: float = 11.0
+@export var wing_loss_yaw_spin_torque_per_kg: float = 12.0
 @export var wing_loss_side_accel_at_100_mps: float = 6.0
 @export var wing_loss_sink_accel_at_100_mps: float = 5.0
 @export var wing_loss_max_departure_accel_mps2: float = 18.0
 @export_range(0.0, 1.0, 0.05) var horizontal_stabilizer_control_scale: float = 0.1
 @export_range(0.0, 1.0, 0.05) var vertical_stabilizer_control_scale: float = 0.1
+@export var tail_loss_max_pitch_rate_deg_s: float = 120.0
+@export var tail_loss_pitch_accel_deg_s2: float = 80.0
 
 var _aircraft: RigidBody3D
 var _zone_health: Dictionary = {}
@@ -93,6 +104,8 @@ var _destroyed_zones: Dictionary = {}
 var _restoring_damage_state := false
 var _turbulence_phase_s: float = 0.0
 var _tail_section_detached: bool = false
+var systems: Node
+var _tail_pitch_rate: float = 0.0
 
 
 func _ready() -> void:
@@ -103,11 +116,22 @@ func _ready() -> void:
 		return
 	_cache_configuration()
 	set_physics_process(false)
+	systems = preload("res://Aircraft/RegionalDamageSystems.gd").new()
+	systems.name = "RegionalSystems"
+	add_child(systems)
 
 
 func _physics_process(delta: float) -> void:
 	if _aircraft == null or not is_instance_valid(_aircraft):
 		set_physics_process(false)
+		return
+	if is_ground_supported():
+		_neutralize_all_flight_control_inputs()
+		_tail_pitch_rate = 0.0
+		_set_structural_airflow_feedback(0.0, 0.0)
+		return
+	if _tail_section_detached:
+		_update_tail_loss(delta)
 		return
 	var lost_wing_count := int(is_zone_destroyed(ZONE_LEFT_WING)) \
 		+ int(is_zone_destroyed(ZONE_RIGHT_WING))
@@ -192,6 +216,10 @@ func take_damage_at(
 	local_shape_index: int = -1
 ) -> StringName:
 	var zone := resolve_zone_from_hit(world_position, local_shape_index)
+	# Keep old stabilizer identifiers for saved games and authored surface tests;
+	# combat hits on either surface spend the shared structural tail region.
+	if zone in [ZONE_HORIZONTAL_STABILIZER, ZONE_VERTICAL_STABILIZER]:
+		zone = ZONE_TAIL
 	if zone == StringName():
 		zone = ZONE_FUSELAGE
 	damage_zone(zone, damage_amount)
@@ -211,6 +239,8 @@ func damage_zone(zone: StringName, damage_amount: float) -> bool:
 
 	if new_health <= 0.0:
 		_destroy_zone(zone)
+	if is_instance_valid(systems):
+		systems.refresh()
 	return true
 
 
@@ -226,6 +256,11 @@ func resolve_zone_from_hit(world_position: Vector3, local_shape_index: int = -1)
 	if shape_node != null:
 		var indexed_zone := _zone_for_collider(shape_node)
 		if indexed_zone != StringName() and not is_zone_destroyed(indexed_zone):
+			if indexed_zone == ZONE_FUSELAGE and _is_finite_position(world_position):
+				for local_zone: StringName in [ZONE_ENGINE, ZONE_TAIL]:
+					var local_collider := _zone_colliders.get(local_zone) as CollisionShape3D
+					if local_collider != null and not is_zone_destroyed(local_zone) and _distance_to_collider(world_position, local_collider) < 0.08:
+						return local_zone
 			return indexed_zone
 
 	if not _is_finite_position(world_position):
@@ -267,6 +302,9 @@ func get_damage_state() -> Dictionary:
 		}
 	return state
 
+func get_structural_zones() -> Array[StringName]:
+	return [&"fuselage", &"left_wing", &"right_wing", &"tail"]
+
 
 func restore_damage_state(state: Dictionary) -> void:
 	# Restore into a freshly spawned model without replaying hits or debris.
@@ -279,6 +317,8 @@ func restore_damage_state(state: Dictionary) -> void:
 		if bool(entry.get("destroyed", false)):
 			_destroy_zone(zone)
 	_restoring_damage_state = false
+	if is_instance_valid(systems):
+		systems.refresh()
 
 
 func _cache_configuration() -> void:
@@ -296,6 +336,8 @@ func _cache_configuration() -> void:
 		ZONE_COCKPIT: regional_health,
 		ZONE_HORIZONTAL_STABILIZER: regional_health,
 		ZONE_VERTICAL_STABILIZER: regional_health,
+		ZONE_ENGINE: regional_health,
+		ZONE_TAIL: regional_health,
 	}
 	_zone_health = _zone_max_health.duplicate(true)
 	_destroyed_zones.clear()
@@ -306,6 +348,8 @@ func _cache_configuration() -> void:
 		ZONE_COCKPIT: get_node_or_null(cockpit_collider_path),
 		ZONE_HORIZONTAL_STABILIZER: get_node_or_null(horizontal_stabilizer_collider_path),
 		ZONE_VERTICAL_STABILIZER: get_node_or_null(vertical_stabilizer_collider_path),
+		ZONE_ENGINE: get_node_or_null(engine_collider_path),
+		ZONE_TAIL: get_node_or_null(tail_collider_path),
 	}
 	_zone_visual_paths = {
 		ZONE_LEFT_WING: left_wing_visual_paths,
@@ -331,6 +375,11 @@ func _cache_configuration() -> void:
 			push_warning("[AircraftPartDamageModel] Missing collider for %s" % zone)
 			continue
 		collider.set_meta("damage_zone", zone)
+	# Some airframes have twin fins. Give their additional collider the same
+	# ownership as the primary fin instead of falling back to fuselage damage.
+	for child in _aircraft.get_children():
+		if child is CollisionShape3D and String(child.name).begins_with("VerticalStabilizerDamageCollider"):
+			child.set_meta("damage_zone", ZONE_VERTICAL_STABILIZER)
 
 
 func _shape_node_for_local_index(local_shape_index: int) -> CollisionShape3D:
@@ -399,9 +448,15 @@ func _destroy_zone(zone: StringName) -> void:
 	var collider := _zone_colliders.get(zone) as CollisionShape3D
 	if collider != null and is_instance_valid(collider):
 		collider.set_deferred("disabled", true)
+	for child in _aircraft.get_children():
+		if child is CollisionShape3D and _zone_for_collider(child) == zone:
+			child.set_deferred("disabled", true)
 	if _aircraft != null and is_instance_valid(_aircraft):
 		_aircraft.set_meta("destroyed_part_%s" % zone, true)
-	_detach_zone_visuals(zone)
+	if zone == ZONE_TAIL:
+		_detach_entire_tail()
+	else:
+		_detach_zone_visuals(zone)
 	_apply_zone_failure(zone)
 	if zone == ZONE_VERTICAL_STABILIZER and vertical_stabilizer_supports_horizontal:
 		damage_zone(ZONE_HORIZONTAL_STABILIZER, get_zone_health(ZONE_HORIZONTAL_STABILIZER))
@@ -411,15 +466,76 @@ func _destroy_zone(zone: StringName) -> void:
 
 
 func _try_detach_tail_section() -> void:
-	if _tail_section_detached or tail_section_visual_paths.is_empty():
+	if _tail_section_detached:
 		return
 	if not is_zone_destroyed(ZONE_HORIZONTAL_STABILIZER) \
 	or not is_zone_destroyed(ZONE_VERTICAL_STABILIZER):
 		return
+	damage_zone(ZONE_TAIL, get_zone_health(ZONE_TAIL))
+
+
+func _detach_entire_tail() -> void:
 	_tail_section_detached = true
-	if _aircraft != null and is_instance_valid(_aircraft):
-		_aircraft.set_meta("destroyed_part_tail_section", true)
-	_detach_zone_visuals(ZONE_TAIL_SECTION)
+	_aircraft.set_meta("destroyed_part_tail_section", true)
+	var visuals: Array[MeshInstance3D] = []
+	var paths: Array = tail_section_visual_paths.duplicate()
+	paths.append_array(tail_section_attached_visual_paths)
+	for zone: StringName in [ZONE_HORIZONTAL_STABILIZER, ZONE_VERTICAL_STABILIZER]:
+		paths.append_array(_zone_visual_paths.get(zone, []))
+		paths.append_array(_zone_attached_visual_paths.get(zone, []))
+	for path: NodePath in paths:
+		var visual := get_node_or_null(path) as Node3D
+		if visual == null or not visual.is_visible_in_tree():
+			continue
+		var candidates: Array[Node] = [visual]
+		candidates.append_array(visual.find_children("*", "MeshInstance3D", true, false))
+		for candidate in candidates:
+			if candidate is MeshInstance3D and candidate.is_visible_in_tree() and not visuals.has(candidate):
+				visuals.append(candidate)
+	_spawn_visual_debris(visuals, ZONE_TAIL_SECTION)
+	for visual in visuals:
+		visual.visible = false
+		visual.set_meta("damage_detached", true)
+		_hide_decals_following(visual)
+	for zone: StringName in [ZONE_HORIZONTAL_STABILIZER, ZONE_VERTICAL_STABILIZER]:
+		_zone_health[zone] = 0.0
+		_destroyed_zones[zone] = true
+		var collider := _zone_colliders.get(zone) as CollisionShape3D
+		if collider != null:
+			collider.set_deferred("disabled", true)
+	# The original hull capsule includes the rear fuselage. Remove that phantom
+	# collision volume after the visible rear structure is gone.
+	var hull := _zone_colliders.get(ZONE_FUSELAGE) as CollisionShape3D
+	if hull != null and hull.shape is CapsuleShape3D:
+		var shape := hull.shape.duplicate() as CapsuleShape3D
+		var front := hull.position.z + shape.height * 0.5
+		shape.height = maxf(front - tail_cut_local_z, shape.radius * 2.0)
+		hull.shape = shape
+		hull.position.z = front - shape.height * 0.5
+	for child: Node in _aircraft.get_children():
+		if child is CollisionShape3D and _zone_for_collider(child) in [ZONE_HORIZONTAL_STABILIZER, ZONE_VERTICAL_STABILIZER]:
+			child.set_deferred("disabled", true)
+		if child is CollisionShape3D and child.name.contains("Gear") and child.position.z < tail_cut_local_z:
+			child.set_deferred("disabled", true)
+			child.set_meta("damage_detached", true)
+	if engine_attached_to_tail:
+		damage_zone(ZONE_ENGINE, get_zone_health(ZONE_ENGINE))
+	set_physics_process(true)
+
+
+func _update_tail_loss(delta: float) -> void:
+	_neutralize_all_flight_control_inputs()
+	# Prescribe bounded angular acceleration about the spanwise LOCAL X axis.
+	# Mass/inertia differences must not turn this into an unbounded spin.
+	var basis := _aircraft.global_basis.orthonormalized()
+	var local_rate := basis.transposed() * _aircraft.angular_velocity
+	var airborne_scale := clampf(_aircraft.linear_velocity.length() / 35.0, 0.0, 1.0)
+	_tail_pitch_rate = move_toward(_tail_pitch_rate, deg_to_rad(tail_loss_max_pitch_rate_deg_s) * airborne_scale, deg_to_rad(tail_loss_pitch_accel_deg_s2) * delta)
+	local_rate.x = _tail_pitch_rate
+	local_rate.y = clampf(local_rate.y, -0.6, 0.6)
+	local_rate.z = clampf(local_rate.z, -0.6, 0.6)
+	_aircraft.angular_velocity = basis * local_rate
+	_aircraft.set_meta("tail_failure_pitch_rate_deg_s", rad_to_deg(local_rate.x))
 
 
 func _detach_zone_visuals(zone: StringName) -> void:
@@ -487,6 +603,26 @@ func _align_wing_break_sections(zone: StringName, visuals: Array[MeshInstance3D]
 		companion.global_transform = fold_motion * companion.global_transform
 
 
+func is_ground_supported() -> bool:
+	if Engine.get_physics_frames() - int(_aircraft.get_meta("ground_contact_frame", -1000)) <= 12:
+		return true
+	var gear := _aircraft.get_node_or_null("LandingGear")
+	return gear != null and true in gear.gear_has_contact
+
+
+func detach_gear_assembly(visual: Node3D, spawn_debris: bool = true) -> void:
+	var sources: Array[MeshInstance3D] = []
+	var candidates: Array[Node] = [visual]
+	candidates.append_array(visual.find_children("*", "MeshInstance3D", true, false))
+	for candidate in candidates:
+		if candidate is MeshInstance3D and candidate.is_visible_in_tree():
+			sources.append(candidate)
+	if spawn_debris:
+		_spawn_visual_debris(sources, &"landing_gear")
+	visual.visible = false
+	visual.set_meta("damage_detached", true)
+
+
 func _spawn_visual_debris(sources: Array[MeshInstance3D], zone: StringName) -> void:
 	if _restoring_damage_state:
 		return
@@ -529,6 +665,7 @@ func _spawn_visual_debris(sources: Array[MeshInstance3D], zone: StringName) -> v
 
 	var debris := RigidBody3D.new()
 	debris.name = "Detached%s" % _zone_display_name(zone)
+	debris.set_meta("damage_debris_zone", zone)
 	debris.collision_layer = 1
 	debris.collision_mask = _aircraft.collision_mask
 	debris.continuous_cd = true
@@ -548,6 +685,11 @@ func _spawn_visual_debris(sources: Array[MeshInstance3D], zone: StringName) -> v
 		var detached_mesh := source.duplicate() as MeshInstance3D
 		if detached_mesh == null:
 			continue
+		if zone == ZONE_TAIL_SECTION or zone == &"landing_gear":
+			# Tail sources already contain every visible child mesh, flattened at
+			# its current pose. Do not duplicate animated descendants a second time.
+			for child in detached_mesh.get_children():
+				child.free()
 		var source_label := String(source.name).to_pascal_case()
 		detached_mesh.name = "%sMesh" % source_label
 		detached_mesh.transform = source_in_debris
@@ -572,6 +714,12 @@ func _spawn_visual_debris(sources: Array[MeshInstance3D], zone: StringName) -> v
 		debris.queue_free()
 		return
 	debris.mass = clampf(total_volume * 12.0, 8.0, 120.0)
+	if zone in [ZONE_LEFT_WING, ZONE_RIGHT_WING]:
+		for node in _aircraft.find_children("*", "Node3D", true, false):
+			if not node is Hardpoint or not node.visible: continue
+			var x := _aircraft.to_local(node.global_position).x
+			if (zone == ZONE_LEFT_WING and x > 0.8) or (zone == ZONE_RIGHT_WING and x < -0.8):
+				node.lose_with_support(debris)
 
 	var offset := debris_transform.origin - _aircraft.global_position
 	debris.linear_velocity = _aircraft.linear_velocity + _aircraft.angular_velocity.cross(offset)
@@ -632,6 +780,14 @@ func _apply_zone_failure(zone: StringName) -> void:
 		return
 	var aero := _aircraft.get_node_or_null("SimpleAero")
 	match zone:
+		ZONE_TAIL:
+			if aero != null:
+				for property: StringName in [&"pitch_power", &"roll_power", &"yaw_power", &"simplified_pitch_power_override"]:
+					aero.set(property, 0.0)
+				_disable_passive_stability_after_wing_loss(aero)
+			_neutralize_all_flight_control_inputs()
+			_aircraft.set_meta("structural_control_failure", true)
+			set_physics_process(true)
 		ZONE_LEFT_WING, ZONE_RIGHT_WING:
 			var lost_wing_count := int(is_zone_destroyed(ZONE_LEFT_WING)) \
 				+ int(is_zone_destroyed(ZONE_RIGHT_WING))
@@ -739,6 +895,8 @@ func _disable_passive_stability_after_wing_loss(aero: Node) -> void:
 		&"directional_stability_strength",
 		&"alignment_strength",
 		&"alignment_low_speed_strength",
+		&"vertical_alignment_low_speed_strength",
+		&"vertical_alignment_high_speed_strength",
 	]:
 		if stability_property in aero:
 			aero.set(stability_property, 0.0)

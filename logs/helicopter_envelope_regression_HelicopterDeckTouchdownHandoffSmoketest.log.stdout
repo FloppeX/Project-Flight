@@ -1,0 +1,85 @@
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+
+ERROR: Failed to read the root certificate store.
+   at: get_system_ca_certificates (platform/windows/os_windows.cpp:2582)
+[CockpitPilotPool] reserve_ready size=2 created=2 animation_prepare_ms=464.553 animation_prepare_max_ms=464.224
+[AirOpsManager] Ready — flights: Archer, Bulldog, Crimson, Dingo
+[CombatLog] [    0.0] SYS    Combat log online.
+[GroundOps] Ready — platoons: Ember, Ferret, Grizzly, Hammer
+[PerfHitch] Writing C:/Godot projects/Project-Flight/logs/helicopter_envelope_userdata/Godot/app_userdata/Land Carrier/perf_logs/hitch_events.csv threshold_ms=33.0 mark_action=flight_log_mark
+[FrameProfilerReportCapture] enabled (ambient_hitch_trace)
+[godot_ai game_helper] registered mcp capture (debugger active=false, logger=true)
+[FlightDeck RECOVERY] state=IDLE aircraft=none pending=none dispatched=false bots_hangar=false start_post_arrest_recovery ignored: helicopter not on deck aircraft=Aircraft_11_TouchdownRegression local=(0.0, 7.9, 0.0) pos=(0.0, 7.9, 0.0)
+[FlightDeck RECOVERY] state=IDLE aircraft=none pending=none dispatched=false bots_hangar=false start_post_arrest_recovery ignored: player helicopter is not parked Aircraft_11_TouchdownRegression
+[FlightDeck RECOVERY] state=IDLE aircraft=none pending=none dispatched=false bots_hangar=false helicopter ready for deck recovery Aircraft_11_TouchdownRegression rel_speed=0.00 local=(0.0, 2.0, 0.0)
+HELI_AI event=carrier_touchdown_deck_confirmed craft=Aircraft_11_TouchdownRegression gear=0/0 rel=0.80 vs=0.80 deck_agl=2.00 settled=0.40
+[CombatLog] [    1.2] LAND   Aircraft_11_TouchdownRegression completed helicopter touchdown
+[FlightDeck RECOVERY] state=IDLE aircraft=none pending=none dispatched=false bots_hangar=false helicopter landing hold active for 15.0s after Aircraft_11_TouchdownRegression touchdown
+[FlightDeck RECOVERY] state=STORING_IN_HANGAR aircraft=Aircraft_11_TouchdownRegression pending=Aircraft_11_TouchdownRegression dispatched=false bots_hangar=false store aircraft deferred: aircraft has not completed elevator descent
+[FlightDeck RECOVERY] state=STORING_IN_HANGAR aircraft=Aircraft_11_TouchdownRegression pending=Aircraft_11_TouchdownRegression dispatched=false bots_hangar=false store aircraft deferred: aircraft has not completed elevator descent
+[FlightDeck RECOVERY] state=STORING_IN_HANGAR aircraft=Aircraft_11_TouchdownRegression pending=Aircraft_11_TouchdownRegression dispatched=false bots_hangar=false storing aircraft in hangar
+[CombatLog] [    1.2] STORE  Aircraft_11_TouchdownRegression secured in carrier hangar
+WARNING: [FlightDeckManager] CarrierManager not found. Aircraft pilot assignment is unavailable.
+   at: push_warning (core/variant/variant_utility.cpp:1033)
+   GDScript backtrace (most recent call first):
+       [0] _resolve_carrier_manager (res://LandCarrier/FlightDeckManager.gd:1034)
+       [1] _store_aircraft_in_hangar (res://LandCarrier/FlightDeckManager.gd:4021)
+       [2] _on_elevator_at_bottom (res://LandCarrier/FlightDeckManager.gd:3974)
+       [3] _run (res://Tests/HelicopterDeckTouchdownHandoffSmoketest.gd:194)
+WARNING: [FlightDeckManager] CarrierManager not found. Aircraft pilot assignment is unavailable.
+   at: push_warning (core/variant/variant_utility.cpp:1033)
+   GDScript backtrace (most recent call first):
+       [0] _resolve_carrier_manager (res://LandCarrier/FlightDeckManager.gd:1034)
+       [1] _ensure_pilot_assigned_for_data (res://LandCarrier/FlightDeckManager.gd:1260)
+       [2] _store_aircraft_in_hangar (res://LandCarrier/FlightDeckManager.gd:4024)
+       [3] _on_elevator_at_bottom (res://LandCarrier/FlightDeckManager.gd:3974)
+       [4] _run (res://Tests/HelicopterDeckTouchdownHandoffSmoketest.gd:194)
+WARNING: [FlightDeckManager] Stored aircraft is missing pilot data and CarrierManager is unavailable.
+   at: push_warning (core/variant/variant_utility.cpp:1033)
+   GDScript backtrace (most recent call first):
+       [0] _store_aircraft_in_hangar (res://LandCarrier/FlightDeckManager.gd:4025)
+       [1] _on_elevator_at_bottom (res://LandCarrier/FlightDeckManager.gd:3974)
+       [2] _run (res://Tests/HelicopterDeckTouchdownHandoffSmoketest.gd:194)
+[FlightDeck RECOVERY] state=STORING_IN_HANGAR aircraft=Aircraft_11_TouchdownRegression pending=Aircraft_11_TouchdownRegression dispatched=false bots_hangar=false aircraft stored; hangar count=1
+[FlightDeck RECOVERY] state=IDLE aircraft=none pending=none dispatched=false bots_hangar=false helicopter ready for deck recovery Aircraft_13_ParkedSkidRegression rel_speed=0.00 local=(8.0, 1.4, -35.0)
+[FlightDeck RECOVERY] state=IDLE aircraft=none pending=none dispatched=false bots_hangar=false helicopter ready for deck recovery Aircraft_13_ParkedSkidRegression rel_speed=0.00 local=(8.0, 1.4, -35.0)
+[CombatLog] [    1.2] LAND   Aircraft_13_ParkedSkidRegression completed helicopter touchdown
+[FlightDeck RECOVERY] state=RECOVERY_IN_PROGRESS aircraft=Aircraft_13_ParkedSkidRegression pending=Aircraft_13_ParkedSkidRegression dispatched=false bots_hangar=false start post-arrest recovery arresting=false cable=false
+[FlightDeck RECOVERY] state=RECOVERY_IN_PROGRESS aircraft=Aircraft_13_ParkedSkidRegression pending=Aircraft_13_ParkedSkidRegression dispatched=false bots_hangar=false dispatching direct recovery with no engaged cable
+[FlightDeck RECOVERY] state=RECOVERY_IN_PROGRESS aircraft=Aircraft_13_ParkedSkidRegression pending=Aircraft_13_ParkedSkidRegression dispatched=false bots_hangar=false cannot dispatch recovery: aircraft_valid=true pickup_marker_valid=false
+[FlightDeck RECOVERY] state=STORING_IN_HANGAR aircraft=Aircraft_13_ParkedSkidRegression pending=Aircraft_13_ParkedSkidRegression dispatched=false bots_hangar=false store aircraft deferred: aircraft has not completed elevator descent
+[FlightDirector] Stored aircraft handed to bridge: Aircraft_13_ParkedSkidRegression
+[FlightDeck RECOVERY] state=STORING_IN_HANGAR aircraft=Aircraft_13_ParkedSkidRegression pending=Aircraft_13_ParkedSkidRegression dispatched=false bots_hangar=false storing aircraft in hangar
+[CombatLog] [    1.2] STORE  Aircraft_13_ParkedSkidRegression secured in carrier hangar
+WARNING: [FlightDeckManager] CarrierManager not found. Aircraft pilot assignment is unavailable.
+   at: push_warning (core/variant/variant_utility.cpp:1033)
+   GDScript backtrace (most recent call first):
+       [0] _resolve_carrier_manager (res://LandCarrier/FlightDeckManager.gd:1034)
+       [1] _store_aircraft_in_hangar (res://LandCarrier/FlightDeckManager.gd:4021)
+       [2] _on_elevator_at_bottom (res://LandCarrier/FlightDeckManager.gd:3974)
+       [3] _run (res://Tests/HelicopterDeckTouchdownHandoffSmoketest.gd:276)
+WARNING: [FlightDeckManager] CarrierManager not found. Aircraft pilot assignment is unavailable.
+   at: push_warning (core/variant/variant_utility.cpp:1033)
+   GDScript backtrace (most recent call first):
+       [0] _resolve_carrier_manager (res://LandCarrier/FlightDeckManager.gd:1034)
+       [1] _ensure_pilot_assigned_for_data (res://LandCarrier/FlightDeckManager.gd:1260)
+       [2] _store_aircraft_in_hangar (res://LandCarrier/FlightDeckManager.gd:4024)
+       [3] _on_elevator_at_bottom (res://LandCarrier/FlightDeckManager.gd:3974)
+       [4] _run (res://Tests/HelicopterDeckTouchdownHandoffSmoketest.gd:276)
+WARNING: [FlightDeckManager] Stored aircraft is missing pilot data and CarrierManager is unavailable.
+   at: push_warning (core/variant/variant_utility.cpp:1033)
+   GDScript backtrace (most recent call first):
+       [0] _store_aircraft_in_hangar (res://LandCarrier/FlightDeckManager.gd:4025)
+       [1] _on_elevator_at_bottom (res://LandCarrier/FlightDeckManager.gd:3974)
+       [2] _run (res://Tests/HelicopterDeckTouchdownHandoffSmoketest.gd:276)
+[FlightDeck RECOVERY] state=STORING_IN_HANGAR aircraft=Aircraft_13_ParkedSkidRegression pending=Aircraft_13_ParkedSkidRegression dispatched=false bots_hangar=false aircraft stored; hangar count=2
+[CombatLog] [    1.2] LAND   PlayerArrestedPlaneRegression completed arrested landing
+[FlightDeck RECOVERY] state=RECOVERY_IN_PROGRESS aircraft=PlayerArrestedPlaneRegression pending=PlayerArrestedPlaneRegression dispatched=false bots_hangar=false start post-arrest recovery arresting=false cable=false
+[FlightDeck RECOVERY] state=RECOVERY_IN_PROGRESS aircraft=PlayerArrestedPlaneRegression pending=PlayerArrestedPlaneRegression dispatched=false bots_hangar=false dispatching direct recovery with no engaged cable
+[FlightDeck RECOVERY] state=RECOVERY_IN_PROGRESS aircraft=PlayerArrestedPlaneRegression pending=PlayerArrestedPlaneRegression dispatched=false bots_hangar=false cannot dispatch recovery: aircraft_valid=true pickup_marker_valid=false
+[HelicopterDeckTouchdownHandoffSmoketest] PASS deck_confirmed=true settle_dwell=true secured=true outbound_held=true no_premature_store=true completed_ride_stored=true cockpit_retained_until_hangar=true fixed_wing_cockpit_retained=true
+[Flight Archer] CAP  alt=800m
+[Flight Bulldog] CAP  alt=800m
+[Flight Crimson] CAP  alt=800m
+[Flight Dingo] CAP  alt=800m
+[Resolution] selected=(1920, 1080) window=(0, 0) root=(64, 64) screen=(0, 0) content=(1920, 1080) content_mode=2 content_aspect=1 content_factor=1.0 viewport=(1920.0, 1080.0) 3d_scale=1.0 mode=1

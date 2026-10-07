@@ -121,6 +121,13 @@ func _connect_aircraft_signals() -> void:
 		aircraft.connect("damaged", Callable(self, "_on_aircraft_damaged"))
 	if auto_start_on_destroyed and aircraft.has_signal("destroyed"):
 		aircraft.connect("destroyed", Callable(self, "_on_aircraft_destroyed"))
+	var parts := aircraft.get_node_or_null("PartDamageModel")
+	if auto_start_on_critical_damage and parts != null:
+		parts.zone_destroyed.connect(_on_structural_part_destroyed)
+
+func _on_structural_part_destroyed(zone: StringName) -> void:
+	if zone in [&"tail", &"left_wing", &"right_wing"]:
+		_on_aircraft_damaged(0.0, 0.0)
 
 
 func start_ejection() -> void:

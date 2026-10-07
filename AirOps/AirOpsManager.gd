@@ -161,6 +161,7 @@ func _create_flights() -> void:
 func reset_runtime_state() -> void:
 	if assembly != null:
 		assembly.plans.clear()
+		assembly.rescue_reserve_id = ""
 	for flight in flights:
 		if is_instance_valid(flight):
 			remove_child(flight)
@@ -458,6 +459,8 @@ func default_patrol_engagement(fname: String) -> String:
 		return "ground" if f.mission == Flight.Mission.CAS else f.patrol_engagement
 	if assembly != null and str(assembly.plan(fname).get("loadout", "gun_only")) in ["rocket_strike", "bomb_strike"]:
 		return "ground"
+	if assembly != null and not str(assembly.plan(fname).scene).is_empty() and assembly.model_info(str(assembly.plan(fname).scene)).helicopter:
+		return "ground"
 	if f != null:
 		for aircraft in f.get_members():
 			var pilot: Node = aircraft.get_node_or_null("AIPilot")
@@ -531,6 +534,11 @@ func order_intercept(fname: String, target: Variant) -> bool:
 	var flight := get_flight(fname)
 	if flight == null or not model.is_valid(target):
 		return false
+	if _flight_uses_helicopters(flight):
+		var supported := false
+		for member in model.members(target):
+			supported = supported or member.find_child("HelicopterPilot", true, false) != null
+		if not supported: return false
 	# Resolve individual map markers to their owning formation as well as accepting formation markers.
 	if target is Node3D:
 		for formation in get_interceptable_flights():
@@ -704,11 +712,12 @@ func capture_save_state(flight_deck: Node) -> Dictionary:
 			"mission_state": flight.capture_mission_save_state(),
 			"aircraft": aircraft_entries,
 		})
-	return {"flights": flight_entries, "assembly": assembly.capture_save_state()}
+	return {"flights": flight_entries, "assembly": assembly.capture_save_state(), "rescue_reserve_id": assembly.rescue_reserve_id}
 
 
 func restore_save_state(state: Dictionary, flight_deck: Node) -> bool:
 	assembly.restore_save_state(state.get("assembly", {}))
+	assembly.rescue_reserve_id = str(state.get("rescue_reserve_id", ""))
 	if flight_deck == null or not flight_deck.has_method("restore_deployed_aircraft_save_state"):
 		return false
 	for flight in flights:
@@ -844,7 +853,7 @@ func _vector_intercept(threat: Node3D) -> void:
 	if not best:
 		if _scrambling_flight != null:
 			return
-		var empty := _pick_empty_flight(_cas_flight)
+		var empty := _pick_empty_flight(_cas_flight, "intercept")
 		if empty:
 			if _scramble_flight(empty, "intercept"):
 				empty.set_intercept(threat, _carrier, default_cap_altitude_m)
@@ -1087,7 +1096,7 @@ func _assign_flights_to_tasks() -> void:
 			_apply_task_to_flight(task, f)
 			continue
 		if _scrambling_flight == null and _task_allows_automatic_scramble(task):
-			var empty := _pick_empty_flight(null)
+			var empty := _pick_empty_flight(null, str(task.get("type", "")))
 			if empty != null and empty.mission_source == "automatic":
 				if _scramble_flight(empty, _scramble_reason_for_task(task)):
 					_apply_task_to_flight(task, empty, true)
@@ -1127,6 +1136,9 @@ func _flight_has_pending_departure(f: Flight) -> bool:
 
 func _flight_suitable_for_task(f: Flight, task: Dictionary) -> bool:
 	for member in f.get_members():
+		if task.get("type") == "intercept" and member.find_child("HelicopterPilot", true, false) != null:
+			var target: Variant = task.get("target")
+			if not is_instance_valid(target) or target.find_child("HelicopterPilot", true, false) == null: continue
 		if Readiness.can_fill(Readiness.aircraft_status(member), str(task.get("type", ""))):
 			return true
 	return false
@@ -1158,6 +1170,8 @@ func _pick_diversion(task: Dictionary, live_ids: Dictionary) -> Flight:
 
 func _flight_safe_to_redirect(f: Flight) -> bool:
 	for member in f.get_members():
+		var helicopter := member.find_child("HelicopterPilot", true, false) as HelicopterPilot
+		if helicopter != null and helicopter._atk_state != HelicopterPilot.AtkState.SELECT: return false
 		var pilot := member.find_child("AIPilot", true, false) as AIPilot
 		if pilot != null and pilot.current_state in [AIPilot.State.ATTACK_DIVE, AIPilot.State.ATTACK_BREAK_OFF]:
 			return false
@@ -1215,6 +1229,10 @@ func _supervise_flight_readiness() -> void:
 				continue
 			var pilot := member.find_child("AIPilot", true, false) as AIPilot
 			if pilot == null:
+				var helicopter := member.find_child("HelicopterPilot", true, false) as HelicopterPilot
+				if helicopter != null and status.reason in ["Low fuel", "Low health"]:
+					member.set_meta("rtb_reason", status.reason)
+					helicopter.command_return_to_carrier_and_land()
 				continue
 			# Reuse the pilot's health/fuel and recovery-queue budget policy.
 			if pilot.supervise_return_resources():
@@ -1382,6 +1400,8 @@ func _scramble_flight(f: Flight, reason: String = "intercept"):
 		return false
 	if not assembly.can_launch(f.flight_name):
 		return false
+	if reason == "intercept" and _flight_uses_helicopters(f) and f.mission != Flight.Mission.INTERCEPT:
+		return false
 	var fdm := get_tree().get_first_node_in_group("flight_deck_manager")
 	if not fdm or not fdm.has_method("queue_ai_flight"):
 		push_warning("[AirOpsManager] No FlightDeckManager — cannot scramble %s" % f.flight_name)
@@ -1445,6 +1465,7 @@ func notify_aircraft_launched(pilot: Node) -> void:
 	if is_instance_valid(_pending_rescue_launch_pilot) \
 			and is_instance_valid(aircraft) \
 			and _is_rescue_helicopter(aircraft) \
+			and str(aircraft.get_meta("assembly_flight", "")).is_empty() \
 			and pilot.has_method("command_rescue"):
 		var rescue_target := _pending_rescue_launch_pilot
 		_pending_rescue_launch_pilot = null
@@ -1453,10 +1474,7 @@ func notify_aircraft_launched(pilot: Node) -> void:
 		return
 	if not _scrambling_flight:
 		return
-	# Aircraft_11 is a utility helicopter — never assign it to combat flights.
-	if aircraft and aircraft.name.begins_with("Aircraft_11"):
-		return
-	if not (pilot is AIPilot):
+	if not (pilot is AIPilot) and not (pilot is HelicopterPilot):
 		return
 	if aircraft:
 		reassign(aircraft, _scrambling_flight.flight_name)
@@ -1629,10 +1647,12 @@ func _pick_cap_candidate(require_overhead: bool = false) -> Flight:
 			best = f
 	return best
 
-func _pick_empty_flight(exclude: Flight = null) -> Flight:
+func _pick_empty_flight(exclude: Flight = null, role: String = "") -> Flight:
 	for f in flights:
 		if not assembly.can_launch(f.flight_name):
 			continue
+		if role == "intercept" and _flight_uses_helicopters(f): continue
+		if role == "strike" and str(assembly.plan(f.flight_name).loadout) == "unarmed": continue
 		if f.mission_source != "automatic":
 			continue
 		if f == exclude:
@@ -1846,6 +1866,7 @@ func _update_rescue_launch_timeout(delta: float) -> void:
 func _find_available_rescue_helicopter() -> Node3D:
 	if not is_inside_tree():
 		return null
+	assembly.get_rescue_reserve()
 	var best_heli: Node3D = null
 	var best_priority := -1
 	for node in get_tree().get_nodes_in_group("friendlies"):
@@ -1855,6 +1876,11 @@ func _find_available_rescue_helicopter() -> Node3D:
 		if not friendly.is_in_group("ai_aircraft"):
 			continue
 		if not _is_rescue_helicopter(friendly):
+			continue
+		# Flight composition and individual player orders own these helicopters.
+		if get_flight_of(friendly) != null or not str(friendly.get_meta("assembly_flight", "")).is_empty():
+			continue
+		if OperationsCoordinator.has_individual_order(friendly):
 			continue
 		if bool(friendly.get_meta("carrier_transport_mode", false)) \
 				or bool(friendly.get_meta("controls_disabled", false)):
@@ -1874,6 +1900,7 @@ func _find_available_rescue_helicopter() -> Node3D:
 		# Aircraft_11 is the dedicated rescue/utility type — strongly prefer it.
 		var is_utility := friendly.name.begins_with("Aircraft_11")
 		var base := 10 if is_utility else 0
+		if str(friendly.get_meta("airframe_id", "")) == assembly.rescue_reserve_id: base += 20
 		var priority := -1
 		if phase == 4:   # RESCUE, landed after pickup with another seat free
 			priority = base + 4
@@ -1896,11 +1923,17 @@ func _queue_rescue_helicopter(pilot_node: Node3D) -> bool:
 	if flight_deck_manager == null or not flight_deck_manager.has_method("queue_ai_helicopters"):
 		return false
 	if flight_deck_manager.has_method("can_queue_ai_helicopters") \
-			and not bool(flight_deck_manager.call("can_queue_ai_helicopters", rescue_helicopter_model)):
+			and not bool(flight_deck_manager.call("can_queue_ai_helicopters")):
 		return false
-	var accepted_count := int(flight_deck_manager.call(
-		"queue_ai_helicopters", 1, self, rescue_helicopter_model
-	))
+	var reserve: Dictionary = assembly.get_rescue_reserve()
+	var accepted_count := 0
+	var queued_model := rescue_helicopter_model
+	if not reserve.is_empty() and not assembly.stored(str(reserve.id)).is_empty():
+		queued_model = str(reserve.scene).get_file().get_basename()
+		var ids: Array[String] = [str(reserve.id)]
+		accepted_count = int(flight_deck_manager.call("queue_ai_flight", 1, self, "", str(reserve.scene), ids))
+	else:
+		accepted_count = int(flight_deck_manager.call("queue_ai_helicopters", 1, self, rescue_helicopter_model))
 	if accepted_count <= 0:
 		return false
 	_pending_rescue_launch_pilot = pilot_node
@@ -1910,7 +1943,7 @@ func _queue_rescue_helicopter(pilot_node: Node3D) -> bool:
 		"Rescue helicopter is coming up from the hangar now.",
 		"Rescue launch is in progress. Hold position.",
 	]))
-	print("[AirOpsManager] Queued %s from the hangar for %s" % [rescue_helicopter_model, pilot_node.name])
+	print("[AirOpsManager] Queued %s from the hangar for %s" % [queued_model, pilot_node.name])
 	return true
 
 
@@ -2223,6 +2256,10 @@ func _auto_assign_unassigned() -> void:
 				candidates.append(node)
 
 	for aircraft in candidates:
+		var assigned := get_flight(str(aircraft.get_meta("assembly_flight", "")))
+		if assigned != null:
+			assigned.register(aircraft)
+			continue
 		var f := flights[_next_flight_idx % flights.size()]
 		f.register(aircraft)
 		_next_flight_idx += 1
@@ -2232,16 +2269,19 @@ func _is_aircraft_candidate_for_flight(node: Node) -> bool:
 		return false
 	if node.is_in_group("ground_vehicles"):
 		return false
-	# Utility helicopters (Aircraft_11) are rescue/transport assets -- never pull them into combat flights.
-	# (notify_aircraft_launched already excludes them on the scramble path; this covers the auto-assign
-	# path that was grabbing the pre-stored hangar helicopters into Archer/Bulldog/Crimson at startup.)
-	if node is Node3D and (node as Node3D).name.begins_with("Aircraft_11"):
-		return false
-	if node.find_child("HelicopterPilot", true, false) != null and node.find_child("AIPilot", true, false) == null:
-		return false  # helicopter-only asset, not a fixed-wing combat flight member
+	if node.find_child("HelicopterPilot", true, false) != null:
+		# Only composed helicopters join flights; the unassigned pool serves rescue.
+		return not str(node.get_meta("assembly_flight", "")).is_empty()
 	if node.is_in_group("aircraft") or node.is_in_group("ai_aircraft"):
 		return true
 	return node.find_child("AIPilot", true, false) != null
+
+func _flight_uses_helicopters(flight: Flight) -> bool:
+	var path := str(assembly.plan(flight.flight_name).scene)
+	if not path.is_empty(): return bool(assembly.model_info(path).helicopter)
+	for member in flight.get_members():
+		if member.find_child("HelicopterPilot", true, false) != null: return true
+	return false
 
 func _get_enemy_ground_targets() -> Array:
 	var result: Array = []

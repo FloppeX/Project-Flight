@@ -153,6 +153,74 @@ func _find_path_impl(from_world: Vector3, to_world: Vector3,
 	_lock.unlock()
 	return res
 
+## Route a ground vehicle all the way to an exact destination. Unlike the legacy
+## graph-node path API, both endpoint connections are checked on the terrain.
+## A nearby node across a cliff is not a usable anchor; try other nearby nodes.
+func find_ground_path(from_world: Vector3, to_world: Vector3,
+		min_clearance_m: float = 0.0) -> Array[Vector3]:
+	var offset := get_world_offset()
+	var generation := _build_generation
+	_lock.lock()
+	var result: Array[Vector3] = []
+	if generation == _build_generation and _is_ready and not _query_grid.is_empty():
+		var start := from_world - offset
+		var goal := to_world - offset
+		start.y = _sample_graph_height(start.x, start.z)
+		goal.y = _sample_graph_height(goal.x, goal.z)
+		if start.y > TerrainNavGrid.IMPASSABLE * 0.5 and goal.y > TerrainNavGrid.IMPASSABLE * 0.5:
+			if _check_segment_clearance(start, goal, min_clearance_m) >= min_clearance_m:
+				result.assign([start, goal])
+			else:
+				var si := _nearest_reachable_ground_node(start, min_clearance_m)
+				var ei := _nearest_reachable_ground_node(goal, min_clearance_m)
+				if si >= 0 and ei >= 0:
+					var route: Array[Vector3] = [_nodes[si]] if si == ei else _astar(si, ei, min_clearance_m)
+					if not route.is_empty():
+						route.push_front(start)
+						route.append(goal)
+						result = _simplify_path(route, min_clearance_m)
+	_lock.unlock()
+	for i in result.size():
+		result[i] += offset
+	return result
+
+func _nearest_reachable_ground_node(pos: Vector3, min_cl: float) -> int:
+	const MAX_CONNECTION_M := 180.0
+	var cx := int(pos.x / _SP_CELL)
+	var cz := int(pos.z / _SP_CELL)
+	var best := -1
+	var best_sq := MAX_CONNECTION_M * MAX_CONNECTION_M
+	for dz in range(-1, 2):
+		for dx in range(-1, 2):
+			for index: int in _sp_grid.get(Vector2i(cx + dx, cz + dz), []):
+				if _node_cl[index] < min_cl:
+					continue
+				var node := _nodes[index]
+				var distance_sq := Vector2(node.x - pos.x, node.z - pos.z).length_squared()
+				if distance_sq <= best_sq and _check_segment_clearance(pos, node, min_cl) >= min_cl:
+					best = index
+					best_sq = distance_sq
+	return best
+
+## Validate a short final approach to an exact work site using the same terrain
+## clearance and slope checks as graph edges. Graph paths still end at safe nodes.
+func can_traverse_segment(from_world: Vector3, to_world: Vector3, min_clearance_m: float = 0.0) -> bool:
+	var offset := get_world_offset()
+	_lock.lock()
+	var valid := _is_ready and not _query_grid.is_empty()
+	if valid:
+		# Callers pass chassis/work-point heights, not terrain elevations. In a
+		# short final leg the suspension height otherwise looks like a steep drop
+		# and makes a flat, safe stop alternate between direct and graph steering.
+		var from_ground := from_world - offset
+		var to_ground := to_world - offset
+		from_ground.y = _sample_graph_height(from_ground.x, from_ground.z)
+		to_ground.y = _sample_graph_height(to_ground.x, to_ground.z)
+		valid = from_ground.y > TerrainNavGrid.IMPASSABLE * 0.5 and to_ground.y > TerrainNavGrid.IMPASSABLE * 0.5 \
+			and _check_segment_clearance(from_ground, to_ground, min_clearance_m) >= min_clearance_m
+	_lock.unlock()
+	return valid
+
 func find_path_async(from_world: Vector3, to_world: Vector3, min_clearance_m: float, callback: Callable) -> void:
 	NavPathScheduler.request_find_path(from_world, to_world, min_clearance_m, callback, 0, "NavGraph.find_path_async")
 

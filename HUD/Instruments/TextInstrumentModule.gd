@@ -69,7 +69,11 @@ func update_from_aircraft(_delta: float) -> void:
 			_set_value("LOCK" if lock >= 1.0 else "%d%%" % int(lock * 100.0), COLOR_TEXT if lock >= 1.0 else COLOR_WARN, lock * 100.0)
 		"engine":
 			var engine_power := _get_engine_power()
-			_set_value("%d%%" % int(engine_power * 100.0), COLOR_TEXT if engine_power > 0.02 else COLOR_BAD, engine_power * 100.0)
+			if aircraft.has_meta("helicopter_rotor_rpm"):
+				var rpm := float(aircraft.get_meta("helicopter_rotor_rpm"))
+				_set_value("RPM %d%%\nPWR %d%%" % [roundi(rpm*100),roundi(engine_power*100)], COLOR_WARN if rpm < .75 else COLOR_TEXT, rpm*100)
+			else:
+				_set_value("%d%%" % int(engine_power * 100.0), COLOR_TEXT if engine_power > 0.02 else COLOR_BAD, engine_power * 100.0)
 		"damage":
 			var health := _get_health_percent()
 			_set_value("%d%%" % int(health), _status_color(health, 60.0, 30.0), health)
@@ -83,6 +87,8 @@ func update_from_aircraft(_delta: float) -> void:
 
 func interact(_local_pos: Vector2) -> bool:
 	match instrument_type:
+		"damage":
+			return is_instance_valid(instrument_panel) and bool(instrument_panel.call("select_damage_page"))
 		"gear":
 			return _toggle_gear()
 		"flaps":
@@ -124,6 +130,12 @@ func _update_gear() -> void:
 	var gear := _find_first_module_by_type("landing_gear")
 	if gear == null:
 		_set_value("N/A", COLOR_MUTED)
+		return
+	if bool(gear.get("damage_collapsed")):
+		_set_value("FAILED", COLOR_BAD)
+		return
+	if bool(gear.get("damage_jammed")):
+		_set_value("JAMMED", COLOR_BAD)
 		return
 	if "is_deployed" in gear and bool(gear.get("is_deployed")):
 		_set_value("DOWN", COLOR_TEXT)

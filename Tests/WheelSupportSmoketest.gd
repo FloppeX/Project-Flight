@@ -22,7 +22,7 @@ func _run() -> void:
 	world.add_child(camera)
 	camera.position = Vector3(0, 103, -90)
 	camera.current = true
-	for name_ in ["GroundVehicle", "vehicle_enemy_buggy", "vehicle_enemy_pickup", "vehicle_enemy_battle_bus", "vehicle_friendly_light"]:
+	for name_ in ["GroundVehicle", "vehicle_enemy_buggy", "vehicle_enemy_pickup", "vehicle_enemy_battle_bus", "vehicle_friendly_light", "vehicle_friendly_2"]:
 		var host = (load("res://GroundVehicle/%s.tscn" % name_) as PackedScene).instantiate()
 		host.position = Vector3(0, 101, -100)
 		world.add_child(host)

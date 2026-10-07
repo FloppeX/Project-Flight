@@ -210,7 +210,7 @@ func _token(item: Dictionary, flight_card: bool = false) -> Button:
 	button.record = item
 	button.pool_card = not flight_card
 	button.airframe_id = str(item.id)
-	button.draggable = item.editable and not item.model.helicopter
+	button.draggable = item.editable and not bool(item.get("rescue_reserved", false))
 	button.selected = item.id == _selected_airframe
 	button.custom_minimum_size = Vector2(300, 240) if flight_card else Vector2(240, 160)
 	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -222,6 +222,7 @@ func _token(item: Dictionary, flight_card: bool = false) -> Button:
 			button.portrait = _get_portrait_texture(str(pilot.get("portrait_path", "")))
 			break
 	button.tooltip_text = "%s\nAirframe %s\nPilot: %s\n%s\nStructure: remaining airframe health\n%s" % [item.model.name, str(item.id).to_upper(), button.pilot_name, item.state, "Drag or select, then click a flight slot." if button.draggable else "Configuration available after return to hangar."]
+	if item.get("rescue_reserved", false): button.tooltip_text = "RESCUE RESERVE\nKept available for downed pilots.\n" + button.tooltip_text
 	if item.get("payload", {}).is_empty():
 		button.tooltip_text += "\nLoadout shows planned equipment; ammunition is shown once mounted."
 	button.pressed.connect(func():
@@ -274,7 +275,7 @@ func _build_pool(assembly: Node) -> void:
 		caption.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		_workspace.add_child(caption)
 		if items[0].model.helicopter:
-			_workspace.add_child(_make_label("UTILITY / RESCUE POOL", 11, DIM_COLOR, HORIZONTAL_ALIGNMENT_LEFT, DATA_FONT))
+			_workspace.add_child(_make_label("ONE HELICOPTER RESERVED FOR RESCUE / OTHERS AVAILABLE FOR FLIGHTS", 11, DIM_COLOR, HORIZONTAL_ALIGNMENT_LEFT, DATA_FONT))
 		var grid := _card_grid()
 		_workspace.add_child(grid)
 		for item in items: grid.add_child(_token(item))
@@ -292,7 +293,7 @@ func _build_loadouts(assembly: Node) -> void:
 	if str(p.scene).is_empty():
 		_workspace.add_child(_make_label("Assign the first aircraft to choose a loadout.", 16, DIM_COLOR))
 		return
-	var descriptions := {"gun_only": "Guns only. External stores removed for air combat.", "rocket_strike": "Rocket pods on compatible external stations, with guns retained.", "bomb_strike": "Bomb racks on compatible external stations, with guns retained."}
+	var descriptions := {"gun_only": "Guns only. External stores removed for air combat.", "rocket_strike": "Rocket pods on compatible external stations, with guns retained.", "bomb_strike": "Bomb racks on compatible external stations, with guns retained.", "unarmed": "Utility helicopter without weapon stations. Available for patrol and carrier operations."}
 	for profile in assembly.model_info(p.scene).presets:
 		var button := _action(("✓  " if p.loadout == profile else "") + ASSEMBLY.PRESETS[profile], func(): _result(assembly.configure_loadout(_selected_unit, profile)))
 		button.custom_minimum_size.y = 58

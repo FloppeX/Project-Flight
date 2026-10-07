@@ -5,8 +5,9 @@ const CATALOG = preload("res://UI/TechnicalIndexCatalog.gd")
 const OUTLINES = preload("res://UI/OperationalUnitsPage.gd")
 const MAX_SIZE := 4
 const REPAIR_SECONDS := 120.0
-const PRESETS := {"gun_only": "GUNS", "rocket_strike": "ROCKETS + GUNS", "bomb_strike": "BOMBS + GUNS"}
+const PRESETS := {"gun_only": "GUNS", "rocket_strike": "ROCKETS + GUNS", "bomb_strike": "BOMBS + GUNS", "unarmed": "UNARMED"}
 var plans: Dictionary = {}
+var rescue_reserve_id := ""
 var _models: Dictionary = {}
 var _service_elapsed := 0.0
 
@@ -52,6 +53,9 @@ func model_info(path: String) -> Dictionary:
 		var stations: Array[Node] = []
 		_collect_stations(aircraft, stations)
 		for profile in PRESETS:
+			if profile == "unarmed":
+				if info.helicopter and stations.is_empty(): info.presets.append(profile)
+				continue
 			var allowed := not stations.is_empty()
 			var external := 0
 			var reserved_gun := false
@@ -168,7 +172,34 @@ func inventory() -> Array[Dictionary]:
 			if not by_id.has(id):
 				result.append({"id": id, "scene": plans[flight].scene, "model": model_info(plans[flight].scene), "state": "LOST", "editable": false, "health": 0.0, "flight": flight, "pilot_id": "", "seconds": 0, "loadout": plans[flight].loadout})
 	result.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return str(a.id) < str(b.id))
+	_update_rescue_reserve(result)
+	for record in result:
+		record["rescue_reserved"] = record.id == rescue_reserve_id
 	return result
+
+func _update_rescue_reserve(records: Array[Dictionary]) -> void:
+	var best: Dictionary = {}
+	var best_score := -INF
+	for record in records:
+		if not record.model.helicopter or record.health <= 0.0 or not str(record.flight).is_empty():
+			continue
+		# Keep the same airframe through launch, rescue and recovery. Pick a new
+		# reserve only after loss or when the old reservation no longer exists.
+		if record.id == rescue_reserve_id:
+			return
+		var score := 10.0 if str(record.scene).ends_with("/Aircraft_11.tscn") else 0.0
+		if record.state == "READY": score += 100.0
+		if score > best_score:
+			best = record
+			best_score = score
+	rescue_reserve_id = str(best.get("id", ""))
+
+func get_rescue_reserve() -> Dictionary:
+	var fdm := deck()
+	if fdm == null or not fdm.get("stored_aircraft") is Array: return {}
+	for record in inventory():
+		if record.get("rescue_reserved", false): return record
+	return {}
 
 func _stored_record(fdm: Node, data: Dictionary) -> Dictionary:
 	var id := ensure_id(data)
@@ -259,8 +290,8 @@ func can_assign(id: String, flight: String) -> String:
 	if data.is_empty() or _stored_locked(deck(), data):
 		return "Aircraft must be in the hangar."
 	var info := model_info(str(data.scene_file))
-	if info.helicopter:
-		return "Helicopters remain available to rescue operations."
+	if info.helicopter and str(get_rescue_reserve().get("id", "")) == id:
+		return "This helicopter is the single rescue reserve. Other helicopters can join flights."
 	var p := plan(flight)
 	if get_parent().call("get_flight", flight).strength() > 0 or get_parent().get("_scrambling_flight") == get_parent().call("get_flight", flight):
 		return "Wait for this flight to return to the hangar."
@@ -270,7 +301,7 @@ func can_assign(id: String, flight: String) -> String:
 		return "Flight is full."
 	if not str(p.scene).is_empty() and str(p.scene) != str(data.scene_file):
 		return "This flight uses one aircraft type."
-	if not info.presets.has(p.loadout):
+	if not info.presets.has(p.loadout) and (not p.ids.is_empty() or info.presets.is_empty()):
 		return "Aircraft cannot carry this flight's loadout."
 	return ""
 
@@ -287,6 +318,8 @@ func assign(id: String, flight: String) -> String:
 	var p: Dictionary = plans[flight]
 	p.hold = true
 	p.scene = str(data.scene_file)
+	if p.ids.is_empty() and not model_info(p.scene).presets.has(p.loadout):
+		p.loadout = model_info(p.scene).presets[0]
 	p.ids.append(id)
 	data.metadata.assembly_flight = flight
 	data.metadata.assembly_loadout = p.loadout

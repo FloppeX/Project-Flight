@@ -1,0 +1,2274 @@
+[
+  {
+    "id": "S01",
+    "label": "Electric motorcycle drivetrain",
+    "path": "D:\\Game audio\\PSE Game Audio Sound Pack\\VEHElec_Electric Motorcycle OB Steady Accel Decels 01 M1_PSE_KCVV2_LyaMZ.wav",
+    "role": "Electric engines",
+    "kind": "loop",
+    "note": "Strong source hypothesis for loaded motor whine and acceleration; motorcycle road/tire contamination must be checked.",
+    "duration_s": 141.555,
+    "rate": 192000,
+    "channels": 1,
+    "codec": "pcm_s16le",
+    "bits": 16,
+    "bytes": 55745626,
+    "analyzed_windows": [
+      {
+        "start_s": 0.0,
+        "duration_s": 16.0
+      },
+      {
+        "start_s": 49.544,
+        "duration_s": 16.0
+      },
+      {
+        "start_s": 99.088,
+        "duration_s": 16.0
+      }
+    ],
+    "full_source_decoded": false,
+    "excerpt_start_s": 7.0,
+    "excerpt_duration_s": 8.0,
+    "excerpt_rms_dbfs": -22.38,
+    "excerpt_peak_dbfs": -9.61,
+    "crest_db": 12.77,
+    "excerpt_envelope_spread_db": 2.99,
+    "dc_offset": 2.1e-05,
+    "near_full_scale_pct": 0.0,
+    "stereo_correlation": 1.0,
+    "mono_fold_change_db": 0.0,
+    "energy_percent": {
+      "low_20_200": 0.5,
+      "mid_200_2000": 47.8,
+      "high_2000_12000": 51.6
+    },
+    "raw_excerpt_endpoint_step": 0.03393,
+    "flags": [
+      "Excerpt is not a finished seamless loop; edit boundaries and audition several repetitions.",
+      "Only three source windows decoded; unexamined sections may contain other material."
+    ],
+    "preview": "previews/S01.mp3",
+    "preview_gain_db": 5.61,
+    "analysis_basis": "Filename/context plus decoded signal analysis; not perceptually auditioned"
+  },
+  {
+    "id": "S02",
+    "label": "Long electric motor",
+    "path": "D:\\Downloads\\Soniss\\Sonniss.com - GDC 2019 - Game Audio Bundle\\3maze - Electric Motors\\motor_long_006.wav",
+    "role": "Electric engines",
+    "kind": "loop",
+    "note": "Electric motor identity is explicit in the pack; extract steady power regions, retain acceleration separately.",
+    "duration_s": 4.747,
+    "rate": 96000,
+    "channels": 2,
+    "codec": "pcm_s24le",
+    "bits": "24",
+    "bytes": 2745250,
+    "analyzed_windows": [
+      {
+        "start_s": 0.0,
+        "duration_s": 4.747
+      }
+    ],
+    "full_source_decoded": true,
+    "excerpt_start_s": 0.0,
+    "excerpt_duration_s": 4.747,
+    "excerpt_rms_dbfs": -16.57,
+    "excerpt_peak_dbfs": -1.31,
+    "crest_db": 15.26,
+    "excerpt_envelope_spread_db": 5.08,
+    "dc_offset": 1.1e-05,
+    "near_full_scale_pct": 0.0,
+    "stereo_correlation": 1.0,
+    "mono_fold_change_db": 0.0,
+    "energy_percent": {
+      "low_20_200": 2.6,
+      "mid_200_2000": 5.7,
+      "high_2000_12000": 91.7
+    },
+    "raw_excerpt_endpoint_step": 0.15358,
+    "flags": [
+      "Excerpt is not a finished seamless loop; edit boundaries and audition several repetitions."
+    ],
+    "preview": "previews/S02.mp3",
+    "preview_gain_db": -2.69,
+    "analysis_basis": "Filename/context plus decoded signal analysis; not perceptually auditioned"
+  },
+  {
+    "id": "S03",
+    "label": "Medium electric motor",
+    "path": "D:\\Downloads\\Soniss\\Sonniss.com - GDC 2019 - Game Audio Bundle\\3maze - Electric Motors\\motor_med_011.wav",
+    "role": "Electric engines",
+    "kind": "loop",
+    "note": "Alternate motor character for lighter aircraft or robots; recording may contain several gestures.",
+    "duration_s": 4.074,
+    "rate": 96000,
+    "channels": 2,
+    "codec": "pcm_s24le",
+    "bits": "24",
+    "bytes": 2357646,
+    "analyzed_windows": [
+      {
+        "start_s": 0.0,
+        "duration_s": 4.074
+      }
+    ],
+    "full_source_decoded": true,
+    "excerpt_start_s": 0.0,
+    "excerpt_duration_s": 4.074,
+    "excerpt_rms_dbfs": -23.57,
+    "excerpt_peak_dbfs": -4.7,
+    "crest_db": 18.87,
+    "excerpt_envelope_spread_db": 1.71,
+    "dc_offset": 1e-06,
+    "near_full_scale_pct": 0.0,
+    "stereo_correlation": 1.0,
+    "mono_fold_change_db": 0.0,
+    "energy_percent": {
+      "low_20_200": 2.2,
+      "mid_200_2000": 9.2,
+      "high_2000_12000": 88.7
+    },
+    "raw_excerpt_endpoint_step": 0.03749,
+    "flags": [
+      "Excerpt is not a finished seamless loop; edit boundaries and audition several repetitions."
+    ],
+    "preview": "previews/S03.mp3",
+    "preview_gain_db": 0.7,
+    "analysis_basis": "Filename/context plus decoded signal analysis; not perceptually auditioned"
+  },
+  {
+    "id": "S04",
+    "label": "Rotator motor",
+    "path": "D:\\Downloads\\Soniss\\Sonniss.com - GDC 2019 - Game Audio Bundle\\3maze - Electric Motors\\rotator_motor_005.wav",
+    "role": "Electric engines",
+    "kind": "loop",
+    "note": "Candidate gearbox/rotating mechanism layer; check for recognizable appliance character.",
+    "duration_s": 2.257,
+    "rate": 96000,
+    "channels": 2,
+    "codec": "pcm_s24le",
+    "bits": "24",
+    "bytes": 1310994,
+    "analyzed_windows": [
+      {
+        "start_s": 0.0,
+        "duration_s": 2.257
+      }
+    ],
+    "full_source_decoded": true,
+    "excerpt_start_s": 0.0,
+    "excerpt_duration_s": 2.257,
+    "excerpt_rms_dbfs": -21.18,
+    "excerpt_peak_dbfs": -4.91,
+    "crest_db": 16.27,
+    "excerpt_envelope_spread_db": 9.35,
+    "dc_offset": 6e-06,
+    "near_full_scale_pct": 0.0,
+    "stereo_correlation": 1.0,
+    "mono_fold_change_db": 0.0,
+    "energy_percent": {
+      "low_20_200": 1.0,
+      "mid_200_2000": 75.8,
+      "high_2000_12000": 23.2
+    },
+    "raw_excerpt_endpoint_step": 0.02622,
+    "flags": [
+      "Short source: repetition risk for sustained playback.",
+      "Excerpt is not a finished seamless loop; edit boundaries and audition several repetitions."
+    ],
+    "preview": "previews/S04.mp3",
+    "preview_gain_db": 0.91,
+    "analysis_basis": "Filename/context plus decoded signal analysis; not perceptually auditioned"
+  },
+  {
+    "id": "S05",
+    "label": "Isolated electric mower",
+    "path": "D:\\Downloads\\Soniss\\Sonniss.com - GDC 2020 - Game Audio Bundle\\Matt Script - Electric Lawn Mower\\Electric_Mower_Engine_Isolated_running_turn_on_off_blade_spinning_machine_hum_03.wav",
+    "role": "Electric engines",
+    "kind": "loop",
+    "note": "Useful electric motor plus blade interaction source; needs processing to avoid sounding like garden equipment.",
+    "duration_s": 5.162,
+    "rate": 192000,
+    "channels": 1,
+    "codec": "pcm_s24le",
+    "bits": "24",
+    "bytes": 2973252,
+    "analyzed_windows": [
+      {
+        "start_s": 0.0,
+        "duration_s": 5.162
+      }
+    ],
+    "full_source_decoded": true,
+    "excerpt_start_s": 0.0,
+    "excerpt_duration_s": 5.162,
+    "excerpt_rms_dbfs": -20.19,
+    "excerpt_peak_dbfs": -5.22,
+    "crest_db": 14.97,
+    "excerpt_envelope_spread_db": 16.63,
+    "dc_offset": 1e-06,
+    "near_full_scale_pct": 0.0,
+    "stereo_correlation": 1.0,
+    "mono_fold_change_db": 0.0,
+    "energy_percent": {
+      "low_20_200": 10.5,
+      "mid_200_2000": 75.1,
+      "high_2000_12000": 14.3
+    },
+    "raw_excerpt_endpoint_step": 3e-05,
+    "flags": [
+      "Large level variation: isolate a steadier segment or use as a transition.",
+      "Excerpt is not a finished seamless loop; edit boundaries and audition several repetitions."
+    ],
+    "preview": "previews/S05.mp3",
+    "preview_gain_db": 1.22,
+    "analysis_basis": "Filename/context plus decoded signal analysis; not perceptually auditioned"
+  },
+  {
+    "id": "S06",
+    "label": "Kia electric drive",
+    "path": "D:\\Downloads\\Soniss\\Sonniss.com - GDC 2023 - Game Audio Bundle\\Pole Position Production - Kia Niro Hybrid 2018\\Kia Niro Hybrid - t11 - ONBRD - STEADY RPMS - ELECTRIC - Drive Stop x2 - ENGINE - Mix.wav",
+    "role": "Electric engines",
+    "kind": "loop",
+    "note": "Explicitly labeled ELECTRIC; candidate heavy drivetrain, but road noise is not clean aircraft propulsion.",
+    "duration_s": 492.218,
+    "rate": 96000,
+    "channels": 2,
+    "codec": "pcm_s24le",
+    "bits": "24",
+    "bytes": 285715824,
+    "analyzed_windows": [
+      {
+        "start_s": 0.0,
+        "duration_s": 16.0
+      },
+      {
+        "start_s": 172.276,
+        "duration_s": 16.0
+      },
+      {
+        "start_s": 344.553,
+        "duration_s": 16.0
+      }
+    ],
+    "full_source_decoded": false,
+    "excerpt_start_s": 173.776,
+    "excerpt_duration_s": 8.0,
+    "excerpt_rms_dbfs": -42.73,
+    "excerpt_peak_dbfs": -30.08,
+    "crest_db": 12.65,
+    "excerpt_envelope_spread_db": 1.87,
+    "dc_offset": 1e-06,
+    "near_full_scale_pct": 0.0,
+    "stereo_correlation": 0.902,
+    "mono_fold_change_db": -0.24,
+    "energy_percent": {
+      "low_20_200": 5.2,
+      "mid_200_2000": 92.7,
+      "high_2000_12000": 2.1
+    },
+    "raw_excerpt_endpoint_step": 0.00893,
+    "flags": [
+      "Excerpt is not a finished seamless loop; edit boundaries and audition several repetitions.",
+      "Only three source windows decoded; unexamined sections may contain other material."
+    ],
+    "preview": "previews/S06.mp3",
+    "preview_gain_db": 12.0,
+    "analysis_basis": "Filename/context plus decoded signal analysis; not perceptually auditioned"
+  },
+  {
+    "id": "S07",
+    "label": "Electromagnetic rotary tool",
+    "path": "D:\\Downloads\\Soniss\\Sonniss.com - GDC 2023 - Game Audio Bundle\\Pole Position Production - The Electromagnetic Library\\Electrical motor - Rotary tool - Steadies - 02 - Electric guitar pickup box.wav",
+    "role": "Electric engines",
+    "kind": "loop",
+    "note": "Pickup recording is a designed inverter/harmonic layer, not airborne motor sound; blend quietly.",
+    "duration_s": 229.36,
+    "rate": 96000,
+    "channels": 1,
+    "codec": "pcm_s24le",
+    "bits": "24",
+    "bytes": 66295742,
+    "analyzed_windows": [
+      {
+        "start_s": 0.0,
+        "duration_s": 16.0
+      },
+      {
+        "start_s": 80.276,
+        "duration_s": 16.0
+      },
+      {
+        "start_s": 160.552,
+        "duration_s": 16.0
+      }
+    ],
+    "full_source_decoded": false,
+    "excerpt_start_s": 161.552,
+    "excerpt_duration_s": 8.0,
+    "excerpt_rms_dbfs": -16.8,
+    "excerpt_peak_dbfs": -11.74,
+    "crest_db": 5.06,
+    "excerpt_envelope_spread_db": 0.28,
+    "dc_offset": 3e-06,
+    "near_full_scale_pct": 0.0,
+    "stereo_correlation": 1.0,
+    "mono_fold_change_db": 0.0,
+    "energy_percent": {
+      "low_20_200": 0.0,
+      "mid_200_2000": 99.9,
+      "high_2000_12000": 0.1
+    },
+    "raw_excerpt_endpoint_step": 0.00777,
+    "flags": [
+      "Excerpt is not a finished seamless loop; edit boundaries and audition several repetitions.",
+      "Only three source windows decoded; unexamined sections may contain other material."
+    ],
+    "preview": "previews/S07.mp3",
+    "preview_gain_db": 7.74,
+    "analysis_basis": "Filename/context plus decoded signal analysis; not perceptually auditioned"
+  },
+  {
+    "id": "S08",
+    "label": "Smooth propeller exterior",
+    "path": "D:\\Game audio\\S019C-Aircraft\\Mono\\PropSmoothExt.wav",
+    "role": "Propellers and rotors",
+    "kind": "loop",
+    "note": "Compare with the current shared prop recording; useful aerodynamic bed if no combustion character survives.",
+    "duration_s": 2.937,
+    "rate": 44100,
+    "channels": 1,
+    "codec": "pcm_s16le",
+    "bits": 16,
+    "bytes": 259118,
+    "analyzed_windows": [
+      {
+        "start_s": 0.0,
+        "duration_s": 2.937
+      }
+    ],
+    "full_source_decoded": true,
+    "excerpt_start_s": 0.0,
+    "excerpt_duration_s": 2.937,
+    "excerpt_rms_dbfs": -15.65,
+    "excerpt_peak_dbfs": -4.82,
+    "crest_db": 10.82,
+    "excerpt_envelope_spread_db": 1.55,
+    "dc_offset": 0.000156,
+    "near_full_scale_pct": 0.0,
+    "stereo_correlation": 1.0,
+    "mono_fold_change_db": 0.0,
+    "energy_percent": {
+      "low_20_200": 87.6,
+      "mid_200_2000": 11.3,
+      "high_2000_12000": 1.1
+    },
+    "raw_excerpt_endpoint_step": 0.0324,
+    "flags": [
+      "Short source: repetition risk for sustained playback.",
+      "Excerpt is not a finished seamless loop; edit boundaries and audition several repetitions."
+    ],
+    "preview": "previews/S08.mp3",
+    "preview_gain_db": 0.82,
+    "analysis_basis": "Filename/context plus decoded signal analysis; not perceptually auditioned"
+  },
+  {
+    "id": "S09",
+    "label": "Low smooth propeller",
+    "path": "D:\\Game audio\\S019C-Aircraft\\Mono\\PropSmoothLow.wav",
+    "role": "Propellers and rotors",
+    "kind": "loop",
+    "note": "Candidate low-RPM or heavy-prop layer; needs consistent RPM transitions.",
+    "duration_s": 1.92,
+    "rate": 44100,
+    "channels": 1,
+    "codec": "pcm_s16le",
+    "bits": 16,
+    "bytes": 169490,
+    "analyzed_windows": [
+      {
+        "start_s": 0.0,
+        "duration_s": 1.92
+      }
+    ],
+    "full_source_decoded": true,
+    "excerpt_start_s": 0.0,
+    "excerpt_duration_s": 1.92,
+    "excerpt_rms_dbfs": -16.12,
+    "excerpt_peak_dbfs": -4.99,
+    "crest_db": 11.13,
+    "excerpt_envelope_spread_db": 1.35,
+    "dc_offset": 1.4e-05,
+    "near_full_scale_pct": 0.0,
+    "stereo_correlation": 1.0,
+    "mono_fold_change_db": 0.0,
+    "energy_percent": {
+      "low_20_200": 84.7,
+      "mid_200_2000": 14.6,
+      "high_2000_12000": 0.7
+    },
+    "raw_excerpt_endpoint_step": 0.10528,
+    "flags": [
+      "Short source: repetition risk for sustained playback.",
+      "Excerpt is not a finished seamless loop; edit boundaries and audition several repetitions."
+    ],
+    "preview": "previews/S09.mp3",
+    "preview_gain_db": 0.99,
+    "analysis_basis": "Filename/context plus decoded signal analysis; not perceptually auditioned"
+  },
+  {
+    "id": "S10",
+    "label": "Slow prop hummer",
+    "path": "D:\\Game audio\\S019C-Aircraft\\Mono\\PropHummerSlow.wav",
+    "role": "Propellers and rotors",
+    "kind": "loop",
+    "note": "Alternative blade-pulse texture; separate it from the electrical tone.",
+    "duration_s": 2.197,
+    "rate": 44100,
+    "channels": 1,
+    "codec": "pcm_s16le",
+    "bits": 16,
+    "bytes": 193870,
+    "analyzed_windows": [
+      {
+        "start_s": 0.0,
+        "duration_s": 2.197
+      }
+    ],
+    "full_source_decoded": true,
+    "excerpt_start_s": 0.0,
+    "excerpt_duration_s": 2.197,
+    "excerpt_rms_dbfs": -20.39,
+    "excerpt_peak_dbfs": -8.32,
+    "crest_db": 12.07,
+    "excerpt_envelope_spread_db": 1.61,
+    "dc_offset": 0.000203,
+    "near_full_scale_pct": 0.0,
+    "stereo_correlation": 1.0,
+    "mono_fold_change_db": -0.0,
+    "energy_percent": {
+      "low_20_200": 83.9,
+      "mid_200_2000": 14.7,
+      "high_2000_12000": 1.3
+    },
+    "raw_excerpt_endpoint_step": 0.00465,
+    "flags": [
+      "Short source: repetition risk for sustained playback.",
+      "Excerpt is not a finished seamless loop; edit boundaries and audition several repetitions."
+    ],
+    "preview": "previews/S10.mp3",
+    "preview_gain_db": 4.32,
+    "analysis_basis": "Filename/context plus decoded signal analysis; not perceptually auditioned"
+  },
+  {
+    "id": "S11",
+    "label": "Propeller clatter",
+    "path": "D:\\Game audio\\S019C-Aircraft\\Mono\\PropClatter.wav",
+    "role": "Propellers and rotors",
+    "kind": "loop",
+    "note": "Possible rough/old airframe or damaged-prop accent; not automatically a clean electrical motor.",
+    "duration_s": 1.4,
+    "rate": 44100,
+    "channels": 1,
+    "codec": "pcm_s16le",
+    "bits": 16,
+    "bytes": 123554,
+    "analyzed_windows": [
+      {
+        "start_s": 0.0,
+        "duration_s": 1.4
+      }
+    ],
+    "full_source_decoded": true,
+    "excerpt_start_s": 0.0,
+    "excerpt_duration_s": 1.4,
+    "excerpt_rms_dbfs": -25.53,
+    "excerpt_peak_dbfs": -7.15,
+    "crest_db": 18.38,
+    "excerpt_envelope_spread_db": 1.85,
+    "dc_offset": 4.2e-05,
+    "near_full_scale_pct": 0.0,
+    "stereo_correlation": 1.0,
+    "mono_fold_change_db": 0.0,
+    "energy_percent": {
+      "low_20_200": 6.3,
+      "mid_200_2000": 81.6,
+      "high_2000_12000": 12.0
+    },
+    "raw_excerpt_endpoint_step": 0.00391,
+    "flags": [
+      "Short source: repetition risk for sustained playback.",
+      "Excerpt is not a finished seamless loop; edit boundaries and audition several repetitions."
+    ],
+    "preview": "previews/S11.mp3",
+    "preview_gain_db": 3.15,
+    "analysis_basis": "Filename/context plus decoded signal analysis; not perceptually auditioned"
+  },
+  {
+    "id": "S12",
+    "label": "Helicopter blade loop",
+    "path": "D:\\Game audio\\Gamemaster Audio - Pro Sound Collection v1.3 - 16bit 48k\\Vehicles_Engines_Motors\\helicopter_blades_spinning_loop_01.wav",
+    "role": "Propellers and rotors",
+    "kind": "loop",
+    "note": "Alternative blade texture to distinguish the light helicopters from the common Helicopter3 set.",
+    "duration_s": 13.127,
+    "rate": 48000,
+    "channels": 2,
+    "codec": "pcm_s16le",
+    "bits": 16,
+    "bytes": 2520542,
+    "analyzed_windows": [
+      {
+        "start_s": 0.0,
+        "duration_s": 13.127
+      }
+    ],
+    "full_source_decoded": true,
+    "excerpt_start_s": 0.5,
+    "excerpt_duration_s": 8.0,
+    "excerpt_rms_dbfs": -18.85,
+    "excerpt_peak_dbfs": -1.17,
+    "crest_db": 17.68,
+    "excerpt_envelope_spread_db": 5.03,
+    "dc_offset": 0.000442,
+    "near_full_scale_pct": 0.0,
+    "stereo_correlation": 0.941,
+    "mono_fold_change_db": -0.19,
+    "energy_percent": {
+      "low_20_200": 51.7,
+      "mid_200_2000": 44.6,
+      "high_2000_12000": 1.9
+    },
+    "raw_excerpt_endpoint_step": 0.14357,
+    "flags": [
+      "Excerpt is not a finished seamless loop; edit boundaries and audition several repetitions."
+    ],
+    "preview": "previews/S12.mp3",
+    "preview_gain_db": -2.83,
+    "analysis_basis": "Filename/context plus decoded signal analysis; not perceptually auditioned"
+  },
+  {
+    "id": "S13",
+    "label": "Helicopter interior medium",
+    "path": "D:\\Game audio\\S019C-Aircraft\\Mono\\Helicopter3MedInt.wav",
+    "role": "Propellers and rotors",
+    "kind": "loop",
+    "note": "Interior counterpart to the exterior set; compare with existing filtering before adding another full-volume layer.",
+    "duration_s": 2.911,
+    "rate": 44100,
+    "channels": 1,
+    "codec": "pcm_s16le",
+    "bits": 16,
+    "bytes": 256894,
+    "analyzed_windows": [
+      {
+        "start_s": 0.0,
+        "duration_s": 2.911
+      }
+    ],
+    "full_source_decoded": true,
+    "excerpt_start_s": 0.0,
+    "excerpt_duration_s": 2.911,
+    "excerpt_rms_dbfs": -17.9,
+    "excerpt_peak_dbfs": -8.25,
+    "crest_db": 9.65,
+    "excerpt_envelope_spread_db": 1.7,
+    "dc_offset": 0.0,
+    "near_full_scale_pct": 0.0,
+    "stereo_correlation": 1.0,
+    "mono_fold_change_db": 0.0,
+    "energy_percent": {
+      "low_20_200": 89.0,
+      "mid_200_2000": 11.0,
+      "high_2000_12000": 0.0
+    },
+    "raw_excerpt_endpoint_step": 0.0028,
+    "flags": [
+      "Short source: repetition risk for sustained playback.",
+      "Excerpt is not a finished seamless loop; edit boundaries and audition several repetitions."
+    ],
+    "preview": "previews/S13.mp3",
+    "preview_gain_db": 4.25,
+    "analysis_basis": "Filename/context plus decoded signal analysis; not perceptually auditioned"
+  },
+  {
+    "id": "S14",
+    "label": "Current fixed-wing engine",
+    "path": "C:\\Godot projects\\Project-Flight\\Audio\\engine\\fixed_wing\\airplane_propeller 3.wav",
+    "role": "Current game comparison",
+    "kind": "loop",
+    "note": "Current common fixed-wing loop. Baseline only; file name does not establish an electric motor source.",
+    "duration_s": 12.0,
+    "rate": 48000,
+    "channels": 2,
+    "codec": "pcm_s16le",
+    "bits": 16,
+    "bytes": 2304078,
+    "analyzed_windows": [
+      {
+        "start_s": 0.0,
+        "duration_s": 12.0
+      }
+    ],
+    "full_source_decoded": true,
+    "excerpt_start_s": 0.5,
+    "excerpt_duration_s": 8.0,
+    "excerpt_rms_dbfs": -8.96,
+    "excerpt_peak_dbfs": -1.04,
+    "crest_db": 7.92,
+    "excerpt_envelope_spread_db": 1.01,
+    "dc_offset": 2.2e-05,
+    "near_full_scale_pct": 0.0,
+    "stereo_correlation": 0.989,
+    "mono_fold_change_db": -0.02,
+    "energy_percent": {
+      "low_20_200": 95.1,
+      "mid_200_2000": 4.8,
+      "high_2000_12000": 0.2
+    },
+    "raw_excerpt_endpoint_step": 0.50527,
+    "flags": [
+      "Excerpt is not a finished seamless loop; edit boundaries and audition several repetitions."
+    ],
+    "preview": "previews/S14.mp3",
+    "preview_gain_db": -2.96,
+    "analysis_basis": "Filename/context plus decoded signal analysis; not perceptually auditioned"
+  },
+  {
+    "id": "S15",
+    "label": "Current helicopter medium",
+    "path": "C:\\Godot projects\\Project-Flight\\Audio\\engine\\helicopter\\Helicopter3MedExt.wav",
+    "role": "Current game comparison",
+    "kind": "loop",
+    "note": "Current medium rotor layer shared by six authored helicopters.",
+    "duration_s": 2.911,
+    "rate": 44100,
+    "channels": 1,
+    "codec": "pcm_s16le",
+    "bits": 16,
+    "bytes": 256894,
+    "analyzed_windows": [
+      {
+        "start_s": 0.0,
+        "duration_s": 2.911
+      }
+    ],
+    "full_source_decoded": true,
+    "excerpt_start_s": 0.0,
+    "excerpt_duration_s": 2.911,
+    "excerpt_rms_dbfs": -16.53,
+    "excerpt_peak_dbfs": -6.19,
+    "crest_db": 10.34,
+    "excerpt_envelope_spread_db": 1.92,
+    "dc_offset": 0.000166,
+    "near_full_scale_pct": 0.0,
+    "stereo_correlation": 1.0,
+    "mono_fold_change_db": 0.0,
+    "energy_percent": {
+      "low_20_200": 85.5,
+      "mid_200_2000": 13.7,
+      "high_2000_12000": 0.8
+    },
+    "raw_excerpt_endpoint_step": 0.03272,
+    "flags": [
+      "Short source: repetition risk for sustained playback.",
+      "Excerpt is not a finished seamless loop; edit boundaries and audition several repetitions."
+    ],
+    "preview": "previews/S15.mp3",
+    "preview_gain_db": 2.19,
+    "analysis_basis": "Filename/context plus decoded signal analysis; not perceptually auditioned"
+  },
+  {
+    "id": "S16",
+    "label": "Ventilation fan",
+    "path": "D:\\Game audio\\Gamemaster Audio - Pro Sound Collection v1.3 - 16bit 48k\\Backgrounds\\background_air_vent_fan_loop_02.wav",
+    "role": "Carrier and cockpit ambience",
+    "kind": "loop",
+    "note": "Already contributes to both installed ventilation mixes; reuse source family for consistent room zoning.",
+    "duration_s": 6.92,
+    "rate": 48000,
+    "channels": 2,
+    "codec": "pcm_s16le",
+    "bits": 16,
+    "bytes": 1328794,
+    "analyzed_windows": [
+      {
+        "start_s": 0.0,
+        "duration_s": 6.92
+      }
+    ],
+    "full_source_decoded": true,
+    "excerpt_start_s": 0.0,
+    "excerpt_duration_s": 6.92,
+    "excerpt_rms_dbfs": -26.05,
+    "excerpt_peak_dbfs": -12.25,
+    "crest_db": 13.8,
+    "excerpt_envelope_spread_db": 3.35,
+    "dc_offset": 9e-06,
+    "near_full_scale_pct": 0.0,
+    "stereo_correlation": 0.925,
+    "mono_fold_change_db": -0.31,
+    "energy_percent": {
+      "low_20_200": 77.1,
+      "mid_200_2000": 22.3,
+      "high_2000_12000": 0.5
+    },
+    "raw_excerpt_endpoint_step": 0.00174,
+    "flags": [
+      "Excerpt is not a finished seamless loop; edit boundaries and audition several repetitions."
+    ],
+    "preview": "previews/S16.mp3",
+    "preview_gain_db": 8.25,
+    "analysis_basis": "Filename/context plus decoded signal analysis; not perceptually auditioned"
+  },
+  {
+    "id": "S17",
+    "label": "Interior room hum",
+    "path": "D:\\Game audio\\Gamemaster Audio - Pro Sound Collection v1.3 - 16bit 48k\\Backgrounds\\background_room_interior_hum_loop_02.wav",
+    "role": "Carrier and cockpit ambience",
+    "kind": "loop",
+    "note": "Already in carrier interior mix; useful bridge/hangar base, not a distinct machine event.",
+    "duration_s": 9.872,
+    "rate": 48000,
+    "channels": 2,
+    "codec": "pcm_s16le",
+    "bits": 16,
+    "bytes": 1895430,
+    "analyzed_windows": [
+      {
+        "start_s": 0.0,
+        "duration_s": 9.872
+      }
+    ],
+    "full_source_decoded": true,
+    "excerpt_start_s": 1.5,
+    "excerpt_duration_s": 8.0,
+    "excerpt_rms_dbfs": -24.03,
+    "excerpt_peak_dbfs": -12.47,
+    "crest_db": 11.56,
+    "excerpt_envelope_spread_db": 4.09,
+    "dc_offset": 9.6e-05,
+    "near_full_scale_pct": 0.0,
+    "stereo_correlation": 0.708,
+    "mono_fold_change_db": -0.71,
+    "energy_percent": {
+      "low_20_200": 91.1,
+      "mid_200_2000": 7.4,
+      "high_2000_12000": 0.1
+    },
+    "raw_excerpt_endpoint_step": 0.03879,
+    "flags": [
+      "Excerpt is not a finished seamless loop; edit boundaries and audition several repetitions."
+    ],
+    "preview": "previews/S17.mp3",
+    "preview_gain_db": 8.47,
+    "analysis_basis": "Filename/context plus decoded signal analysis; not perceptually auditioned"
+  },
+  {
+    "id": "S18",
+    "label": "Electric hum",
+    "path": "D:\\Game audio\\Gamemaster Audio - Pro Sound Collection v1.3 - 16bit 48k\\Electricity_Hums\\hum_motor_elec_neon_loop_03.wav",
+    "role": "Carrier and cockpit ambience",
+    "kind": "loop",
+    "note": "Alternative electrical room layer; avoid stationary mains hum as the entire aircraft engine.",
+    "duration_s": 7.8,
+    "rate": 48000,
+    "channels": 2,
+    "codec": "pcm_s16le",
+    "bits": 16,
+    "bytes": 1497662,
+    "analyzed_windows": [
+      {
+        "start_s": 0.0,
+        "duration_s": 7.8
+      }
+    ],
+    "full_source_decoded": true,
+    "excerpt_start_s": 0.0,
+    "excerpt_duration_s": 7.8,
+    "excerpt_rms_dbfs": -20.76,
+    "excerpt_peak_dbfs": -12.68,
+    "crest_db": 8.08,
+    "excerpt_envelope_spread_db": 0.66,
+    "dc_offset": 0.000396,
+    "near_full_scale_pct": 0.0,
+    "stereo_correlation": 0.976,
+    "mono_fold_change_db": -0.5,
+    "energy_percent": {
+      "low_20_200": 94.4,
+      "mid_200_2000": 5.5,
+      "high_2000_12000": 0.1
+    },
+    "raw_excerpt_endpoint_step": 0.03811,
+    "flags": [
+      "Excerpt is not a finished seamless loop; edit boundaries and audition several repetitions."
+    ],
+    "preview": "previews/S18.mp3",
+    "preview_gain_db": 8.68,
+    "analysis_basis": "Filename/context plus decoded signal analysis; not perceptually auditioned"
+  },
+  {
+    "id": "S19",
+    "label": "Lighthouse motor room",
+    "path": "D:\\Downloads\\Soniss\\Sonniss.com - GDC 2020 - Game Audio Bundle\\Articulated Sounds - Lighthouse Electrical Motor Tone\\MOTOR Electric Lighthouse, 4th Floor, Inside Lightroom, CU, Lantern, Low Rumble, West Point, PEI, Canada, LOOP.wav",
+    "role": "Carrier and cockpit ambience",
+    "kind": "loop",
+    "note": "Long real electrical machinery ambience; promising large carrier machinery room bed.",
+    "duration_s": 95.551,
+    "rate": 96000,
+    "channels": 2,
+    "codec": "pcm_s24le",
+    "bits": "24",
+    "bytes": 55366550,
+    "analyzed_windows": [
+      {
+        "start_s": 0.0,
+        "duration_s": 16.0
+      },
+      {
+        "start_s": 33.443,
+        "duration_s": 16.0
+      },
+      {
+        "start_s": 66.886,
+        "duration_s": 16.0
+      }
+    ],
+    "full_source_decoded": false,
+    "excerpt_start_s": 72.886,
+    "excerpt_duration_s": 8.0,
+    "excerpt_rms_dbfs": -19.1,
+    "excerpt_peak_dbfs": -6.0,
+    "crest_db": 13.09,
+    "excerpt_envelope_spread_db": 1.75,
+    "dc_offset": 4.1e-05,
+    "near_full_scale_pct": 0.0,
+    "stereo_correlation": 0.479,
+    "mono_fold_change_db": -1.32,
+    "energy_percent": {
+      "low_20_200": 17.9,
+      "mid_200_2000": 78.7,
+      "high_2000_12000": 3.2
+    },
+    "raw_excerpt_endpoint_step": 0.02712,
+    "flags": [
+      "Excerpt is not a finished seamless loop; edit boundaries and audition several repetitions.",
+      "Only three source windows decoded; unexamined sections may contain other material."
+    ],
+    "preview": "previews/S19.mp3",
+    "preview_gain_db": 2.0,
+    "analysis_basis": "Filename/context plus decoded signal analysis; not perceptually auditioned"
+  },
+  {
+    "id": "S20",
+    "label": "Current deck ambience",
+    "path": "C:\\Godot projects\\Project-Flight\\Audio\\Carrier\\carrier_deck_sound_mono.wav",
+    "role": "Current game comparison",
+    "kind": "loop",
+    "note": "Installed deck bed; compare level and spectral masking against wind and deck machinery.",
+    "duration_s": 12.0,
+    "rate": 48000,
+    "channels": 1,
+    "codec": "pcm_s16le",
+    "bits": 16,
+    "bytes": 1152078,
+    "analyzed_windows": [
+      {
+        "start_s": 0.0,
+        "duration_s": 12.0
+      }
+    ],
+    "full_source_decoded": true,
+    "excerpt_start_s": 2.0,
+    "excerpt_duration_s": 8.0,
+    "excerpt_rms_dbfs": -17.16,
+    "excerpt_peak_dbfs": -5.21,
+    "crest_db": 11.95,
+    "excerpt_envelope_spread_db": 2.96,
+    "dc_offset": 6e-06,
+    "near_full_scale_pct": 0.0,
+    "stereo_correlation": 1.0,
+    "mono_fold_change_db": 0.0,
+    "energy_percent": {
+      "low_20_200": 75.2,
+      "mid_200_2000": 21.5,
+      "high_2000_12000": 2.4
+    },
+    "raw_excerpt_endpoint_step": 0.10904,
+    "flags": [
+      "Excerpt is not a finished seamless loop; edit boundaries and audition several repetitions."
+    ],
+    "preview": "previews/S20.mp3",
+    "preview_gain_db": 1.21,
+    "analysis_basis": "Filename/context plus decoded signal analysis; not perceptually auditioned"
+  },
+  {
+    "id": "S21",
+    "label": "Gusty deck wind",
+    "path": "D:\\Game audio\\Gamemaster Audio - Pro Sound Collection v1.3 - 16bit 48k\\Animals_Nature_Ambiences\\wind_general_gusty_low_loop_02.wav",
+    "role": "Wind and weather",
+    "kind": "loop",
+    "note": "Candidate outdoor deck wind layer; driven by relative wind and shelter, not permanent maximum volume.",
+    "duration_s": 24.13,
+    "rate": 48000,
+    "channels": 2,
+    "codec": "pcm_s16le",
+    "bits": 16,
+    "bytes": 4634304,
+    "analyzed_windows": [
+      {
+        "start_s": 0.0,
+        "duration_s": 24.13
+      }
+    ],
+    "full_source_decoded": true,
+    "excerpt_start_s": 11.0,
+    "excerpt_duration_s": 8.0,
+    "excerpt_rms_dbfs": -21.95,
+    "excerpt_peak_dbfs": -7.44,
+    "crest_db": 14.51,
+    "excerpt_envelope_spread_db": 2.88,
+    "dc_offset": 4e-06,
+    "near_full_scale_pct": 0.0,
+    "stereo_correlation": 0.749,
+    "mono_fold_change_db": -0.58,
+    "energy_percent": {
+      "low_20_200": 17.1,
+      "mid_200_2000": 82.6,
+      "high_2000_12000": 0.3
+    },
+    "raw_excerpt_endpoint_step": 0.16417,
+    "flags": [
+      "Excerpt is not a finished seamless loop; edit boundaries and audition several repetitions."
+    ],
+    "preview": "previews/S21.mp3",
+    "preview_gain_db": 3.44,
+    "analysis_basis": "Filename/context plus decoded signal analysis; not perceptually auditioned"
+  },
+  {
+    "id": "S22",
+    "label": "Strong gust wind",
+    "path": "D:\\Game audio\\Gamemaster Audio - Pro Sound Collection v1.3 - 16bit 48k\\Animals_Nature_Ambiences\\wind_general_gusty_high_loop_02.wav",
+    "role": "Wind and weather",
+    "kind": "loop",
+    "note": "Higher exposure/storm layer; needs crossfade against calm wind.",
+    "duration_s": 25.983,
+    "rate": 48000,
+    "channels": 2,
+    "codec": "pcm_s16le",
+    "bits": 16,
+    "bytes": 4988786,
+    "analyzed_windows": [
+      {
+        "start_s": 0.0,
+        "duration_s": 25.983
+      }
+    ],
+    "full_source_decoded": true,
+    "excerpt_start_s": 12.0,
+    "excerpt_duration_s": 8.0,
+    "excerpt_rms_dbfs": -25.95,
+    "excerpt_peak_dbfs": -12.32,
+    "crest_db": 13.63,
+    "excerpt_envelope_spread_db": 2.28,
+    "dc_offset": 3.2e-05,
+    "near_full_scale_pct": 0.0,
+    "stereo_correlation": 0.621,
+    "mono_fold_change_db": -0.91,
+    "energy_percent": {
+      "low_20_200": 30.0,
+      "mid_200_2000": 68.5,
+      "high_2000_12000": 1.5
+    },
+    "raw_excerpt_endpoint_step": 0.0463,
+    "flags": [
+      "Excerpt is not a finished seamless loop; edit boundaries and audition several repetitions."
+    ],
+    "preview": "previews/S22.mp3",
+    "preview_gain_db": 8.32,
+    "analysis_basis": "Filename/context plus decoded signal analysis; not perceptually auditioned"
+  },
+  {
+    "id": "S23",
+    "label": "Aircraft wind",
+    "path": "D:\\Game audio\\S019C-Aircraft\\Mono\\AircraftWind.wav",
+    "role": "Wind and weather",
+    "kind": "loop",
+    "note": "Alternative speed-dependent external air rush; keep cockpit and exposed deck perspectives distinct.",
+    "duration_s": 1.914,
+    "rate": 44100,
+    "channels": 1,
+    "codec": "pcm_s16le",
+    "bits": 16,
+    "bytes": 168904,
+    "analyzed_windows": [
+      {
+        "start_s": 0.0,
+        "duration_s": 1.914
+      }
+    ],
+    "full_source_decoded": true,
+    "excerpt_start_s": 0.0,
+    "excerpt_duration_s": 1.914,
+    "excerpt_rms_dbfs": -22.11,
+    "excerpt_peak_dbfs": -9.88,
+    "crest_db": 12.23,
+    "excerpt_envelope_spread_db": 1.9,
+    "dc_offset": 3.5e-05,
+    "near_full_scale_pct": 0.0,
+    "stereo_correlation": 1.0,
+    "mono_fold_change_db": -0.0,
+    "energy_percent": {
+      "low_20_200": 2.8,
+      "mid_200_2000": 96.9,
+      "high_2000_12000": 0.3
+    },
+    "raw_excerpt_endpoint_step": 0.00027,
+    "flags": [
+      "Short source: repetition risk for sustained playback.",
+      "Excerpt is not a finished seamless loop; edit boundaries and audition several repetitions."
+    ],
+    "preview": "previews/S23.mp3",
+    "preview_gain_db": 5.88,
+    "analysis_basis": "Filename/context plus decoded signal analysis; not perceptually auditioned"
+  },
+  {
+    "id": "S24",
+    "label": "Elevator loop 1",
+    "path": "D:\\Game audio\\Gamemaster Audio - Pro Sound Collection v1.3 - 16bit 48k\\Switches_Buttons_Gears_Levers\\elevator_loop_01.wav",
+    "role": "Elevators and locks",
+    "kind": "loop",
+    "note": "Candidate dedicated lift travel layer; compare to existing elevator motor instead of assuming a missing file.",
+    "duration_s": 1.952,
+    "rate": 48000,
+    "channels": 2,
+    "codec": "pcm_s16le",
+    "bits": 16,
+    "bytes": 374846,
+    "analyzed_windows": [
+      {
+        "start_s": 0.0,
+        "duration_s": 1.952
+      }
+    ],
+    "full_source_decoded": true,
+    "excerpt_start_s": 0.0,
+    "excerpt_duration_s": 1.952,
+    "excerpt_rms_dbfs": -20.71,
+    "excerpt_peak_dbfs": -6.43,
+    "crest_db": 14.28,
+    "excerpt_envelope_spread_db": 3.2,
+    "dc_offset": 6e-05,
+    "near_full_scale_pct": 0.0,
+    "stereo_correlation": 0.962,
+    "mono_fold_change_db": -0.1,
+    "energy_percent": {
+      "low_20_200": 0.6,
+      "mid_200_2000": 86.0,
+      "high_2000_12000": 13.4
+    },
+    "raw_excerpt_endpoint_step": 0.01416,
+    "flags": [
+      "Short source: repetition risk for sustained playback.",
+      "Excerpt is not a finished seamless loop; edit boundaries and audition several repetitions."
+    ],
+    "preview": "previews/S24.mp3",
+    "preview_gain_db": 2.43,
+    "analysis_basis": "Filename/context plus decoded signal analysis; not perceptually auditioned"
+  },
+  {
+    "id": "S25",
+    "label": "Elevator loop 2",
+    "path": "D:\\Game audio\\Gamemaster Audio - Pro Sound Collection v1.3 - 16bit 48k\\Switches_Buttons_Gears_Levers\\elevator_loop_02.wav",
+    "role": "Elevators and locks",
+    "kind": "loop",
+    "note": "Alternative motor for island lift versus heavy deck lift.",
+    "duration_s": 2.632,
+    "rate": 48000,
+    "channels": 2,
+    "codec": "pcm_s16le",
+    "bits": 16,
+    "bytes": 505338,
+    "analyzed_windows": [
+      {
+        "start_s": 0.0,
+        "duration_s": 2.632
+      }
+    ],
+    "full_source_decoded": true,
+    "excerpt_start_s": 0.0,
+    "excerpt_duration_s": 2.632,
+    "excerpt_rms_dbfs": -24.41,
+    "excerpt_peak_dbfs": -11.34,
+    "crest_db": 13.07,
+    "excerpt_envelope_spread_db": 2.36,
+    "dc_offset": 3.4e-05,
+    "near_full_scale_pct": 0.0,
+    "stereo_correlation": 0.943,
+    "mono_fold_change_db": -0.15,
+    "energy_percent": {
+      "low_20_200": 0.6,
+      "mid_200_2000": 84.9,
+      "high_2000_12000": 14.5
+    },
+    "raw_excerpt_endpoint_step": 0.00991,
+    "flags": [
+      "Short source: repetition risk for sustained playback.",
+      "Excerpt is not a finished seamless loop; edit boundaries and audition several repetitions."
+    ],
+    "preview": "previews/S25.mp3",
+    "preview_gain_db": 7.34,
+    "analysis_basis": "Filename/context plus decoded signal analysis; not perceptually auditioned"
+  },
+  {
+    "id": "S26",
+    "label": "Interior heavy mechanism",
+    "path": "D:\\Game audio\\Game effects\\Vehicles Heavy\\Mechanisms\\Interior Mechanism Moving Loop.wav",
+    "role": "Elevators and locks",
+    "kind": "loop",
+    "note": "Candidate hangar/deck cover travel layer; keep independent from platform motor.",
+    "duration_s": 5.619,
+    "rate": 44100,
+    "channels": 2,
+    "codec": "pcm_s16le",
+    "bits": 16,
+    "bytes": 994682,
+    "analyzed_windows": [
+      {
+        "start_s": 0.0,
+        "duration_s": 5.619
+      }
+    ],
+    "full_source_decoded": true,
+    "excerpt_start_s": 0.0,
+    "excerpt_duration_s": 5.619,
+    "excerpt_rms_dbfs": -21.46,
+    "excerpt_peak_dbfs": -8.84,
+    "crest_db": 12.62,
+    "excerpt_envelope_spread_db": 3.69,
+    "dc_offset": 4.2e-05,
+    "near_full_scale_pct": 0.0,
+    "stereo_correlation": 0.999,
+    "mono_fold_change_db": -0.0,
+    "energy_percent": {
+      "low_20_200": 71.2,
+      "mid_200_2000": 24.2,
+      "high_2000_12000": 1.7
+    },
+    "raw_excerpt_endpoint_step": 0.0071,
+    "flags": [
+      "Excerpt is not a finished seamless loop; edit boundaries and audition several repetitions."
+    ],
+    "preview": "previews/S26.mp3",
+    "preview_gain_db": 4.84,
+    "analysis_basis": "Filename/context plus decoded signal analysis; not perceptually auditioned"
+  },
+  {
+    "id": "S27",
+    "label": "Heavy mechanism movement",
+    "path": "D:\\Game audio\\Game effects\\Vehicles Heavy\\Mechanisms\\Heavy Mechanism Move A.wav",
+    "role": "Elevators and locks",
+    "kind": "event",
+    "note": "Potential start/stop mechanical body; trim individual events before reuse.",
+    "duration_s": 4.119,
+    "rate": 44100,
+    "channels": 2,
+    "codec": "pcm_s16le",
+    "bits": 16,
+    "bytes": 727470,
+    "analyzed_windows": [
+      {
+        "start_s": 0.0,
+        "duration_s": 4.119
+      }
+    ],
+    "full_source_decoded": true,
+    "excerpt_start_s": 0.0,
+    "excerpt_duration_s": 4.119,
+    "excerpt_rms_dbfs": -33.72,
+    "excerpt_peak_dbfs": -8.58,
+    "crest_db": 25.14,
+    "excerpt_envelope_spread_db": 19.07,
+    "dc_offset": 0.000245,
+    "near_full_scale_pct": 0.0,
+    "stereo_correlation": 0.52,
+    "mono_fold_change_db": -1.19,
+    "energy_percent": {
+      "low_20_200": 55.6,
+      "mid_200_2000": 26.9,
+      "high_2000_12000": 12.5
+    },
+    "raw_excerpt_endpoint_step": 1e-05,
+    "flags": [],
+    "preview": "previews/S27.mp3",
+    "preview_gain_db": 4.58,
+    "analysis_basis": "Filename/context plus decoded signal analysis; not perceptually auditioned"
+  },
+  {
+    "id": "S28",
+    "label": "Gate bolt latch",
+    "path": "D:\\Downloads\\Soniss\\Sonniss.com - GDC 2020 - Game Audio Bundle\\344 Audio - Practical Doors\\Exterior Metal Door Gate Bolt Latch 7.wav",
+    "role": "Elevators and locks",
+    "kind": "event",
+    "note": "Good literal source for the missing elevator locking pin; may need body impact layering for scale.",
+    "duration_s": 1.477,
+    "rate": 96000,
+    "channels": 2,
+    "codec": "pcm_s24le",
+    "bits": "24",
+    "bytes": 857580,
+    "analyzed_windows": [
+      {
+        "start_s": 0.0,
+        "duration_s": 1.477
+      }
+    ],
+    "full_source_decoded": true,
+    "excerpt_start_s": 0.0,
+    "excerpt_duration_s": 1.477,
+    "excerpt_rms_dbfs": -46.65,
+    "excerpt_peak_dbfs": -22.32,
+    "crest_db": 24.33,
+    "excerpt_envelope_spread_db": 32.23,
+    "dc_offset": 0.0,
+    "near_full_scale_pct": 0.0,
+    "stereo_correlation": 1.0,
+    "mono_fold_change_db": 0.0,
+    "energy_percent": {
+      "low_20_200": 1.8,
+      "mid_200_2000": 61.0,
+      "high_2000_12000": 37.2
+    },
+    "raw_excerpt_endpoint_step": 1e-05,
+    "flags": [],
+    "preview": "previews/S28.mp3",
+    "preview_gain_db": 12.0,
+    "analysis_basis": "Filename/context plus decoded signal analysis; not perceptually auditioned"
+  },
+  {
+    "id": "S29",
+    "label": "Barrel bolt handling",
+    "path": "D:\\Downloads\\Soniss\\Sonniss.com - GDC 2019 - Game Audio Bundle\\Sound Spark LLC \u2013 Metal Hits, Scrapes and Squeaks\\Metal_Barrel_Bolt_Lock_Loose_Handling_03.wav",
+    "role": "Elevators and locks",
+    "kind": "event",
+    "note": "Alternative bolt/ratchet detail; isolate clean lock and release gestures.",
+    "duration_s": 1.923,
+    "rate": 96000,
+    "channels": 2,
+    "codec": "pcm_s24le",
+    "bits": "24",
+    "bytes": 1112912,
+    "analyzed_windows": [
+      {
+        "start_s": 0.0,
+        "duration_s": 1.923
+      }
+    ],
+    "full_source_decoded": true,
+    "excerpt_start_s": 0.0,
+    "excerpt_duration_s": 1.923,
+    "excerpt_rms_dbfs": -22.77,
+    "excerpt_peak_dbfs": 1.15,
+    "crest_db": 23.93,
+    "excerpt_envelope_spread_db": 42.32,
+    "dc_offset": 7e-06,
+    "near_full_scale_pct": 0.00433,
+    "stereo_correlation": 0.809,
+    "mono_fold_change_db": -0.54,
+    "energy_percent": {
+      "low_20_200": 0.2,
+      "mid_200_2000": 0.9,
+      "high_2000_12000": 98.8
+    },
+    "raw_excerpt_endpoint_step": 0.0,
+    "flags": [],
+    "preview": "previews/S29.mp3",
+    "preview_gain_db": -5.15,
+    "analysis_basis": "Filename/context plus decoded signal analysis; not perceptually auditioned"
+  },
+  {
+    "id": "S30",
+    "label": "Current elevator motor",
+    "path": "C:\\Godot projects\\Project-Flight\\Audio\\Carrier\\elevator_moving_mono.wav",
+    "role": "Current game comparison",
+    "kind": "loop",
+    "note": "Installed on deck and island lifts; technical validity does not establish audibility in play.",
+    "duration_s": 12.0,
+    "rate": 48000,
+    "channels": 1,
+    "codec": "pcm_s16le",
+    "bits": 16,
+    "bytes": 1152078,
+    "analyzed_windows": [
+      {
+        "start_s": 0.0,
+        "duration_s": 12.0
+      }
+    ],
+    "full_source_decoded": true,
+    "excerpt_start_s": 1.0,
+    "excerpt_duration_s": 8.0,
+    "excerpt_rms_dbfs": -14.69,
+    "excerpt_peak_dbfs": -3.0,
+    "crest_db": 11.69,
+    "excerpt_envelope_spread_db": 1.16,
+    "dc_offset": 4.1e-05,
+    "near_full_scale_pct": 0.0,
+    "stereo_correlation": 1.0,
+    "mono_fold_change_db": 0.0,
+    "energy_percent": {
+      "low_20_200": 37.0,
+      "mid_200_2000": 61.9,
+      "high_2000_12000": 0.2
+    },
+    "raw_excerpt_endpoint_step": 0.35958,
+    "flags": [
+      "Excerpt is not a finished seamless loop; edit boundaries and audition several repetitions."
+    ],
+    "preview": "previews/S30.mp3",
+    "preview_gain_db": -1.0,
+    "analysis_basis": "Filename/context plus decoded signal analysis; not perceptually auditioned"
+  },
+  {
+    "id": "S31",
+    "label": "Tank tread A",
+    "path": "D:\\Game audio\\Game effects\\Vehicles Heavy\\Tank\\Tank Tread Loop A.wav",
+    "role": "Tracks and ground contact",
+    "kind": "loop",
+    "note": "Existing track_links.ogg source; first choice for consistency, with independent left/right speeds.",
+    "duration_s": 15.317,
+    "rate": 44100,
+    "channels": 2,
+    "codec": "pcm_s16le",
+    "bits": 16,
+    "bytes": 2705506,
+    "analyzed_windows": [
+      {
+        "start_s": 0.0,
+        "duration_s": 15.317
+      }
+    ],
+    "full_source_decoded": true,
+    "excerpt_start_s": 7.0,
+    "excerpt_duration_s": 8.0,
+    "excerpt_rms_dbfs": -22.46,
+    "excerpt_peak_dbfs": -12.06,
+    "crest_db": 10.4,
+    "excerpt_envelope_spread_db": 5.41,
+    "dc_offset": 8.6e-05,
+    "near_full_scale_pct": 0.0,
+    "stereo_correlation": 0.999,
+    "mono_fold_change_db": -0.0,
+    "energy_percent": {
+      "low_20_200": 93.1,
+      "mid_200_2000": 1.8,
+      "high_2000_12000": 1.0
+    },
+    "raw_excerpt_endpoint_step": 0.11978,
+    "flags": [
+      "Excerpt is not a finished seamless loop; edit boundaries and audition several repetitions."
+    ],
+    "preview": "previews/S31.mp3",
+    "preview_gain_db": 8.06,
+    "analysis_basis": "Filename/context plus decoded signal analysis; not perceptually auditioned"
+  },
+  {
+    "id": "S32",
+    "label": "Tank tread B",
+    "path": "D:\\Game audio\\Game effects\\Vehicles Heavy\\Tank\\Tank Tread Loop B.wav",
+    "role": "Tracks and ground contact",
+    "kind": "loop",
+    "note": "Alternative clatter layer for load, turns or terrain variation; compare repetition with A.",
+    "duration_s": 14.167,
+    "rate": 44100,
+    "channels": 2,
+    "codec": "pcm_s16le",
+    "bits": 16,
+    "bytes": 2502546,
+    "analyzed_windows": [
+      {
+        "start_s": 0.0,
+        "duration_s": 14.167
+      }
+    ],
+    "full_source_decoded": true,
+    "excerpt_start_s": 0.0,
+    "excerpt_duration_s": 8.0,
+    "excerpt_rms_dbfs": -22.42,
+    "excerpt_peak_dbfs": -10.75,
+    "crest_db": 11.68,
+    "excerpt_envelope_spread_db": 5.04,
+    "dc_offset": 1.8e-05,
+    "near_full_scale_pct": 0.0,
+    "stereo_correlation": 0.999,
+    "mono_fold_change_db": -0.0,
+    "energy_percent": {
+      "low_20_200": 86.9,
+      "mid_200_2000": 3.6,
+      "high_2000_12000": 1.2
+    },
+    "raw_excerpt_endpoint_step": 0.00572,
+    "flags": [
+      "Excerpt is not a finished seamless loop; edit boundaries and audition several repetitions."
+    ],
+    "preview": "previews/S32.mp3",
+    "preview_gain_db": 6.75,
+    "analysis_basis": "Filename/context plus decoded signal analysis; not perceptually auditioned"
+  },
+  {
+    "id": "S33",
+    "label": "Tank tread event",
+    "path": "D:\\Game audio\\Game effects\\Vehicles Heavy\\Tank\\Tank Tread.wav",
+    "role": "Tracks and ground contact",
+    "kind": "event",
+    "note": "Possible engagement/stop punctuation; use selected transient, not the entire recording.",
+    "duration_s": 27.09,
+    "rate": 44100,
+    "channels": 2,
+    "codec": "pcm_s16le",
+    "bits": 16,
+    "bytes": 4779382,
+    "analyzed_windows": [
+      {
+        "start_s": 0.0,
+        "duration_s": 27.09
+      }
+    ],
+    "full_source_decoded": true,
+    "excerpt_start_s": 14.5,
+    "excerpt_duration_s": 10.0,
+    "excerpt_rms_dbfs": -16.45,
+    "excerpt_peak_dbfs": -8.0,
+    "crest_db": 8.46,
+    "excerpt_envelope_spread_db": 5.79,
+    "dc_offset": 2e-05,
+    "near_full_scale_pct": 0.0,
+    "stereo_correlation": 0.999,
+    "mono_fold_change_db": -0.0,
+    "energy_percent": {
+      "low_20_200": 93.0,
+      "mid_200_2000": 2.8,
+      "high_2000_12000": 0.9
+    },
+    "raw_excerpt_endpoint_step": 0.12913,
+    "flags": [],
+    "preview": "previews/S33.mp3",
+    "preview_gain_db": 4.0,
+    "analysis_basis": "Filename/context plus decoded signal analysis; not perceptually auditioned"
+  },
+  {
+    "id": "S34",
+    "label": "Current track derivative",
+    "path": "C:\\Godot projects\\Project-Flight\\Audio\\Carrier\\track_links.ogg",
+    "role": "Current game comparison",
+    "kind": "loop",
+    "note": "Installed filtered mono loop derived from Tank Tread Loop A.",
+    "duration_s": 15.167,
+    "rate": 48000,
+    "channels": 1,
+    "codec": "vorbis",
+    "bits": 0,
+    "bytes": 136955,
+    "analyzed_windows": [
+      {
+        "start_s": 0.0,
+        "duration_s": 15.167
+      }
+    ],
+    "full_source_decoded": true,
+    "excerpt_start_s": 0.0,
+    "excerpt_duration_s": 8.0,
+    "excerpt_rms_dbfs": -24.85,
+    "excerpt_peak_dbfs": -12.95,
+    "crest_db": 11.89,
+    "excerpt_envelope_spread_db": 3.16,
+    "dc_offset": 0.000106,
+    "near_full_scale_pct": 0.0,
+    "stereo_correlation": 1.0,
+    "mono_fold_change_db": 0.0,
+    "energy_percent": {
+      "low_20_200": 77.1,
+      "mid_200_2000": 16.5,
+      "high_2000_12000": 6.3
+    },
+    "raw_excerpt_endpoint_step": 0.04569,
+    "flags": [
+      "Excerpt is not a finished seamless loop; edit boundaries and audition several repetitions."
+    ],
+    "preview": "previews/S34.mp3",
+    "preview_gain_db": 8.95,
+    "analysis_basis": "Filename/context plus decoded signal analysis; not perceptually auditioned"
+  },
+  {
+    "id": "S35",
+    "label": "Deep metal scrape",
+    "path": "D:\\Game audio\\Gamemaster Audio - Pro Sound Collection v1.3 - 16bit 48k\\Metal\\metal_scrape_deep_grind_squeak_03.wav",
+    "role": "Damage and crash landing",
+    "kind": "loop",
+    "note": "Belly-slide abrasive layer; finite gesture may need granular assembly/crossfades rather than whole-file looping.",
+    "duration_s": 1.188,
+    "rate": 48000,
+    "channels": 2,
+    "codec": "pcm_s16le",
+    "bits": 16,
+    "bytes": 229368,
+    "analyzed_windows": [
+      {
+        "start_s": 0.0,
+        "duration_s": 1.188
+      }
+    ],
+    "full_source_decoded": true,
+    "excerpt_start_s": 0.0,
+    "excerpt_duration_s": 1.188,
+    "excerpt_rms_dbfs": -17.87,
+    "excerpt_peak_dbfs": -1.33,
+    "crest_db": 16.54,
+    "excerpt_envelope_spread_db": 39.98,
+    "dc_offset": 2.1e-05,
+    "near_full_scale_pct": 0.0,
+    "stereo_correlation": 0.474,
+    "mono_fold_change_db": -1.33,
+    "energy_percent": {
+      "low_20_200": 71.7,
+      "mid_200_2000": 18.1,
+      "high_2000_12000": 10.0
+    },
+    "raw_excerpt_endpoint_step": 2e-05,
+    "flags": [
+      "Large level variation: isolate a steadier segment or use as a transition.",
+      "Short source: repetition risk for sustained playback.",
+      "Excerpt is not a finished seamless loop; edit boundaries and audition several repetitions."
+    ],
+    "preview": "previews/S35.mp3",
+    "preview_gain_db": -2.67,
+    "analysis_basis": "Filename/context plus decoded signal analysis; not perceptually auditioned"
+  },
+  {
+    "id": "S36",
+    "label": "Metal drag into smash",
+    "path": "D:\\Downloads\\Soniss\\Sonniss.com - GDC 2020 - Game Audio Bundle\\Coll Anderson - Metal Movement\\EFX INT Metal Drag Slide Fast In Smash 02 A.wav",
+    "role": "Damage and crash landing",
+    "kind": "event",
+    "note": "Separate scrape body from final impact; useful crash start/end but not directly a sustained loop.",
+    "duration_s": 18.176,
+    "rate": 96000,
+    "channels": 2,
+    "codec": "pcm_s24le",
+    "bits": "24",
+    "bytes": 10480004,
+    "analyzed_windows": [
+      {
+        "start_s": 0.0,
+        "duration_s": 18.176
+      }
+    ],
+    "full_source_decoded": true,
+    "excerpt_start_s": 0.5,
+    "excerpt_duration_s": 10.0,
+    "excerpt_rms_dbfs": -36.87,
+    "excerpt_peak_dbfs": -7.57,
+    "crest_db": 29.29,
+    "excerpt_envelope_spread_db": 51.75,
+    "dc_offset": 3.6e-05,
+    "near_full_scale_pct": 0.0,
+    "stereo_correlation": 0.642,
+    "mono_fold_change_db": -0.86,
+    "energy_percent": {
+      "low_20_200": 0.0,
+      "mid_200_2000": 18.9,
+      "high_2000_12000": 81.0
+    },
+    "raw_excerpt_endpoint_step": 5e-05,
+    "flags": [],
+    "preview": "previews/S36.mp3",
+    "preview_gain_db": 3.57,
+    "analysis_basis": "Filename/context plus decoded signal analysis; not perceptually auditioned"
+  },
+  {
+    "id": "S37",
+    "label": "Screeching metal friction",
+    "path": "D:\\Downloads\\Soniss\\Sonniss.com - GDC 2024 - Game Audio Bundle\\Mechanical Wave - Torturing Metal\\METLFric_Screeching Metal Rub-11_MWSFX_TM.wav",
+    "role": "Damage and crash landing",
+    "kind": "event",
+    "note": "Promising deformation/part-tear accent; a friction recording alone is not a complete wing break.",
+    "duration_s": 3.269,
+    "rate": 96000,
+    "channels": 2,
+    "codec": "pcm_s32le",
+    "bits": "32",
+    "bytes": 7699352,
+    "analyzed_windows": [
+      {
+        "start_s": 0.0,
+        "duration_s": 3.269
+      }
+    ],
+    "full_source_decoded": true,
+    "excerpt_start_s": 0.0,
+    "excerpt_duration_s": 3.269,
+    "excerpt_rms_dbfs": -21.63,
+    "excerpt_peak_dbfs": -3.93,
+    "crest_db": 17.7,
+    "excerpt_envelope_spread_db": 39.62,
+    "dc_offset": 6e-06,
+    "near_full_scale_pct": 0.0,
+    "stereo_correlation": 0.994,
+    "mono_fold_change_db": -0.01,
+    "energy_percent": {
+      "low_20_200": 0.4,
+      "mid_200_2000": 21.6,
+      "high_2000_12000": 78.0
+    },
+    "raw_excerpt_endpoint_step": 0.00152,
+    "flags": [],
+    "preview": "previews/S37.mp3",
+    "preview_gain_db": -0.07,
+    "analysis_basis": "Filename/context plus decoded signal analysis; not perceptually auditioned"
+  },
+  {
+    "id": "S38",
+    "label": "Metal debris fall",
+    "path": "D:\\Downloads\\Soniss\\Sonniss.com - GDC 2024 - Game Audio Bundle\\Mechanical Wave - Torturing Metal\\METLCrsh_Drop Fall Metal Rattle Scrap Debris_06_MWSFX_TM.wav",
+    "role": "Damage and crash landing",
+    "kind": "event",
+    "note": "Candidate secondary debris hits after breakaway or touchdown; randomize distinct events.",
+    "duration_s": 0.747,
+    "rate": 96000,
+    "channels": 2,
+    "codec": "pcm_s24le",
+    "bits": "24",
+    "bytes": 5619708,
+    "analyzed_windows": [
+      {
+        "start_s": 0.0,
+        "duration_s": 0.747
+      }
+    ],
+    "full_source_decoded": true,
+    "excerpt_start_s": 0.0,
+    "excerpt_duration_s": 0.747,
+    "excerpt_rms_dbfs": -21.11,
+    "excerpt_peak_dbfs": -0.81,
+    "crest_db": 20.3,
+    "excerpt_envelope_spread_db": 43.98,
+    "dc_offset": 2.4e-05,
+    "near_full_scale_pct": 0.0,
+    "stereo_correlation": 0.875,
+    "mono_fold_change_db": -0.28,
+    "energy_percent": {
+      "low_20_200": 18.7,
+      "mid_200_2000": 26.2,
+      "high_2000_12000": 55.1
+    },
+    "raw_excerpt_endpoint_step": 0.00027,
+    "flags": [],
+    "preview": "previews/S38.mp3",
+    "preview_gain_db": -3.19,
+    "analysis_basis": "Filename/context plus decoded signal analysis; not perceptually auditioned"
+  },
+  {
+    "id": "S39",
+    "label": "Sheet metal crash",
+    "path": "D:\\Downloads\\Soniss\\Sonniss.com - GDC 2019 - Game Audio Bundle\\Airborne Sound - Elements Metal\\Metal,Crash,Concrete,Sheet Metal,20 Gauge,Slow,Complex.wav",
+    "role": "Damage and crash landing",
+    "kind": "event",
+    "note": "Possible tearing/crumpling body layer; inspect for heavy reverb and multiple impacts.",
+    "duration_s": 2.885,
+    "rate": 48000,
+    "channels": 2,
+    "codec": "pcm_s24le",
+    "bits": "24",
+    "bytes": 1058280,
+    "analyzed_windows": [
+      {
+        "start_s": 0.0,
+        "duration_s": 2.885
+      }
+    ],
+    "full_source_decoded": true,
+    "excerpt_start_s": 0.0,
+    "excerpt_duration_s": 2.885,
+    "excerpt_rms_dbfs": -31.31,
+    "excerpt_peak_dbfs": -7.17,
+    "crest_db": 24.14,
+    "excerpt_envelope_spread_db": 18.67,
+    "dc_offset": 0.0,
+    "near_full_scale_pct": 0.0,
+    "stereo_correlation": 0.464,
+    "mono_fold_change_db": -1.36,
+    "energy_percent": {
+      "low_20_200": 0.1,
+      "mid_200_2000": 45.9,
+      "high_2000_12000": 54.0
+    },
+    "raw_excerpt_endpoint_step": 2e-05,
+    "flags": [],
+    "preview": "previews/S39.mp3",
+    "preview_gain_db": 3.17,
+    "analysis_basis": "Filename/context plus decoded signal analysis; not perceptually auditioned"
+  },
+  {
+    "id": "S40",
+    "label": "Chassis drop and bounce",
+    "path": "D:\\Downloads\\Soniss\\Sonniss.com - GDC 2020 - Game Audio Bundle\\Pole Position - Car Destruction\\Car_Destruction_Chassis_Impact_t36_Ext_Drop_on_Ground_Metal_Crash_Bounce_Various_MKH8060.wav",
+    "role": "Damage and crash landing",
+    "kind": "event",
+    "note": "Heavy airframe impact candidate; extract a single impact plus debris tail.",
+    "duration_s": 30.977,
+    "rate": 192000,
+    "channels": 1,
+    "codec": "pcm_s24le",
+    "bits": "24",
+    "bytes": 18085596,
+    "analyzed_windows": [
+      {
+        "start_s": 0.0,
+        "duration_s": 30.977
+      }
+    ],
+    "full_source_decoded": true,
+    "excerpt_start_s": 3.0,
+    "excerpt_duration_s": 10.0,
+    "excerpt_rms_dbfs": -31.25,
+    "excerpt_peak_dbfs": -6.73,
+    "crest_db": 24.51,
+    "excerpt_envelope_spread_db": 33.75,
+    "dc_offset": 4e-06,
+    "near_full_scale_pct": 0.0,
+    "stereo_correlation": 1.0,
+    "mono_fold_change_db": 0.0,
+    "energy_percent": {
+      "low_20_200": 43.5,
+      "mid_200_2000": 53.6,
+      "high_2000_12000": 2.6
+    },
+    "raw_excerpt_endpoint_step": 0.00178,
+    "flags": [],
+    "preview": "previews/S40.mp3",
+    "preview_gain_db": 2.73,
+    "analysis_basis": "Filename/context plus decoded signal analysis; not perceptually auditioned"
+  },
+  {
+    "id": "S41",
+    "label": "Gravel slide",
+    "path": "D:\\Game audio\\Gamemaster Audio - Pro Sound Collection v1.3 - 16bit 48k\\Footsteps\\footstep_gravel_slide_06.wav",
+    "role": "Damage and crash landing",
+    "kind": "event",
+    "note": "Small gritty texture only: layer many variations under a heavier crash, not a full aircraft slide.",
+    "duration_s": 0.94,
+    "rate": 48000,
+    "channels": 2,
+    "codec": "pcm_s16le",
+    "bits": 16,
+    "bytes": 180542,
+    "analyzed_windows": [
+      {
+        "start_s": 0.0,
+        "duration_s": 0.94
+      }
+    ],
+    "full_source_decoded": true,
+    "excerpt_start_s": 0.0,
+    "excerpt_duration_s": 0.94,
+    "excerpt_rms_dbfs": -24.37,
+    "excerpt_peak_dbfs": -3.44,
+    "crest_db": 20.93,
+    "excerpt_envelope_spread_db": 40.25,
+    "dc_offset": 0.00045,
+    "near_full_scale_pct": 0.0,
+    "stereo_correlation": 0.932,
+    "mono_fold_change_db": -0.24,
+    "energy_percent": {
+      "low_20_200": 2.0,
+      "mid_200_2000": 86.0,
+      "high_2000_12000": 11.9
+    },
+    "raw_excerpt_endpoint_step": 6e-05,
+    "flags": [],
+    "preview": "previews/S41.mp3",
+    "preview_gain_db": -0.56,
+    "analysis_basis": "Filename/context plus decoded signal analysis; not perceptually auditioned"
+  },
+  {
+    "id": "S42",
+    "label": "Concrete scrape",
+    "path": "D:\\Downloads\\Soniss\\Sonniss.com - GDC 2020 - Game Audio Bundle\\Matt Script - Electric Lawn Mower\\Electric_Mower_moving_over_concrete_dragging_scrape_scraping_rolling_metal_plastic_02.wav",
+    "role": "Damage and crash landing",
+    "kind": "loop",
+    "note": "Useful dry abrasive source; deliberately a motor-off movement recording by filename, still needs listening.",
+    "duration_s": 6.726,
+    "rate": 192000,
+    "channels": 1,
+    "codec": "pcm_s24le",
+    "bits": "24",
+    "bytes": 3873996,
+    "analyzed_windows": [
+      {
+        "start_s": 0.0,
+        "duration_s": 6.726
+      }
+    ],
+    "full_source_decoded": true,
+    "excerpt_start_s": 0.0,
+    "excerpt_duration_s": 6.726,
+    "excerpt_rms_dbfs": -27.8,
+    "excerpt_peak_dbfs": -3.89,
+    "crest_db": 23.91,
+    "excerpt_envelope_spread_db": 22.74,
+    "dc_offset": 1e-06,
+    "near_full_scale_pct": 0.0,
+    "stereo_correlation": 1.0,
+    "mono_fold_change_db": 0.0,
+    "energy_percent": {
+      "low_20_200": 9.7,
+      "mid_200_2000": 85.0,
+      "high_2000_12000": 3.6
+    },
+    "raw_excerpt_endpoint_step": 0.0,
+    "flags": [
+      "Large level variation: isolate a steadier segment or use as a transition.",
+      "Excerpt is not a finished seamless loop; edit boundaries and audition several repetitions."
+    ],
+    "preview": "previews/S42.mp3",
+    "preview_gain_db": -0.11,
+    "analysis_basis": "Filename/context plus decoded signal analysis; not perceptually auditioned"
+  },
+  {
+    "id": "S43",
+    "label": "Metal rattle",
+    "path": "D:\\Downloads\\Soniss\\Sonniss.com - GDC 2023 - Game Audio Bundle\\Justsoundeffects - Metal Movements\\METLMvmt_Metal Rattle 11_JSE_MM_Mono.wav",
+    "role": "Damage and crash landing",
+    "kind": "event",
+    "note": "Loose-panel/cockpit rattle or post-impact debris; avoid repetitive per-frame retriggering.",
+    "duration_s": 6.261,
+    "rate": 96000,
+    "channels": 1,
+    "codec": "pcm_s24le",
+    "bits": "24",
+    "bytes": 1821740,
+    "analyzed_windows": [
+      {
+        "start_s": 0.0,
+        "duration_s": 6.261
+      }
+    ],
+    "full_source_decoded": true,
+    "excerpt_start_s": 0.0,
+    "excerpt_duration_s": 6.261,
+    "excerpt_rms_dbfs": -30.1,
+    "excerpt_peak_dbfs": -9.41,
+    "crest_db": 20.69,
+    "excerpt_envelope_spread_db": 42.97,
+    "dc_offset": 0.0,
+    "near_full_scale_pct": 0.0,
+    "stereo_correlation": 1.0,
+    "mono_fold_change_db": 0.0,
+    "energy_percent": {
+      "low_20_200": 50.2,
+      "mid_200_2000": 44.3,
+      "high_2000_12000": 5.5
+    },
+    "raw_excerpt_endpoint_step": 0.0,
+    "flags": [],
+    "preview": "previews/S43.mp3",
+    "preview_gain_db": 5.41,
+    "analysis_basis": "Filename/context plus decoded signal analysis; not perceptually auditioned"
+  },
+  {
+    "id": "S44",
+    "label": "Electric spark texture",
+    "path": "D:\\Game audio\\Gamemaster Audio - Pro Sound Collection v1.3 - 16bit 48k\\Electricity_Hums\\hum_electric_sparks_interference_loop_01.wav",
+    "role": "Damage and crash landing",
+    "kind": "loop",
+    "note": "Damage arcing layer for disabled motor/battery systems; only while the corresponding damage state exists.",
+    "duration_s": 3.315,
+    "rate": 48000,
+    "channels": 2,
+    "codec": "pcm_s16le",
+    "bits": 16,
+    "bytes": 636514,
+    "analyzed_windows": [
+      {
+        "start_s": 0.0,
+        "duration_s": 3.315
+      }
+    ],
+    "full_source_decoded": true,
+    "excerpt_start_s": 0.0,
+    "excerpt_duration_s": 3.315,
+    "excerpt_rms_dbfs": -23.13,
+    "excerpt_peak_dbfs": -6.82,
+    "crest_db": 16.31,
+    "excerpt_envelope_spread_db": 3.69,
+    "dc_offset": 0.035567,
+    "near_full_scale_pct": 0.0,
+    "stereo_correlation": 0.022,
+    "mono_fold_change_db": -1.96,
+    "energy_percent": {
+      "below_20": 54.9,
+      "low_20_200": 10.9,
+      "mid_200_2000": 29.4,
+      "high_2000_12000": 4.8
+    },
+    "raw_excerpt_endpoint_step": 0.00869,
+    "flags": [
+      "Substantial DC offset in the excerpt: remove DC / high-pass before production use.",
+      "More than 20% of measured spectral power is below 20 Hz (including DC); inspect before boosting level.",
+      "Short source: repetition risk for sustained playback.",
+      "Excerpt is not a finished seamless loop; edit boundaries and audition several repetitions."
+    ],
+    "preview": "previews/S44.mp3",
+    "preview_gain_db": 2.82,
+    "analysis_basis": "Filename/context plus decoded signal analysis; not perceptually auditioned"
+  },
+  {
+    "id": "S45",
+    "label": "Touchdown impact",
+    "path": "D:\\Game audio\\S019C-Aircraft\\Mono\\Touchdown.wav",
+    "role": "Damage and crash landing",
+    "kind": "event",
+    "note": "Candidate normal landing thump before constructing violent crash variants.",
+    "duration_s": 0.35,
+    "rate": 44100,
+    "channels": 1,
+    "codec": "pcm_s16le",
+    "bits": 16,
+    "bytes": 30914,
+    "analyzed_windows": [
+      {
+        "start_s": 0.0,
+        "duration_s": 0.35
+      }
+    ],
+    "full_source_decoded": true,
+    "excerpt_start_s": 0.0,
+    "excerpt_duration_s": 0.35,
+    "excerpt_rms_dbfs": -24.67,
+    "excerpt_peak_dbfs": -8.77,
+    "crest_db": 15.91,
+    "excerpt_envelope_spread_db": 17.65,
+    "dc_offset": 0.001086,
+    "near_full_scale_pct": 0.0,
+    "stereo_correlation": 1.0,
+    "mono_fold_change_db": 0.0,
+    "energy_percent": {
+      "low_20_200": 0.0,
+      "mid_200_2000": 53.8,
+      "high_2000_12000": 46.0
+    },
+    "raw_excerpt_endpoint_step": 0.0006,
+    "flags": [],
+    "preview": "previews/S45.mp3",
+    "preview_gain_db": 4.77,
+    "analysis_basis": "Filename/context plus decoded signal analysis; not perceptually auditioned"
+  },
+  {
+    "id": "S46",
+    "label": "Robot servo",
+    "path": "D:\\Game audio\\PSE Game Audio Sound Pack\\ROBTMvmt_Robot Servo 02_PSE_OS_32dI5.wav",
+    "role": "Deck operations and machinery",
+    "kind": "event",
+    "note": "Recovery robot arm/clamp or harvester articulation; isolate gestures and match motion duration.",
+    "duration_s": 27.893,
+    "rate": 48000,
+    "channels": 1,
+    "codec": "pcm_s16le",
+    "bits": 16,
+    "bytes": 3252662,
+    "analyzed_windows": [
+      {
+        "start_s": 0.0,
+        "duration_s": 27.893
+      }
+    ],
+    "full_source_decoded": true,
+    "excerpt_start_s": 17.5,
+    "excerpt_duration_s": 10.0,
+    "excerpt_rms_dbfs": -34.55,
+    "excerpt_peak_dbfs": -13.24,
+    "crest_db": 21.31,
+    "excerpt_envelope_spread_db": 50.79,
+    "dc_offset": 2.8e-05,
+    "near_full_scale_pct": 0.0,
+    "stereo_correlation": 1.0,
+    "mono_fold_change_db": 0.0,
+    "energy_percent": {
+      "low_20_200": 0.7,
+      "mid_200_2000": 73.1,
+      "high_2000_12000": 26.2
+    },
+    "raw_excerpt_endpoint_step": 0.00094,
+    "flags": [],
+    "preview": "previews/S46.mp3",
+    "preview_gain_db": 9.24,
+    "analysis_basis": "Filename/context plus decoded signal analysis; not perceptually auditioned"
+  },
+  {
+    "id": "S47",
+    "label": "Machine wind-down",
+    "path": "D:\\Game audio\\PSE Game Audio Sound Pack\\MECHMisc_Sci Fi Wind Downs Servo Motor Stop Robot Groan_PSE_KCV1_1Di8j.wav",
+    "role": "Deck operations and machinery",
+    "kind": "event",
+    "note": "Motor spin-down/braking source; processing may sound stylized.",
+    "duration_s": 103.765,
+    "rate": 48000,
+    "channels": 2,
+    "codec": "pcm_s24le",
+    "bits": "24",
+    "bytes": 30415106,
+    "analyzed_windows": [
+      {
+        "start_s": 0.0,
+        "duration_s": 16.0
+      },
+      {
+        "start_s": 36.318,
+        "duration_s": 16.0
+      },
+      {
+        "start_s": 72.636,
+        "duration_s": 16.0
+      }
+    ],
+    "full_source_decoded": false,
+    "excerpt_start_s": 0.0,
+    "excerpt_duration_s": 10.0,
+    "excerpt_rms_dbfs": -17.53,
+    "excerpt_peak_dbfs": -1.73,
+    "crest_db": 15.81,
+    "excerpt_envelope_spread_db": 38.45,
+    "dc_offset": 0.000101,
+    "near_full_scale_pct": 0.0,
+    "stereo_correlation": 0.127,
+    "mono_fold_change_db": -2.49,
+    "energy_percent": {
+      "low_20_200": 58.7,
+      "mid_200_2000": 35.8,
+      "high_2000_12000": 4.1
+    },
+    "raw_excerpt_endpoint_step": 0.00035,
+    "flags": [
+      "Only three source windows decoded; unexamined sections may contain other material."
+    ],
+    "preview": "previews/S47.mp3",
+    "preview_gain_db": -2.27,
+    "analysis_basis": "Filename/context plus decoded signal analysis; not perceptually auditioned"
+  },
+  {
+    "id": "S48",
+    "label": "3D printer heavy servo",
+    "path": "D:\\Downloads\\Soniss\\Sonniss.com - GDC 2018 - Game Audio Bundle\\MattLightbound - 3D Printer - Lulzbot mini\\3DPrinter.Heavy.Servo.Sequence1.wav",
+    "role": "Deck operations and machinery",
+    "kind": "event",
+    "note": "Replicator arm source; sequence should be divided into motion-synchronized pieces.",
+    "duration_s": 53.497,
+    "rate": 96000,
+    "channels": 2,
+    "codec": "pcm_s24le",
+    "bits": "24",
+    "bytes": 30815298,
+    "analyzed_windows": [
+      {
+        "start_s": 0.0,
+        "duration_s": 16.0
+      },
+      {
+        "start_s": 18.724,
+        "duration_s": 16.0
+      },
+      {
+        "start_s": 37.448,
+        "duration_s": 16.0
+      }
+    ],
+    "full_source_decoded": false,
+    "excerpt_start_s": 4.0,
+    "excerpt_duration_s": 10.0,
+    "excerpt_rms_dbfs": -26.11,
+    "excerpt_peak_dbfs": -12.54,
+    "crest_db": 13.57,
+    "excerpt_envelope_spread_db": 9.5,
+    "dc_offset": 3.3e-05,
+    "near_full_scale_pct": 0.0,
+    "stereo_correlation": 0.885,
+    "mono_fold_change_db": -0.26,
+    "energy_percent": {
+      "low_20_200": 40.3,
+      "mid_200_2000": 53.2,
+      "high_2000_12000": 5.5
+    },
+    "raw_excerpt_endpoint_step": 0.16527,
+    "flags": [
+      "Only three source windows decoded; unexamined sections may contain other material."
+    ],
+    "preview": "previews/S48.mp3",
+    "preview_gain_db": 8.54,
+    "analysis_basis": "Filename/context plus decoded signal analysis; not perceptually auditioned"
+  },
+  {
+    "id": "S49",
+    "label": "Motorized hatch",
+    "path": "D:\\Game audio\\S019C-Aircraft\\Mono\\OpenMotorisedHatch.wav",
+    "role": "Deck operations and machinery",
+    "kind": "event",
+    "note": "Aircraft canopy/vehicle bay/elevator cover candidate; use different scale and filtering by object.",
+    "duration_s": 3.768,
+    "rate": 44100,
+    "channels": 1,
+    "codec": "pcm_s16le",
+    "bits": 16,
+    "bytes": 332342,
+    "analyzed_windows": [
+      {
+        "start_s": 0.0,
+        "duration_s": 3.768
+      }
+    ],
+    "full_source_decoded": true,
+    "excerpt_start_s": 0.0,
+    "excerpt_duration_s": 3.768,
+    "excerpt_rms_dbfs": -32.82,
+    "excerpt_peak_dbfs": -7.14,
+    "crest_db": 25.68,
+    "excerpt_envelope_spread_db": 29.05,
+    "dc_offset": 5.5e-05,
+    "near_full_scale_pct": 0.0,
+    "stereo_correlation": 1.0,
+    "mono_fold_change_db": 0.0,
+    "energy_percent": {
+      "low_20_200": 11.7,
+      "mid_200_2000": 34.9,
+      "high_2000_12000": 46.6
+    },
+    "raw_excerpt_endpoint_step": 0.05478,
+    "flags": [],
+    "preview": "previews/S49.mp3",
+    "preview_gain_db": 3.14,
+    "analysis_basis": "Filename/context plus decoded signal analysis; not perceptually auditioned"
+  },
+  {
+    "id": "S50",
+    "label": "Ejection event",
+    "path": "D:\\Game audio\\S019C-Aircraft\\Mono\\Eject.wav",
+    "role": "Warnings and interactions",
+    "kind": "event",
+    "note": "Candidate ejection transient; add distinct canopy, seat and parachute stages.",
+    "duration_s": 2.927,
+    "rate": 44100,
+    "channels": 1,
+    "codec": "pcm_s16le",
+    "bits": 16,
+    "bytes": 258244,
+    "analyzed_windows": [
+      {
+        "start_s": 0.0,
+        "duration_s": 2.927
+      }
+    ],
+    "full_source_decoded": true,
+    "excerpt_start_s": 0.0,
+    "excerpt_duration_s": 2.927,
+    "excerpt_rms_dbfs": -20.04,
+    "excerpt_peak_dbfs": -2.18,
+    "crest_db": 17.87,
+    "excerpt_envelope_spread_db": 37.95,
+    "dc_offset": 0.000159,
+    "near_full_scale_pct": 0.0,
+    "stereo_correlation": 1.0,
+    "mono_fold_change_db": 0.0,
+    "energy_percent": {
+      "low_20_200": 39.5,
+      "mid_200_2000": 12.3,
+      "high_2000_12000": 47.8
+    },
+    "raw_excerpt_endpoint_step": 0.00583,
+    "flags": [],
+    "preview": "previews/S50.mp3",
+    "preview_gain_db": -1.82,
+    "analysis_basis": "Filename/context plus decoded signal analysis; not perceptually auditioned"
+  },
+  {
+    "id": "S51",
+    "label": "Cockpit alarm",
+    "path": "D:\\Game audio\\S019C-Aircraft\\Mono\\CockpitAlarm1.wav",
+    "role": "Warnings and interactions",
+    "kind": "event",
+    "note": "Possible critical warning; assign a single meaning and priority, avoid generic continuous alarm spam.",
+    "duration_s": 2.996,
+    "rate": 44100,
+    "channels": 1,
+    "codec": "pcm_s16le",
+    "bits": 16,
+    "bytes": 264306,
+    "analyzed_windows": [
+      {
+        "start_s": 0.0,
+        "duration_s": 2.996
+      }
+    ],
+    "full_source_decoded": true,
+    "excerpt_start_s": 0.0,
+    "excerpt_duration_s": 2.996,
+    "excerpt_rms_dbfs": -21.23,
+    "excerpt_peak_dbfs": -18.34,
+    "crest_db": 2.89,
+    "excerpt_envelope_spread_db": 0.08,
+    "dc_offset": 1.3e-05,
+    "near_full_scale_pct": 0.0,
+    "stereo_correlation": 1.0,
+    "mono_fold_change_db": 0.0,
+    "energy_percent": {
+      "low_20_200": 0.0,
+      "mid_200_2000": 87.9,
+      "high_2000_12000": 12.1
+    },
+    "raw_excerpt_endpoint_step": 0.04988,
+    "flags": [],
+    "preview": "previews/S51.mp3",
+    "preview_gain_db": 12.0,
+    "analysis_basis": "Filename/context plus decoded signal analysis; not perceptually auditioned"
+  },
+  {
+    "id": "S52",
+    "label": "Target lock",
+    "path": "D:\\Game audio\\S019C-Aircraft\\Mono\\HUDTargetLock.wav",
+    "role": "Warnings and interactions",
+    "kind": "event",
+    "note": "Candidate only for targeting states actually modeled in the game; do not imply a sensor capability.",
+    "duration_s": 0.999,
+    "rate": 44100,
+    "channels": 1,
+    "codec": "pcm_s16le",
+    "bits": 16,
+    "bytes": 88172,
+    "analyzed_windows": [
+      {
+        "start_s": 0.0,
+        "duration_s": 0.999
+      }
+    ],
+    "full_source_decoded": true,
+    "excerpt_start_s": 0.0,
+    "excerpt_duration_s": 0.999,
+    "excerpt_rms_dbfs": -31.12,
+    "excerpt_peak_dbfs": -16.68,
+    "crest_db": 14.44,
+    "excerpt_envelope_spread_db": 8.3,
+    "dc_offset": 0.0,
+    "near_full_scale_pct": 0.0,
+    "stereo_correlation": 1.0,
+    "mono_fold_change_db": 0.0,
+    "energy_percent": {
+      "low_20_200": 0.0,
+      "mid_200_2000": 12.8,
+      "high_2000_12000": 87.2
+    },
+    "raw_excerpt_endpoint_step": 0.01659,
+    "flags": [],
+    "preview": "previews/S52.mp3",
+    "preview_gain_db": 12.0,
+    "analysis_basis": "Filename/context plus decoded signal analysis; not perceptually auditioned"
+  }
+]

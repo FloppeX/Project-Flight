@@ -71,6 +71,18 @@ func _process(delta):
 
 
 func _input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and not event.echo and not event.ctrl_pressed and not event.alt_pressed and not event.shift_pressed and _is_current_camera():
+		var key: int = event.physical_keycode if event.physical_keycode != 0 else event.keycode
+		var panel := get_parent().get_node_or_null("InstrumentPanel")
+		if panel != null:
+			var handled := false
+			if key == KEY_F10 and panel.has_method("select_damage_page"):
+				handled = bool(panel.call("select_damage_page"))
+			elif key in [KEY_BRACKETLEFT, KEY_BRACKETRIGHT] and panel.has_method("cycle_left_mfd"):
+				handled = bool(panel.call("cycle_left_mfd", -1 if key == KEY_BRACKETLEFT else 1))
+			if handled:
+				get_viewport().set_input_as_handled()
+				return
 	if InputMap.has_action(cockpit_interact_action) and event.is_action_pressed(cockpit_interact_action, false, true):
 		_try_cockpit_interaction()
 

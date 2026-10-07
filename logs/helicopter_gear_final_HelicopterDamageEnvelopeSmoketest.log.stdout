@@ -1,0 +1,161 @@
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+
+ERROR: Failed to read the root certificate store.
+   at: get_system_ca_certificates (platform/windows/os_windows.cpp:2582)
+[CockpitPilotPool] reserve_ready size=2 created=2 animation_prepare_ms=669.935 animation_prepare_max_ms=669.489
+[AirOpsManager] Ready — flights: Archer, Bulldog, Crimson, Dingo
+[CombatLog] [    0.0] SYS    Combat log online.
+[GroundOps] Ready — platoons: Ember, Ferret, Grizzly, Hammer
+[PerfHitch] Writing C:/Godot projects/Project-Flight/logs/helicopter_gear_userdata/Godot/app_userdata/Land Carrier/perf_logs/hitch_events.csv threshold_ms=33.0 mark_action=flight_log_mark
+[FrameProfilerReportCapture] enabled (ambient_hitch_trace)
+[godot_ai game_helper] registered mcp capture (debugger active=false, logger=true)
+[Flight Archer] CAP  alt=800m
+[Flight Bulldog] CAP  alt=800m
+[Flight Crimson] CAP  alt=800m
+[Flight Dingo] CAP  alt=800m
+[Resolution] selected=(1920, 1080) window=(0, 0) root=(64, 64) screen=(0, 0) content=(1920, 1080) content_mode=2 content_aspect=1 content_factor=1.0 viewport=(1920.0, 1080.0) 3d_scale=1.0 mode=1
+HELI_AI change_state State.TAKEOFF craft=Aircraft_9 engine=true working=false power=0.00 is_deck_takeoff=false
+HELI_AI change_state State.TAKEOFF craft=Aircraft_10 engine=true working=false power=0.00 is_deck_takeoff=false
+HELI_AI change_state State.TAKEOFF craft=Aircraft_11 engine=true working=false power=0.00 is_deck_takeoff=false
+[InstrumentPanelPool] render_warm panel=PooledInstrumentPanel1 elapsed_ms=299.644
+HELI_AI change_state State.TAKEOFF craft=Aircraft_12 engine=true working=false power=0.00 is_deck_takeoff=false
+HELI_AI change_state State.TAKEOFF craft=Aircraft_13 engine=true working=false power=0.00 is_deck_takeoff=false
+[InstrumentPanelPool] render_warm panel=PooledInstrumentPanel2 elapsed_ms=147.186
+HELI_AI change_state State.TAKEOFF craft=Aircraft_15 engine=true working=false power=0.00 is_deck_takeoff=false
+[CombatLog] [    2.7] LAND   T1:Aircraft_11 terrain touchdown sink=4.3 m/s relative=4.3 m/s
+[CombatLog] [    2.8] LAND   T1:Aircraft_9 terrain touchdown sink=3.9 m/s relative=3.9 m/s
+[CombatLog] [    2.8] LAND   T1:Aircraft_12 terrain touchdown sink=3.6 m/s relative=3.6 m/s
+[CombatLog] [    2.8] LAND   T1:Aircraft_10 terrain touchdown sink=3.9 m/s relative=3.9 m/s
+[CombatLog] [    2.8] LAND   T1:Aircraft_15 terrain touchdown sink=3.7 m/s relative=3.7 m/s
+[CombatLog] [    2.9] LAND   T1:Aircraft_13 terrain touchdown sink=2.9 m/s relative=2.9 m/s
+[CombatLog] [    3.2] LAND   T1:Aircraft_11 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    3.3] LAND   T1:Aircraft_9 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    3.3] LAND   T1:Aircraft_12 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+HELICOPTER_ENVELOPE_CASE low_altitude Aircraft 9 sink=3.88337516784668 settled=3.38333333333333 exploded=false
+HELICOPTER_ENVELOPE_CASE low_altitude Aircraft 10 sink=3.87841987609863 settled=3.51666666666667 exploded=false
+HELICOPTER_ENVELOPE_CASE low_altitude Aircraft 11 sink=4.33840847015381 settled=3.3 exploded=false
+HELICOPTER_ENVELOPE_CASE low_altitude Aircraft 12 sink=3.64502716064453 settled=3.36666666666667 exploded=false
+HELICOPTER_ENVELOPE_CASE low_altitude Aircraft 13 sink=2.92560029029846 settled=3.85 exploded=false
+HELICOPTER_ENVELOPE_CASE low_altitude Aircraft 15 sink=3.65276193618774 settled=3.5 exploded=false
+HELI_AI change_state State.TAKEOFF craft=Aircraft_9 engine=true working=false power=0.00 is_deck_takeoff=false
+HELI_AI change_state State.TAKEOFF craft=Aircraft_10 engine=true working=false power=0.00 is_deck_takeoff=false
+HELI_AI change_state State.TAKEOFF craft=Aircraft_11 engine=true working=false power=0.00 is_deck_takeoff=false
+HELI_AI change_state State.TAKEOFF craft=Aircraft_12 engine=true working=false power=0.00 is_deck_takeoff=false
+HELI_AI change_state State.TAKEOFF craft=Aircraft_13 engine=true working=false power=0.00 is_deck_takeoff=false
+HELI_AI change_state State.TAKEOFF craft=Aircraft_15 engine=true working=false power=0.00 is_deck_takeoff=false
+[CombatLog] [    6.1] LAND   T1:Aircraft_11 terrain touchdown sink=4.3 m/s relative=4.8 m/s
+[CombatLog] [    6.2] LAND   T1:Aircraft_10 terrain touchdown sink=3.9 m/s relative=4.3 m/s
+[CombatLog] [    6.3] LAND   T1:Aircraft_12 terrain touchdown sink=3.5 m/s relative=4.1 m/s
+[CombatLog] [    6.3] LAND   T1:Aircraft_9 terrain touchdown sink=3.7 m/s relative=4.3 m/s
+[CombatLog] [    6.4] LAND   T1:Aircraft_15 terrain touchdown sink=3.6 m/s relative=3.7 m/s
+[CombatLog] [    6.6] LAND   T1:Aircraft_13 terrain touchdown sink=3.0 m/s relative=3.1 m/s
+[CombatLog] [    6.6] LAND   T1:Aircraft_11 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    6.7] LAND   T1:Aircraft_10 terrain touchdown sink=0.0 m/s relative=0.2 m/s
+[CombatLog] [    6.8] LAND   T1:Aircraft_12 terrain touchdown sink=0.0 m/s relative=0.2 m/s
+[CombatLog] [    6.8] LAND   T1:Aircraft_9 terrain touchdown sink=0.0 m/s relative=0.1 m/s
+[CombatLog] [    6.9] LAND   T1:Aircraft_15 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    7.1] LAND   T1:Aircraft_13 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [    7.2] LAND   T1:Aircraft_11 terrain touchdown sink=0.1 m/s relative=0.1 m/s
+[CombatLog] [    7.3] LAND   T1:Aircraft_10 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+HELICOPTER_ENVELOPE_CASE forward_speed Aircraft 9 sink=3.72116136550903 settled=11.7666666666667 exploded=false
+HELICOPTER_ENVELOPE_CASE forward_speed Aircraft 10 sink=3.85163688659668 settled=12.3333333333333 exploded=false
+HELICOPTER_ENVELOPE_CASE forward_speed Aircraft 11 sink=4.26903057098389 settled=12.9166666666667 exploded=false
+HELICOPTER_ENVELOPE_CASE forward_speed Aircraft 12 sink=3.49761748313904 settled=11.7666666666667 exploded=false
+HELICOPTER_ENVELOPE_CASE forward_speed Aircraft 13 sink=3.00707268714905 settled=12.2333333333333 exploded=false
+HELICOPTER_ENVELOPE_CASE forward_speed Aircraft 15 sink=3.627601146698 settled=11.4333333333333 exploded=false
+HELI_AI change_state State.TAKEOFF craft=Aircraft_9 engine=true working=false power=0.00 is_deck_takeoff=false
+HELI_AI change_state State.TAKEOFF craft=Aircraft_10 engine=true working=false power=0.00 is_deck_takeoff=false
+HELI_AI change_state State.TAKEOFF craft=Aircraft_11 engine=true working=false power=0.00 is_deck_takeoff=false
+HELI_AI change_state State.TAKEOFF craft=Aircraft_12 engine=true working=false power=0.00 is_deck_takeoff=false
+HELI_AI change_state State.TAKEOFF craft=Aircraft_13 engine=true working=false power=0.00 is_deck_takeoff=false
+HELI_AI change_state State.TAKEOFF craft=Aircraft_15 engine=true working=false power=0.00 is_deck_takeoff=false
+[CombatLog] [   10.1] LAND   T1:Aircraft_11 terrain touchdown sink=4.2 m/s relative=4.2 m/s
+[CombatLog] [   10.2] LAND   T1:Aircraft_10 terrain touchdown sink=3.8 m/s relative=3.8 m/s
+[CombatLog] [   10.2] LAND   T1:Aircraft_9 terrain touchdown sink=3.6 m/s relative=4.1 m/s
+[CombatLog] [   10.2] LAND   T1:Aircraft_12 terrain touchdown sink=3.4 m/s relative=3.6 m/s
+[CombatLog] [   10.3] LAND   T1:Aircraft_15 terrain touchdown sink=3.6 m/s relative=3.7 m/s
+[CombatLog] [   10.5] LAND   T1:Aircraft_13 terrain touchdown sink=3.0 m/s relative=3.0 m/s
+[CombatLog] [   10.6] LAND   T1:Aircraft_11 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [   10.7] LAND   T1:Aircraft_10 terrain touchdown sink=0.0 m/s relative=0.2 m/s
+[CombatLog] [   10.7] LAND   T1:Aircraft_9 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [   10.8] LAND   T1:Aircraft_12 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [   10.8] LAND   T1:Aircraft_15 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+HELICOPTER_ENVELOPE_CASE bank_and_drift Aircraft 9 sink=3.64754891395569 settled=10.4 exploded=false
+HELICOPTER_ENVELOPE_CASE bank_and_drift Aircraft 10 sink=3.81232690811157 settled=10.35 exploded=false
+HELICOPTER_ENVELOPE_CASE bank_and_drift Aircraft 11 sink=4.20725202560425 settled=10.0166666666667 exploded=false
+HELICOPTER_ENVELOPE_CASE bank_and_drift Aircraft 12 sink=3.44347333908081 settled=10.4166666666667 exploded=false
+HELICOPTER_ENVELOPE_CASE bank_and_drift Aircraft 13 sink=2.99048805236816 settled=11.2833333333333 exploded=false
+HELICOPTER_ENVELOPE_CASE bank_and_drift Aircraft 15 sink=3.6206362247467 settled=10.5666666666667 exploded=false
+HELI_AI change_state State.TAKEOFF craft=Aircraft_9 engine=true working=false power=0.00 is_deck_takeoff=false
+HELI_AI change_state State.TAKEOFF craft=Aircraft_10 engine=true working=false power=0.00 is_deck_takeoff=false
+HELI_AI change_state State.TAKEOFF craft=Aircraft_11 engine=true working=false power=0.00 is_deck_takeoff=false
+HELI_AI change_state State.TAKEOFF craft=Aircraft_12 engine=true working=false power=0.00 is_deck_takeoff=false
+HELI_AI change_state State.TAKEOFF craft=Aircraft_13 engine=true working=false power=0.00 is_deck_takeoff=false
+HELI_AI change_state State.TAKEOFF craft=Aircraft_15 engine=true working=false power=0.00 is_deck_takeoff=false
+WARNING: [Physics interpolation] Interpolated Camera3D triggered from outside physics process: "/root/HelicopterDamageEnvelopeSmoketest/@Node3D@877/Aircraft_9/CameraCockpit/Camera3D" (possibly benign).
+   at: _notification (scene/3d/camera_3d.cpp:218)
+[CombatLog] [   13.6] LAND   T1:Aircraft_11 terrain touchdown sink=4.2 m/s relative=4.2 m/s
+[CombatLog] [   13.7] LAND   T1:Aircraft_10 terrain touchdown sink=3.8 m/s relative=3.8 m/s
+[CombatLog] [   13.7] LAND   T1:Aircraft_15 terrain touchdown sink=3.6 m/s relative=3.6 m/s
+[CombatLog] [   13.7] LAND   T1:Aircraft_9 terrain touchdown sink=3.7 m/s relative=3.7 m/s
+[CombatLog] [   13.7] LAND   T1:Aircraft_12 terrain touchdown sink=3.5 m/s relative=3.5 m/s
+[CombatLog] [   14.0] LAND   T1:Aircraft_13 terrain touchdown sink=3.0 m/s relative=3.0 m/s
+[CombatLog] [   14.2] LAND   T1:Aircraft_11 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [   14.3] LAND   T1:Aircraft_10 terrain touchdown sink=0.0 m/s relative=0.2 m/s
+[CombatLog] [   14.3] LAND   T1:Aircraft_15 terrain touchdown sink=0.0 m/s relative=0.1 m/s
+[CombatLog] [   14.3] LAND   T1:Aircraft_9 terrain touchdown sink=0.0 m/s relative=0.1 m/s
+[CombatLog] [   14.3] LAND   T1:Aircraft_12 terrain touchdown sink=0.0 m/s relative=0.2 m/s
+HELICOPTER_ENVELOPE_CASE slope Aircraft 9 sink=3.69582653045654 settled=10.5166666666667 exploded=false
+HELICOPTER_ENVELOPE_CASE slope Aircraft 10 sink=3.80584907531738 settled=10.45 exploded=false
+HELICOPTER_ENVELOPE_CASE slope Aircraft 11 sink=4.20682191848755 settled=10.1333333333333 exploded=false
+HELICOPTER_ENVELOPE_CASE slope Aircraft 12 sink=3.47599864006042 settled=10.5333333333333 exploded=false
+HELICOPTER_ENVELOPE_CASE slope Aircraft 13 sink=2.98638129234314 settled=11.0833333333333 exploded=false
+HELICOPTER_ENVELOPE_CASE slope Aircraft 15 sink=3.62932801246643 settled=10.4833333333333 exploded=false
+HELI_AI change_state State.TAKEOFF craft=Aircraft_9 engine=true working=false power=0.00 is_deck_takeoff=false
+HELI_AI change_state State.TAKEOFF craft=Aircraft_10 engine=true working=false power=0.00 is_deck_takeoff=false
+HELI_AI change_state State.TAKEOFF craft=Aircraft_11 engine=true working=false power=0.00 is_deck_takeoff=false
+HELI_AI change_state State.TAKEOFF craft=Aircraft_12 engine=true working=false power=0.00 is_deck_takeoff=false
+HELI_AI change_state State.TAKEOFF craft=Aircraft_13 engine=true working=false power=0.00 is_deck_takeoff=false
+HELI_AI change_state State.TAKEOFF craft=Aircraft_15 engine=true working=false power=0.00 is_deck_takeoff=false
+[CombatLog] [   16.8] LAND   T1:Aircraft_12 terrain touchdown sink=3.7 m/s relative=3.7 m/s
+[CombatLog] [   16.9] LAND   T1:Aircraft_11 terrain touchdown sink=3.7 m/s relative=3.7 m/s
+[CombatLog] [   16.9] LAND   T1:Aircraft_15 terrain touchdown sink=3.7 m/s relative=3.7 m/s
+[CombatLog] [   17.1] LAND   T1:Aircraft_10 terrain touchdown sink=3.3 m/s relative=3.3 m/s
+[CombatLog] [   17.1] LAND   T1:Aircraft_9 terrain touchdown sink=3.4 m/s relative=3.4 m/s
+[CombatLog] [   17.1] LAND   T1:Aircraft_13 terrain touchdown sink=3.3 m/s relative=3.3 m/s
+[CombatLog] [   17.2] LAND   T1:Aircraft_12 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [   17.3] LAND   T1:Aircraft_11 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [   17.4] LAND   T1:Aircraft_15 terrain touchdown sink=0.0 m/s relative=0.0 m/s
+HELICOPTER_ENVELOPE_CASE gusts Aircraft 9 sink=3.41435194015503 settled=10.9 exploded=false
+HELICOPTER_ENVELOPE_CASE gusts Aircraft 10 sink=3.34128308296204 settled=10.8666666666667 exploded=false
+HELICOPTER_ENVELOPE_CASE gusts Aircraft 11 sink=3.73806381225586 settled=10.2166666666667 exploded=false
+HELICOPTER_ENVELOPE_CASE gusts Aircraft 12 sink=3.66335844993591 settled=9.95 exploded=false
+HELICOPTER_ENVELOPE_CASE gusts Aircraft 13 sink=3.2954273223877 settled=11.25 exploded=false
+HELICOPTER_ENVELOPE_CASE gusts Aircraft 15 sink=3.68130469322205 settled=10.5333333333333 exploded=false
+HELI_AI change_state State.TAKEOFF craft=Aircraft_9 engine=true working=false power=0.00 is_deck_takeoff=false
+HELI_AI change_state State.TAKEOFF craft=Aircraft_10 engine=true working=false power=0.00 is_deck_takeoff=false
+HELI_AI change_state State.TAKEOFF craft=Aircraft_11 engine=true working=false power=0.00 is_deck_takeoff=false
+HELI_AI change_state State.TAKEOFF craft=Aircraft_12 engine=true working=false power=0.00 is_deck_takeoff=false
+HELI_AI change_state State.TAKEOFF craft=Aircraft_13 engine=true working=false power=0.00 is_deck_takeoff=false
+HELI_AI change_state State.TAKEOFF craft=Aircraft_15 engine=true working=false power=0.00 is_deck_takeoff=false
+[CombatLog] [   20.1] HARD   T1:Aircraft_11 carrier touchdown sink=4.4 m/s relative=4.5 m/s
+[CombatLog] [   20.1] HARD   T1:Aircraft_10 carrier touchdown sink=4.0 m/s relative=4.3 m/s
+[CombatLog] [   20.2] HARD   T1:Aircraft_15 carrier touchdown sink=3.8 m/s relative=4.5 m/s
+[CombatLog] [   20.2] HARD   T1:Aircraft_9 carrier touchdown sink=3.9 m/s relative=4.2 m/s
+[CombatLog] [   20.2] HARD   T1:Aircraft_12 carrier touchdown sink=3.6 m/s relative=4.0 m/s
+[CombatLog] [   20.4] HARD   T1:Aircraft_13 carrier touchdown sink=3.2 m/s relative=3.6 m/s
+[CombatLog] [   20.6] LAND   T1:Aircraft_11 carrier touchdown sink=0.1 m/s relative=0.1 m/s
+[CombatLog] [   20.7] LAND   T1:Aircraft_10 carrier touchdown sink=0.1 m/s relative=0.1 m/s
+[CombatLog] [   20.8] LAND   T1:Aircraft_15 carrier touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [   20.8] LAND   T1:Aircraft_9 carrier touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [   20.8] LAND   T1:Aircraft_12 carrier touchdown sink=0.0 m/s relative=0.0 m/s
+[CombatLog] [   20.9] LAND   T1:Aircraft_13 carrier touchdown sink=0.0 m/s relative=0.0 m/s
+HELICOPTER_ENVELOPE_CASE moving_deck Aircraft 9 sink=3.85656476020813 settled=10.3833333333333 exploded=false
+HELICOPTER_ENVELOPE_CASE moving_deck Aircraft 10 sink=4.01080226898193 settled=10.4666666666667 exploded=false
+HELICOPTER_ENVELOPE_CASE moving_deck Aircraft 11 sink=4.39572525024414 settled=10.0666666666667 exploded=false
+HELICOPTER_ENVELOPE_CASE moving_deck Aircraft 12 sink=3.63756394386292 settled=10.3166666666667 exploded=false
+HELICOPTER_ENVELOPE_CASE moving_deck Aircraft 13 sink=3.21252775192261 settled=11.0 exploded=false
+HELICOPTER_ENVELOPE_CASE moving_deck Aircraft 15 sink=3.81109046936035 settled=11.4333333333333 exploded=false
+HELICOPTER_DAMAGE_ENVELOPE_PASS cases=36 failures=0
+WARNING: 1 ObjectDB instance was leaked at exit (run with `--verbose` for details).
+   at: cleanup (core/object/object.cpp:2536)

@@ -41,6 +41,9 @@ var _aircraft_3_scene: PackedScene
 var _aircraft_4_scene: PackedScene
 var _aircraft_5_scene: PackedScene
 var _aircraft_6_scene: PackedScene
+var _aircraft_13_scene: PackedScene
+var _aircraft_15_scene: PackedScene
+var _aircraft_16_scene: PackedScene
 var _enemy_aircraft_scene: PackedScene
 var _active_ai_planes: Array[RigidBody3D] = []
 var _enemy_vehicle_scenes: Array[PackedScene] = []
@@ -67,6 +70,11 @@ func _ready():
 	if not _aircraft_6_scene:
 		push_error("[EnemyAircraftSpawner] Failed to load Aircraft/Aircraft_6.tscn")
 	_enemy_aircraft_scene = _aircraft_3_scene
+	_aircraft_13_scene = load("res://Aircraft/Aircraft_13.tscn")
+	_aircraft_15_scene = load("res://Aircraft/Aircraft_15.tscn")
+	_aircraft_16_scene = load("res://Aircraft/Aircraft_16.tscn")
+	if not _aircraft_16_scene:
+		push_error("[EnemyAircraftSpawner] Failed to load Aircraft/Aircraft_16.tscn")
 	_enemy_vehicle_scenes.clear()
 	for vehicle_path in [
 		"res://GroundVehicle/vehicle_enemy_buggy.tscn",
@@ -96,6 +104,12 @@ func spawn_enemy_flight_by_role(role_name: String, count: int = 4) -> Array[Rigi
 			scene = _aircraft_4_scene
 		"attack":
 			scene = _aircraft_6_scene
+		"fighter_bomber":
+			scene = _aircraft_16_scene
+		"scout_helicopter":
+			scene = _aircraft_13_scene
+		"attack_helicopter":
+			scene = _aircraft_15_scene
 		_:
 			push_warning("[EnemyAircraftSpawner] Unknown enemy flight role: %s" % role_name)
 			return spawned
@@ -112,6 +126,7 @@ func spawn_enemy_flight_by_role(role_name: String, count: int = 4) -> Array[Rigi
 		])
 		return spawned
 	var spawn_count := requested_count
+	var is_helicopter := normalized_role in ["scout_helicopter", "attack_helicopter"]
 
 	var carrier := get_tree().get_first_node_in_group("carrier") as Node3D
 	var carrier_pos := _get_carrier_position()
@@ -138,16 +153,20 @@ func spawn_enemy_flight_by_role(role_name: String, count: int = 4) -> Array[Rigi
 			"enemies",
 			spawn_pos,
 			-spawn_dir,
-			maxf(spawn_speed, 85.0)
+			30.0 if is_helicopter else maxf(spawn_speed, 85.0)
 		)
 		if is_instance_valid(aircraft):
 			aircraft.set_meta("spawned_from_vehicle_menu", true)
 			aircraft.set_meta("spawned_enemy_role", normalized_role)
+			if is_helicopter:
+				_configure_enemy_helicopter_pilot(aircraft, i)
 			spawned.append(aircraft)
 
 	if not spawned.is_empty():
 		await get_tree().create_timer(0.5).timeout
 		for aircraft in spawned:
+			if is_helicopter:
+				continue
 			_configure_enemy_strike_pilot(aircraft, carrier, normalized_role == "fighter")
 			var pilot := aircraft.find_child("AIPilot", true, false) as AIPilot
 			if pilot != null:
@@ -795,6 +814,41 @@ func _strip_enemy_aircraft_3_stores(aircraft: Node3D) -> void:
 		if cw.weapon_types.size() > 0:
 			cw.selected_weapon_type_index = gun_idx
 			cw.selected_weapon_type = cw.weapon_types[gun_idx]
+
+func _configure_enemy_helicopter_pilot(aircraft: RigidBody3D, slot: int) -> void:
+	var pilot := aircraft.get_node_or_null("HelicopterPilot") as HelicopterPilot
+	if pilot == null:
+		push_error("[EnemyAircraftSpawner] Missing helicopter pilot on %s" % aircraft.name)
+		return
+	# A surface patrol also gives the scout permission to engage with its rockets.
+	# Slot offsets keep helicopters from sharing a single patrol waypoint.
+	var center := _get_carrier_position()
+	var route: Array[Vector3] = []
+	for offset in [Vector3(-900, 140, -900), Vector3(900, 140, -900),
+			Vector3(900, 140, 900), Vector3(-900, 140, 900)]:
+		route.append(center + offset + Vector3(slot * 90.0, slot * 15.0, slot * -60.0))
+	pilot.cruise_agl_m = 140.0
+	pilot.heightmap_path_target_agl_m = 140.0
+	pilot.set_outpost_patrol_route(route)
+	var ground_height := pilot._get_ground_height_at_position(aircraft.global_position)
+	if is_finite(ground_height):
+		aircraft.global_position.y = maxf(aircraft.global_position.y, ground_height + 140.0)
+	var toggle := aircraft.get_node_or_null("AIToggle")
+	if toggle != null:
+		toggle.enable_ai()
+	else:
+		pilot.initialize(aircraft)
+	pilot.command_flight_patrol(route, "ground")
+	# Airborne spawns need rotor lift immediately, as with materialized patrols.
+	var trim := pilot._get_collective_trim()
+	if pilot.engine != null:
+		pilot.engine.set("is_engine_working", true)
+		pilot.engine.set("current_power", trim)
+		pilot.engine.set("target_power", trim)
+	aircraft.get_node("SimpleAero").prime_airborne_rotor()
+	pilot._collective_cmd = trim
+	if pilot.control_engine != null:
+		pilot.control_engine.set_target_power(trim)
 
 func _configure_enemy_strike_pilot(aircraft: RigidBody3D, carrier: Node3D, prefer_air_combat: bool = false) -> void:
 	if not is_instance_valid(aircraft):

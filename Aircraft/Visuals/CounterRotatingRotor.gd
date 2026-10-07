@@ -30,6 +30,8 @@ extends Node3D
 @export var rotor_audio_slow_stream: AudioStream = null
 @export var rotor_audio_medium_stream: AudioStream = null
 @export var rotor_audio_fast_stream: AudioStream = null
+## Ordered idle-to-full-speed recordings. When set, replaces the legacy layers.
+@export var rotor_audio_streams: Array[AudioStream] = []
 @export var rotor_audio_volume_db: float = 6.0
 @export var rotor_audio_silent_db: float = -24.0
 @export var rotor_audio_min_pitch: float = 0.82
@@ -66,6 +68,7 @@ var _rotor_audio_player: AudioStreamPlayer3D = null
 var _rotor_audio_slow_player: AudioStreamPlayer3D = null
 var _rotor_audio_medium_player: AudioStreamPlayer3D = null
 var _rotor_audio_fast_player: AudioStreamPlayer3D = null
+var _rotor_audio_bank_players: Array[AudioStreamPlayer3D] = []
 var _rotor_audio_enabled: bool = true
 var _rotor_shadow_casting: Dictionary = {}
 var _fast_rotor_shadows_disabled: bool = false
@@ -168,7 +171,11 @@ func _physics_process(delta: float) -> void:
 	_update_targets()
 	_update_fold(delta)
 	var rpm_rate := rotor_spool_up_rate if _target_power >= _power else rotor_spool_down_rate
-	_power = move_toward(_power, _target_power, maxf(rpm_rate, 0.001) * delta)
+	var flight := get_parent().get_node_or_null("SimpleAero") as HelicopterFlight
+	if flight != null and flight._rotor_model_initialized:
+		_power = flight.rotor_energy.rpm
+	else:
+		_power = move_toward(_power, _target_power, maxf(rpm_rate, 0.001) * delta)
 	_update_rotor_transparency()
 	_update_blade_segments()
 	_update_rotor_audio()
@@ -193,6 +200,10 @@ func _physics_process(delta: float) -> void:
 
 
 func _setup_rotor_audio() -> void:
+	if not rotor_audio_streams.is_empty():
+		for index in rotor_audio_streams.size():
+			_rotor_audio_bank_players.append(_create_rotor_audio_player("RotorAudio%d" % index, rotor_audio_streams[index]))
+		return
 	if rotor_audio_slow_stream != null or rotor_audio_medium_stream != null or rotor_audio_fast_stream != null:
 		_rotor_audio_slow_player = _create_rotor_audio_player("RotorAudioSlow", rotor_audio_slow_stream)
 		_rotor_audio_medium_player = _create_rotor_audio_player("RotorAudioMedium", rotor_audio_medium_stream)
@@ -204,10 +215,9 @@ func _setup_rotor_audio() -> void:
 func _create_rotor_audio_player(player_name: String, stream: AudioStream) -> AudioStreamPlayer3D:
 	if stream == null:
 		return null
-	_make_stream_loop(stream)
 	var player := AudioStreamPlayer3D.new()
 	player.name = player_name
-	player.stream = stream
+	player.stream = preload("res://Audio/RuntimeAudio.gd").loop_stream(stream)
 	player.bus = "Master"
 	player.volume_db = rotor_audio_silent_db
 	player.unit_size = maxf(rotor_audio_unit_size, 1.0)
@@ -218,18 +228,12 @@ func _create_rotor_audio_player(player_name: String, stream: AudioStream) -> Aud
 	return player
 
 
-func _make_stream_loop(stream: AudioStream) -> void:
-	if stream is AudioStreamWAV:
-		var wav_stream: AudioStreamWAV = stream as AudioStreamWAV
-		wav_stream.loop_mode = AudioStreamWAV.LOOP_FORWARD
-	elif stream is AudioStreamOggVorbis:
-		var ogg_stream: AudioStreamOggVorbis = stream as AudioStreamOggVorbis
-		ogg_stream.loop = true
-
-
 func _update_rotor_audio() -> void:
 	if not _rotor_audio_enabled:
 		_stop_all_rotor_audio()
+		return
+	if not _rotor_audio_bank_players.is_empty():
+		_update_rotor_audio_bank()
 		return
 	if _rotor_audio_slow_player != null or _rotor_audio_medium_player != null or _rotor_audio_fast_player != null:
 		_update_layered_rotor_audio()
@@ -251,6 +255,26 @@ func _update_rotor_audio() -> void:
 		maxf(rotor_audio_max_pitch, 0.01),
 		audible_power
 	)
+
+
+func _update_rotor_audio_bank() -> void:
+	# Follow the governed rotor speed, including coast-down. Collective is not RPM.
+	# The pack's "0x" is its lowest audible running loop, not a stopped rotor.
+	var audio_power := clampf(_power, 0.0, 1.0)
+	if audio_power <= 0.01:
+		_stop_all_rotor_audio()
+		return
+	var position := clampf(inverse_lerp(0.05, 1.0, audio_power), 0.0, 1.0) * float(_rotor_audio_bank_players.size() - 1)
+	var lower := mini(int(floor(position)), _rotor_audio_bank_players.size() - 1)
+	var blend := _smoothstep(0.0, 1.0, position - float(lower))
+	var envelope_db := lerpf(rotor_audio_silent_db, rotor_audio_volume_db, sqrt(audio_power))
+	for index in _rotor_audio_bank_players.size():
+		var weight := 0.0
+		if index == lower:
+			weight = cos(blend * PI * 0.5)
+		elif index == lower + 1:
+			weight = sin(blend * PI * 0.5)
+		_update_rotor_audio_layer(_rotor_audio_bank_players[index], weight, envelope_db)
 
 
 func _update_layered_rotor_audio() -> void:
@@ -287,7 +311,7 @@ func _update_rotor_audio_layer(player: AudioStreamPlayer3D, weight: float, envel
 
 
 func _stop_all_rotor_audio() -> void:
-	for player in [_rotor_audio_player, _rotor_audio_slow_player, _rotor_audio_medium_player, _rotor_audio_fast_player]:
+	for player in [_rotor_audio_player, _rotor_audio_slow_player, _rotor_audio_medium_player, _rotor_audio_fast_player] + _rotor_audio_bank_players:
 		if player == null:
 			continue
 		if player.playing:
@@ -330,6 +354,10 @@ func _update_fold(delta: float) -> void:
 
 func _get_idle_fold_target() -> float:
 	var aircraft := get_parent()
+	var parts := aircraft.get_node_or_null("PartDamageModel")
+	if parts != null and parts.has_method("get_structural_zones") and not parts.is_ground_supported() \
+			and (parts.is_zone_destroyed(&"engine") or parts.is_zone_destroyed(&"main_rotor")):
+		return 0.0
 	if aircraft != null:
 		var parking_brake := aircraft.has_meta("parking_brake") and _variant_to_bool(aircraft.get_meta("parking_brake"))
 		var transport := aircraft.has_meta("carrier_transport_mode") and _variant_to_bool(aircraft.get_meta("carrier_transport_mode"))
@@ -837,6 +865,10 @@ func _update_rotor_transparency() -> void:
 	if _lower_disc != null:
 		_lower_disc.visible = t > 0.001
 		_set_node_transparency(_lower_disc, disc_transparency)
+	var parts := get_parent().get_node_or_null("PartDamageModel")
+	if parts != null:
+		if _upper_disc != null and parts.is_zone_destroyed(&"main_rotor"): _upper_disc.hide()
+		if _lower_disc != null and parts.is_zone_destroyed(&"lower_rotor"): _lower_disc.hide()
 		
 	if upper_rotor != null:
 		_set_blade_transparency(upper_rotor, blade_transparency)

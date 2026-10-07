@@ -16,7 +16,7 @@ func _run() -> void:
 	var world := Node3D.new()
 	root.add_child(world)
 	current_scene = world
-	for model in ["vehicle_enemy_buggy", "vehicle_enemy_pickup", "vehicle_enemy_battle_bus", "vehicle_friendly_light"]:
+	for model in ["vehicle_enemy_buggy", "vehicle_enemy_pickup", "vehicle_enemy_battle_bus", "vehicle_friendly_light", "vehicle_friendly_2"]:
 		_check_vehicle(world, "res://GroundVehicle/%s.tscn" % model)
 	_check_vehicle(world, "res://Aircraft/Aircraft_4.tscn")
 	_check_vehicle(world, "res://Aircraft/Aircraft_9.tscn")

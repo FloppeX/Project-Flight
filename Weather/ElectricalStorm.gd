@@ -4,6 +4,11 @@ extends Node3D
 @export var duration_s := 420.0
 @export var travel_speed_mps := 7.0
 @export var cloud_radius_m := 1700.0
+const SHAPE = preload("res://Weather/StormShape.gd")
+var outline := Vector4(5.0, 0.12, 0.8, 0.07)
+var axis_ratio := Vector2.ONE
+var shape_yaw := 0.0
+var _base_radius := 1700.0
 var active := false
 var _elapsed_s := 0.0
 var _next_strike_s := 0.0
@@ -28,6 +33,7 @@ const BOLT_WHITE := Color(1.0, 1.0, 1.0)
 func _ready() -> void:
 	add_to_group("electrical_storm")
 	_rng.randomize()
+	_base_radius = cloud_radius_m
 	_visuals = preload("res://Weather/ElectricalStormVisuals.gd").new() as Node3D
 	_visuals.name = "ChargedDustLayer"
 	add_child(_visuals)
@@ -81,15 +87,30 @@ func _make_halo(node_name: String, texture: Texture2D, pixel_size: float) -> Spr
 	add_child(halo)
 	return halo
 
-func start_at(center: Vector3, direction: Vector3) -> void:
+func create_appearance() -> Dictionary:
+	return {"radius": _base_radius * _rng.randf_range(0.5, 1.7),
+		"aspect": _rng.randf_range(0.45, 1.0), "yaw": _rng.randf_range(-PI, PI),
+		"outline": SHAPE.encode_outline(SHAPE.random_outline(_rng))}
+
+func capture_appearance() -> Dictionary:
+	return {"radius": cloud_radius_m, "aspect": axis_ratio.y, "yaw": shape_yaw,
+		"outline": SHAPE.encode_outline(outline)}
+
+func start_at(center: Vector3, direction: Vector3, appearance: Dictionary = {}) -> void:
 	_end_strike()
-	global_position = center
+	var profile := create_appearance() if appearance.is_empty() else appearance
+	cloud_radius_m = maxf(float(profile.get("radius", _base_radius)), 100.0)
+	axis_ratio = Vector2(1.0, clampf(float(profile.get("aspect", 1.0)), 0.3, 1.0))
+	shape_yaw = float(profile.get("yaw", 0.0))
+	outline = SHAPE.decode_outline(profile.get("outline"), Vector4(5.0, 0.12, 0.8, 0.07))
+	global_transform = Transform3D(Basis(Vector3.UP, shape_yaw), center)
 	_direction = Vector3(direction.x, 0.0, direction.z).normalized()
 	if _direction.is_zero_approx():
 		_direction = Vector3.RIGHT
 	_elapsed_s = 0.0
 	_next_strike_s = _rng.randf_range(5.0, 12.0)
 	active = true
+	_visuals.reset_shape()
 	_update_cloud(0.16)
 
 func get_travel_velocity() -> Vector3:
@@ -109,10 +130,17 @@ func get_footprint(scale_factor: float = 1.0, future_s: float = 0.0) -> PackedVe
 	var center := global_position + get_travel_velocity() * future_s
 	for i in 33:
 		var angle := TAU * float(i) / 32.0
-		var edge := 1.0 + 0.12 * sin(angle * 5.0 + 0.8) + 0.07 * cos(angle * 9.0)
-		points.append(center + Vector3(cos(angle) * cloud_radius_m * scale_factor * edge,
-			0.0, sin(angle) * cloud_radius_m * scale_factor * edge))
+		points.append(center + global_basis * get_cell_offset(angle, scale_factor))
 	return points
+
+func get_cell_offset(angle: float, fraction: float = 1.0) -> Vector3:
+	var distance := cloud_radius_m * fraction * SHAPE.edge(angle, outline)
+	return Vector3(cos(angle) * distance * axis_ratio.x, 0.0, sin(angle) * distance * axis_ratio.y)
+
+func get_cell_envelope(point: Vector3) -> float:
+	var p := to_local(point)
+	var q := Vector2(p.x, p.z) / (axis_ratio * cloud_radius_m)
+	return q.length() / SHAPE.edge(q.angle(), outline)
 
 func _get_dust_layer_heights() -> Vector2:
 	var deck_y := global_position.y
@@ -164,9 +192,7 @@ func _physics_process(delta: float) -> void:
 func _strike() -> void:
 	_clear_bolt()
 	var angle := _rng.randf_range(0.0, TAU)
-	var distance := sqrt(_rng.randf()) * cloud_radius_m * 0.82
-	var point := global_position + Vector3(cos(angle) * distance, 0.0,
-		sin(angle) * distance)
+	var point := global_position + global_basis * get_cell_offset(angle, sqrt(_rng.randf()) * 0.82)
 	var terrain := get_tree().get_first_node_in_group("terrain_provider")
 	if terrain != null and terrain.has_method("get_height"):
 		var value: Variant = terrain.call("get_height", point)

@@ -716,19 +716,31 @@ func _update_electrical_storm_uniforms() -> void:
 	# disappears into their existing fog and does not read as part of the layer.
 	var center := Vector3.ZERO
 	var radius := 0.0
+	var axis_ratio := Vector2.ONE
+	var shape_yaw := 0.0
+	var outline := Vector4(5.0, 0.12, 0.8, 0.07)
 	for storm in get_tree().get_nodes_in_group("electrical_storm"):
 		if is_instance_valid(storm) and storm.active:
 			center = storm.global_position
 			radius = maxf(float(storm.cloud_radius_m), 0.0)
+			axis_ratio = storm.axis_ratio
+			shape_yaw = storm.shape_yaw
+			outline = storm.outline
 			break
 	for material in [_dust_deck_material, _dust_deck_upper_material, _dust_deck_wall_material]:
 		if material == null:
 			continue
 		material.set_shader_parameter("storm_center_world", center)
 		material.set_shader_parameter("storm_radius_m", radius)
+		material.set_shader_parameter("storm_axis_ratio", axis_ratio)
+		material.set_shader_parameter("storm_yaw", shape_yaw)
+		material.set_shader_parameter("storm_outline", outline)
 	if _dust_volume_material != null:
 		_dust_volume_material.set_shader_parameter("storm_center_world", center)
 		_dust_volume_material.set_shader_parameter("storm_radius_m", radius)
+		_dust_volume_material.set_shader_parameter("storm_axis_ratio", axis_ratio)
+		_dust_volume_material.set_shader_parameter("storm_yaw", shape_yaw)
+		_dust_volume_material.set_shader_parameter("storm_outline", outline)
 		if is_instance_valid(_dust_volume) and _dust_volume.is_inside_tree():
 			_dust_volume_material.set_shader_parameter("volume_center_world", _dust_volume.global_position)
 

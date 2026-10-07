@@ -276,6 +276,8 @@ func _build_platoons_ui() -> void:
 	rule.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	page_column.add_child(rule)
 
+	var harvester_panel := preload("res://UI/HarvesterPanel.gd").new()
+	page_column.add_child(harvester_panel)
 	var filters := HBoxContainer.new()
 	filters.custom_minimum_size.y = 34.0
 	filters.add_theme_constant_override("separation", 6)

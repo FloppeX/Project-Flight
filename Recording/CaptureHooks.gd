@@ -2,10 +2,13 @@ extends RefCounted
 ## Presentation-only lifecycle hooks. Groups also find effects already alive
 ## when Record is pressed. No gameplay timers, RNG, damage or pooling changes.
 static func begin(node: Node3D, kind: String) -> void:
-	if not node.is_in_group("recording_transient"):
+	# end() removes the active group without exiting the tree for pooled puffs.
+	# Keep one exit hook until an actual exit, across all reuse cycles.
+	if not node.has_meta("recording_exit_hook"):
 		# Rockets/bombs and detached parts can queue_free directly. Observe their
 		# final pose before deletion; pooled reparenting also consumes this hook.
 		node.tree_exiting.connect(_exiting.bind(weakref(node)), CONNECT_ONE_SHOT)
+		node.set_meta("recording_exit_hook", true)
 	node.add_to_group("recording_transient")
 	node.set_meta("recording_kind", kind)
 	var mode := node.get_node_or_null("/root/RecordingMode")
@@ -18,4 +21,6 @@ static func end(node: Node3D) -> void:
 
 static func _exiting(node_ref: WeakRef) -> void:
 	var node: Variant = node_ref.get_ref()
-	if is_instance_valid(node): end(node)
+	if is_instance_valid(node):
+		node.remove_meta("recording_exit_hook")
+		end(node)

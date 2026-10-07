@@ -2,7 +2,7 @@
 
 [ext_resource type="Script" uid="uid://c4ltq2v6fji05" path="res://Aircraft/aircraft.gd" id="1_aircraft"]
 [ext_resource type="PackedScene" uid="uid://cadi81fcpvmuc" path="res://Projectiles/Explosion/explosion.tscn" id="2_explosion"]
-[ext_resource type="PackedScene" uid="uid://bfr6vpw1f4cmn" path="res://Models/Aircraft_12/aircraft_12.glb" id="3_model"]
+[ext_resource type="PackedScene" path="res://Models/Aircraft_12/aircraft_12_damage.glb" id="3_model"]
 [ext_resource type="PackedScene" uid="uid://djtbinx1svo2u" path="res://Aircraft/Aircraft wreck/aircraft_1_wreck.tscn" id="4_wreck"]
 [ext_resource type="Script" uid="uid://cef6lhgwhvqck" path="res://Aircraft/HelicopterFlight.gd" id="5_aero"]
 [ext_resource type="PackedScene" uid="uid://2iprlcyidpwa" path="res://Models/Aircraft_9/rotor disc.glb" id="6_disc"]
@@ -37,12 +37,16 @@
 [ext_resource type="PackedScene" uid="uid://cn0n757m62w08" path="res://Weapons/RocketPod/rocket_pod.tscn" id="41_rocket"]
 [ext_resource type="PackedScene" path="res://Weapons/Guns/Hardpoint/15mm_machine_gun_hardpoint.tscn" id="42_15mm"]
 [ext_resource type="Script" uid="uid://ljqeb30m632d" path="res://AI/HelicopterPilot.gd" id="43_heli_ai"]
-[ext_resource type="AudioStream" uid="uid://hc5s8h1mbj2t" path="res://Audio/engine/helicopter/Helicopter3SlowExt.wav" id="101_rotor_slow"]
-[ext_resource type="AudioStream" uid="uid://b8qaayg6jjf6u" path="res://Audio/engine/helicopter/Helicopter3MedExt.wav" id="102_rotor_medium"]
-[ext_resource type="AudioStream" uid="uid://b63dtvvrs03bl" path="res://Audio/engine/helicopter/Helicopter3FastExt.wav" id="103_rotor_fast"]
+[ext_resource type="AudioStream" path="res://Audio/engine/helicopter/profiles/c/rotor_0.ogg" id="101_rotor_0"]
+[ext_resource type="AudioStream" path="res://Audio/engine/helicopter/profiles/c/rotor_1.ogg" id="102_rotor_1"]
+[ext_resource type="AudioStream" path="res://Audio/engine/helicopter/profiles/c/rotor_2.ogg" id="103_rotor_2"]
+[ext_resource type="AudioStream" path="res://Audio/engine/helicopter/profiles/c/rotor_3.ogg" id="104_rotor_3"]
+[ext_resource type="AudioStream" path="res://Audio/engine/helicopter/profiles/c/rotor_4.ogg" id="105_rotor_4"]
 [ext_resource type="PackedScene" path="res://Aircraft/Visuals/EjectionSeat.tscn" id="92_ejection_seat"]
 [ext_resource type="Script" uid="uid://baexawx30vqgf" path="res://Aircraft/EjectionSequence.gd" id="93_ejection_sequence"]
 [ext_resource type="PackedScene" path="res://Aircraft/Visuals/InsigniaMarker.tscn" id="45_insignia"]
+
+[ext_resource type="Script" path="res://Aircraft/HelicopterDamageModel.gd" id="helicopter_damage"]
 
 [sub_resource type="PhysicsMaterial" id="PhysicsMaterial_lowfriction"]
 friction = 0.75
@@ -91,9 +95,7 @@ visible = false
 [node name="RotorAssembly" type="Node3D" parent="." unique_id=1697660502]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.2680236, 0)
 script = ExtResource("6_rotor_script")
-rotor_audio_slow_stream = ExtResource("101_rotor_slow")
-rotor_audio_medium_stream = ExtResource("102_rotor_medium")
-rotor_audio_fast_stream = ExtResource("103_rotor_fast")
+rotor_audio_streams = Array[AudioStream]([ExtResource("101_rotor_0"), ExtResource("102_rotor_1"), ExtResource("103_rotor_2"), ExtResource("104_rotor_3"), ExtResource("105_rotor_4")])
 
 [node name="rotor disc 1" parent="RotorAssembly" unique_id=1135955000 instance=ExtResource("6_disc")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2, 0)
@@ -225,6 +227,7 @@ PowerFactor = 0.0
 GearCollisionShape = NodePath("../CenterGearCollider")
 gear_collision_shapes = [NodePath("../CenterGearCollider"), NodePath("../RightGearCollider"), NodePath("../LeftGearCollider")]
 gear_visuals = [null, null, null]
+damage_visual_root_paths = Array[NodePath]([NodePath("../NoseGearRig"), NodePath("../LeftGearRig"), NodePath("../RightGearRig")])
 gear_stowed_rotations_degrees = Array[Vector3]([Vector3(90, 0, 0), Vector3(90, 90, -45), Vector3(90, -90, 45)])
 InitialState = 1
 DeployStowTime = 2.0
@@ -381,3 +384,7 @@ diameter = 0.55
 depth = 0.55
 
 [editable path="aircraft_12"]
+
+[node name="PartDamageModel" type="Node" parent="."]
+script = ExtResource("helicopter_damage")
+aircraft_number = 12
